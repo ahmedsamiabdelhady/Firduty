@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Firduty — Monthly Points Report</title>
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    /* ─── Report-specific styles ─────────────────────────────────────────── */
+    .report-header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+      background: var(--white);
+      padding: 16px 20px;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      margin-bottom: 20px;
+    }
+
+    .month-selector { display: flex; align-items: center; gap: 8px; }
+
+    .summary-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 14px;
+      margin-bottom: 20px;
+    }
+
+    .summary-card {
+      background: var(--white);
+      border-radius: var(--radius);
+      padding: 16px 20px;
+      box-shadow: var(--shadow);
+      text-align: center;
+    }
+
+    .summary-card .card-value {
+      font-size: 2rem;
+      font-weight: 700;
+      color: var(--primary);
+    }
+
+    .summary-card .card-label {
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    /* Leaderboard table */
+    .rank-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      font-weight: 700;
+      font-size: 0.85rem;
+    }
+    .rank-1 { background: #ffd700; color: #333; }
+    .rank-2 { background: #c0c0c0; color: #333; }
+    .rank-3 { background: #cd7f32; color: #fff; }
+    .rank-other { background: var(--secondary); color: var(--text-muted); }
+
+    .points-bar-wrap { width: 120px; }
+    .points-bar {
+      height: 8px;
+      border-radius: 4px;
+      background: #e9ecef;
+      overflow: hidden;
+    }
+    .points-bar-fill { height: 100%; background: var(--primary); border-radius: 4px; transition: width 0.4s; }
+
+    .pill {
+      display: inline-block;
+      padding: 3px 9px;
+      border-radius: 12px;
+      font-size: 0.78rem;
+      font-weight: 600;
+    }
+    .pill-green  { background: #d4edda; color: #155724; }
+    .pill-yellow { background: #fff3cd; color: #856404; }
+    .pill-gray   { background: #f0f0f0; color: #888; }
+
+    /* Drill-down modal */
+    .detail-table th, .detail-table td { font-size: 0.85rem; }
+
+    /* Nav link back */
+    .nav-back {
+      color: rgba(255,255,255,0.85);
+      text-decoration: none;
+      font-size: 0.9rem;
+    }
+    .nav-back:hover { color: #fff; text-decoration: underline; }
+  </style>
+</head>
+<body>
+
+<!-- ─── Header ──────────────────────────────────────────────────────────────── -->
+<header class="app-header">
+  <div style="display:flex;align-items:center;gap:16px">
+    <a href="planner.html" class="nav-back">← <span data-i18n="week_planner">Week Planner</span></a>
+    <h1 data-i18n="monthly_report">Monthly Points Report</h1>
+  </div>
+  <div class="header-actions">
+    <button class="btn btn-lang btn-sm" onclick="I18N.toggle().then(()=>location.reload())">عربي | EN</button>
+    <button class="btn btn-lang btn-sm" onclick="logout()" data-i18n="logout">Logout</button>
+  </div>
+</header>
+
+<!-- ─── Main ─────────────────────────────────────────────────────────────────── -->
+<main class="main-content">
+
+  <!-- Controls -->
+  <div class="report-header">
+    <div class="month-selector">
+      <label data-i18n="year">Year:</label>
+      <input type="number" id="yearInput" min="2024" max="2099" style="width:90px">
+      <label data-i18n="month">Month:</label>
+      <select id="monthInput" style="width:140px"></select>
+      <button class="btn btn-primary btn-sm" onclick="loadReport()" data-i18n="load_report">Load</button>
+    </div>
+    <div style="margin-inline-start:auto;display:flex;gap:8px">
+      <button class="btn btn-secondary btn-sm" onclick="exportCSV()" data-i18n="export_csv">⬇ Export CSV</button>
+      <button class="btn btn-secondary btn-sm" onclick="rebuildCache()" data-i18n="rebuild_cache">↺ Rebuild Cache</button>
+    </div>
+  </div>
+
+  <!-- Summary Cards -->
+  <div class="summary-cards" id="summaryCards" style="display:none">
+    <div class="summary-card">
+      <div class="card-value" id="totalTeachers">—</div>
+      <div class="card-label" data-i18n="active_teachers">Active Teachers</div>
+    </div>
+    <div class="summary-card">
+      <div class="card-value" id="totalConfirmations">—</div>
+      <div class="card-label" data-i18n="total_confirmations">Total Confirmations</div>
+    </div>
+    <div class="summary-card">
+      <div class="card-value" id="totalPoints">—</div>
+      <div class="card-label" data-i18n="total_points_label">Total Points</div>
+    </div>
+    <div class="summary-card">
+      <div class="card-value" id="avgPoints">—</div>
+      <div class="card-label" data-i18n="avg_points">Avg Points/Teacher</div>
+    </div>
+  </div>
+
+  <!-- Leaderboard Table -->
+  <div id="reportContainer" style="display:none">
+    <div style="background:var(--white);border-radius:var(--radius);box-shadow:var(--shadow);overflow:auto">
+      <table class="data-table" id="reportTable">
+        <thead>
+          <tr>
+            <th data-i18n="rank">#</th>
+            <th data-i18n="teacher">Teacher</th>
+            <th data-i18n="total_points">Total Points</th>
+            <th data-i18n="confirmations">Confirmations</th>
+            <th data-i18n="on_time">On Time (2pts)</th>
+            <th data-i18n="late_1_5">Late 1–5min (1pt)</th>
+            <th data-i18n="no_points">No Points</th>
+            <th data-i18n="progress">Progress</th>
+            <th data-i18n="details">Details</th>
+          </tr>
+        </thead>
+        <tbody id="reportBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Empty state -->
+  <p id="noDataMsg" style="display:none;color:#999;text-align:center;margin-top:48px" data-i18n="no_report_data">
+    No data found for the selected month.
+  </p>
+
+</main>
+
+<!-- ─── Detail Drill-down Modal ─────────────────────────────────────────────── -->
+<div class="modal-overlay hidden" id="detailModal">
+  <div class="modal" style="max-width:700px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h3 id="modalTitle" data-i18n="duty_details">Duty Details</h3>
+      <button class="btn-icon" onclick="closeModal()">✕</button>
+    </div>
+    <div id="modalSummary" style="margin-bottom:12px;font-size:0.9rem;color:var(--text-muted)"></div>
+    <div style="overflow:auto;max-height:400px">
+      <table class="data-table detail-table" id="detailTable">
+        <thead>
+          <tr>
+            <th data-i18n="date">Date</th>
+            <th data-i18n="shift">Shift</th>
+            <th data-i18n="location">Location</th>
+            <th data-i18n="shift_start">Start Time</th>
+            <th data-i18n="confirmed_at">Confirmed At</th>
+            <th data-i18n="points">Points</th>
+          </tr>
+        </thead>
+        <tbody id="detailBody"></tbody>
+      </table>
+      <p id="noDetailMsg" style="display:none;text-align:center;color:#999;padding:20px" data-i18n="no_confirmations">
+        No confirmations this month.
+      </p>
+    </div>
+    <div style="text-align:end;margin-top:16px">
+      <button class="btn btn-secondary" onclick="closeModal()" data-i18n="close">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script src="js/i18n.js"></script>
+<script>
+/* ─── Auth ──────────────────────────────────────────────────────────────────── */
+const API = localStorage.getItem('firduty_api') || 'http://localhost:8000';
+const TOKEN = () => localStorage.getItem('firduty_token');
+
+if (!TOKEN()) window.location.href = 'login.html';
+
+function authHeaders() {
+  return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${TOKEN()}` };
+}
+function logout() { localStorage.removeItem('firduty_token'); window.location.href = 'login.html'; }
+
+/* ─── Toast ─────────────────────────────────────────────────────────────────── */
+function showToast(msg, type = 'success') {
+  const c = document.getElementById('toastContainer');
+  const t = document.createElement('div');
+  t.className = `toast toast-${type}`;
+  t.textContent = msg;
+  c.appendChild(t);
+  setTimeout(() => t.remove(), 3500);
+}
+
+/* ─── Month Names ──────────────────────────────────────────────────────────── */
+const MONTHS_EN = ['January','February','March','April','May','June',
+                   'July','August','September','October','November','December'];
+const MONTHS_AR = ['يناير','فبراير','مارس','أبريل','مايو','يونيو',
+                   'يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
+
+function populateMonths() {
+  const sel = document.getElementById('monthInput');
+  const names = I18N.getLang() === 'ar' ? MONTHS_AR : MONTHS_EN;
+  sel.innerHTML = '';
+  names.forEach((name, i) => {
+    const opt = document.createElement('option');
+    opt.value = i + 1;
+    opt.textContent = name;
+    sel.appendChild(opt);
+  });
+}
+
+/* ─── Init ──────────────────────────────────────────────────────────────────── */
+let reportData = null;
+let maxPoints = 0;
+
+async function init() {
+  await I18N.load(localStorage.getItem('firduty_lang') || 'ar');
+  populateMonths();
+
+  // Default to current month
+  const now = new Date();
+  document.getElementById('yearInput').value = now.getFullYear();
+  document.getElementById('monthInput').value = now.getMonth() + 1;
+
+  await loadReport();
+}
+
+/* ─── Load Report ───────────────────────────────────────────────────────────── */
+async function loadReport() {
+  const year  = document.getElementById('yearInput').value;
+  const month = document.getElementById('monthInput').value;
+
+  document.getElementById('reportContainer').style.display = 'none';
+  document.getElementById('summaryCards').style.display = 'none';
+  document.getElementById('noDataMsg').style.display = 'none';
+
+  const res = await fetch(`${API}/admin/reports/monthly-points?year=${year}&month=${month}`, {
+    headers: authHeaders()
+  });
+
+  if (!res.ok) { showToast(I18N.t('error_generic'), 'error'); return; }
+
+  const data = await res.json();
+  reportData = data;
+
+  if (!data.teachers || data.teachers.length === 0) {
+    document.getElementById('noDataMsg').style.display = 'block';
+    return;
+  }
+
+  maxPoints = Math.max(...data.teachers.map(t => t.total_points), 1);
+
+  renderSummaryCards(data);
+  renderTable(data.teachers);
+
+  document.getElementById('summaryCards').style.display = 'grid';
+  document.getElementById('reportContainer').style.display = 'block';
+}
+
+/* ─── Summary Cards ─────────────────────────────────────────────────────────── */
+function renderSummaryCards(data) {
+  const total = data.teachers.reduce((s, t) => s + t.total_points, 0);
+  const avg   = data.teachers.length ? Math.round(total / data.teachers.length) : 0;
+
+  document.getElementById('totalTeachers').textContent       = data.total_teachers;
+  document.getElementById('totalConfirmations').textContent  = data.total_confirmations;
+  document.getElementById('totalPoints').textContent         = total;
+  document.getElementById('avgPoints').textContent           = avg;
+}
+
+/* ─── Leaderboard Table ─────────────────────────────────────────────────────── */
+function renderTable(teachers) {
+  const lang   = I18N.getLang();
+  const tbody  = document.getElementById('reportBody');
+  tbody.innerHTML = '';
+
+  teachers.forEach((t, idx) => {
+    const rank      = idx + 1;
+    const rankClass = rank <= 3 ? `rank-${rank}` : 'rank-other';
+    const barPct    = maxPoints > 0 ? Math.round((t.total_points / maxPoints) * 100) : 0;
+
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><span class="rank-badge ${rankClass}">${rank}</span></td>
+      <td><strong>${t.teacher_name}</strong></td>
+      <td><strong style="font-size:1.1rem;color:var(--primary)">${t.total_points}</strong></td>
+      <td>${t.confirmations}</td>
+      <td><span class="pill pill-green">${t.on_time}</span></td>
+      <td><span class="pill pill-yellow">${t.late}</span></td>
+      <td><span class="pill pill-gray">${t.no_points}</span></td>
+      <td>
+        <div class="points-bar-wrap">
+          <div class="points-bar">
+            <div class="points-bar-fill" style="width:${barPct}%"></div>
+          </div>
+          <small style="color:var(--text-muted)">${barPct}%</small>
+        </div>
+      </td>
+      <td>
+        <button class="btn btn-secondary btn-sm" onclick="openDetail(${t.teacher_id},'${t.teacher_name}')">
+          ${I18N.t('details')}
+        </button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+/* ─── Detail Modal ──────────────────────────────────────────────────────────── */
+async function openDetail(teacherId, teacherName) {
+  const year  = document.getElementById('yearInput').value;
+  const month = document.getElementById('monthInput').value;
+  const lang  = I18N.getLang();
+
+  document.getElementById('detailModal').classList.remove('hidden');
+  document.getElementById('modalTitle').textContent = teacherName;
+  document.getElementById('detailBody').innerHTML = `<tr><td colspan="6" style="text-align:center">${I18N.t('loading')}</td></tr>`;
+  document.getElementById('noDetailMsg').style.display = 'none';
+
+  const res = await fetch(
+    `${API}/admin/reports/monthly-points/${teacherId}?year=${year}&month=${month}`,
+    { headers: authHeaders() }
+  );
+
+  if (!res.ok) { showToast(I18N.t('error_generic'), 'error'); closeModal(); return; }
+
+  const data = await res.json();
+
+  document.getElementById('modalSummary').textContent =
+    `${I18N.t('total_points')}: ${data.total_points} | ${I18N.t('confirmations')}: ${data.duties.length}`;
+
+  const tbody = document.getElementById('detailBody');
+  tbody.innerHTML = '';
+
+  if (!data.duties.length) {
+    document.getElementById('noDetailMsg').style.display = 'block';
+    return;
+  }
+
+  data.duties.forEach(d => {
+    const locName   = lang === 'ar' ? d.location_name_ar : d.location_name_en;
+    const shiftName = lang === 'ar' ? d.shift_name_ar    : d.shift_name_en;
+    const ptClass   = d.points_earned === 2 ? 'pill-green' : d.points_earned === 1 ? 'pill-yellow' : 'pill-gray';
+
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${d.date}</td>
+      <td>${shiftName}</td>
+      <td>${locName}</td>
+      <td>${d.shift_start.slice(0, 5)}</td>
+      <td>${d.confirmed_at_muscat.slice(11, 19)}</td>
+      <td><span class="pill ${ptClass}">${d.points_earned} pt</span></td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function closeModal() {
+  document.getElementById('detailModal').classList.add('hidden');
+}
+
+// Close modal on backdrop click
+document.getElementById('detailModal').addEventListener('click', function(e) {
+  if (e.target === this) closeModal();
+});
+
+/* ─── Export CSV ────────────────────────────────────────────────────────────── */
+function exportCSV() {
+  const year  = document.getElementById('yearInput').value;
+  const month = document.getElementById('monthInput').value;
+  window.location.href = `${API}/admin/reports/monthly-points/export/csv?year=${year}&month=${month}`;
+}
+
+/* ─── Rebuild Cache ─────────────────────────────────────────────────────────── */
+async function rebuildCache() {
+  const year  = document.getElementById('yearInput').value;
+  const month = document.getElementById('monthInput').value;
+
+  const res = await fetch(
+    `${API}/admin/reports/monthly-points/rebuild?year=${year}&month=${month}`,
+    { method: 'POST', headers: authHeaders() }
+  );
+
+  if (res.ok) {
+    showToast(I18N.t('success_saved'));
+    await loadReport();
+  } else {
+    showToast(I18N.t('error_generic'), 'error');
+  }
+}
+
+/* ─── Bootstrap ─────────────────────────────────────────────────────────────── */
+init();
+</script>
+</body>
+</html>

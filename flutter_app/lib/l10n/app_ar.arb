@@ -1,0 +1,47 @@
+{
+  "@@locale": "ar",
+  "appTitle": "المناوبات",
+  "selectTeacher": "اختر المعلم",
+  "teacher": "المعلم",
+  "chooseTeacher": "اختر اسمك",
+  "todayDuties": "اليوم",
+  "weekDuties": "هذا الأسبوع",
+  "myPoints": "نقاطي",
+  "settings": "الإعدادات",
+  "language": "اللغة",
+  "arabic": "عربي",
+  "english": "إنجليزي",
+  "noDutiesToday": "لا توجد مناوبات معيّنة لليوم.",
+  "noDutiesWeek": "لا توجد مناوبات معيّنة هذا الأسبوع.",
+  "location": "الموقع",
+  "shift": "الفترة",
+  "date": "التاريخ",
+  "time": "الوقت",
+  "loading": "جار التحميل...",
+  "error": "خطأ في تحميل البيانات. يرجى المحاولة مرة أخرى.",
+  "save": "حفظ",
+  "confirm": "موافق",
+  "confirmPresence": "تأكيد الحضور",
+  "confirmed": "تم التأكيد ✓",
+  "notificationsEnabled": "تم تفعيل الإشعارات",
+  "sunday": "الأحد",
+  "monday": "الاثنين",
+  "tuesday": "الثلاثاء",
+  "wednesday": "الأربعاء",
+  "thursday": "الخميس",
+
+  "points": "نقطة",
+  "totalPoints": "مجموع النقاط",
+  "pointsHint": "في الوقت = نقطتان  |  تأخر 1-5 دقائق = نقطة  |  بعد 5 دقائق = صفر\nبدء المناوبة: {time}",
+  "@pointsHint": {
+    "placeholders": {
+      "time": { "type": "String" }
+    }
+  },
+  "onTime": "في الوقت",
+  "late": "متأخر",
+  "missed": "بدون نقاط",
+  "noConfirmationsYet": "لا توجد تأكيدات هذا الشهر.",
+  "close": "إغلاق",
+  "month": "الشهر"
+}

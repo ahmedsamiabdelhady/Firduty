@@ -1,0 +1,47 @@
+{
+  "@@locale": "en",
+  "appTitle": "Duty Roster",
+  "selectTeacher": "Select Teacher",
+  "teacher": "Teacher",
+  "chooseTeacher": "Choose your name",
+  "todayDuties": "Today",
+  "weekDuties": "This Week",
+  "myPoints": "My Points",
+  "settings": "Settings",
+  "language": "Language",
+  "arabic": "Arabic",
+  "english": "English",
+  "noDutiesToday": "No duties assigned for today.",
+  "noDutiesWeek": "No duties assigned this week.",
+  "location": "Location",
+  "shift": "Shift",
+  "date": "Date",
+  "time": "Time",
+  "loading": "Loading...",
+  "error": "Error loading data. Please try again.",
+  "save": "Save",
+  "confirm": "OK",
+  "confirmPresence": "Confirm Presence",
+  "confirmed": "Confirmed ✓",
+  "notificationsEnabled": "Notifications enabled",
+  "sunday": "Sunday",
+  "monday": "Monday",
+  "tuesday": "Tuesday",
+  "wednesday": "Wednesday",
+  "thursday": "Thursday",
+
+  "points": "Points",
+  "totalPoints": "Total Points",
+  "pointsHint": "On time = 2pts  |  1–5 min late = 1pt  |  After 5 min = 0pt\nDuty starts at {time}",
+  "@pointsHint": {
+    "placeholders": {
+      "time": { "type": "String" }
+    }
+  },
+  "onTime": "On Time",
+  "late": "Late",
+  "missed": "No Points",
+  "noConfirmationsYet": "No confirmations yet this month.",
+  "close": "Close",
+  "month": "Month"
+}

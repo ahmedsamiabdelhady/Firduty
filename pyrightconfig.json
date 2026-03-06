@@ -1,0 +1,14 @@
+{
+  "pythonVersion": "3.11",
+  "pythonPlatform": "Windows",
+  "include": [
+    "backend",
+    "jobs"
+  ],
+  "extraPaths": [
+    "backend"
+  ],
+  "typeCheckingMode": "basic",
+  "reportMissingImports": "warning",
+  "reportMissingModuleSource": "none"
+}

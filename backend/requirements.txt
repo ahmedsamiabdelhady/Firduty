@@ -1,0 +1,25 @@
+# ── Web Framework ─────────────────────────────────────────────────────────────
+fastapi
+uvicorn[standard]
+
+# ── Database ──────────────────────────────────────────────────────────────────
+SQLAlchemy
+psycopg2-binary
+
+# ── Authentication ────────────────────────────────────────────────────────────
+python-jose[cryptography]
+passlib[bcrypt]
+python-multipart
+
+# ── Validation ────────────────────────────────────────────────────────────────
+pydantic[email]
+
+# ── Firebase / Push Notifications ─────────────────────────────────────────────
+firebase-admin
+
+# ── Timezone ──────────────────────────────────────────────────────────────────
+pytz
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+python-dotenv
+aiofiles
