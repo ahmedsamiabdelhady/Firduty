@@ -1,6 +1,6 @@
 /** login.js — handles admin login */
 
-const API = localStorage.getItem('firduty_api') || 'http://localhost:8000';
+const API = localStorage.getItem('firduty_api') || 'https://naval-donnamarie-firduty-6e288803.koyeb.app';
 
 async function doLogin() {
   const username = document.getElementById('username').value.trim();

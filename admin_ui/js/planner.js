@@ -3,7 +3,7 @@
  * Handles: week loading, day/shift tabs, drag-and-drop, slot management
  */
 
-const API_BASE = localStorage.getItem('firduty_api') || 'http://localhost:8000';
+const API_BASE = localStorage.getItem('firduty_api') || 'https://naval-donnamarie-firduty-6e288803.koyeb.app/';
 const TOKEN = () => localStorage.getItem('firduty_token');
 
 let currentWeekData = null;   // Full week plan JSON from API
