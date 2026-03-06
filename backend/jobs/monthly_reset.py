@@ -2,18 +2,14 @@
 """
 jobs/monthly_reset.py — Monthly points summary rebuild job.
 
-Runs on the 1st of every month at 00:05 Asia/Muscat time.
-Rebuilds the MonthlyPointsSummary cache for the just-ended month
-and initializes an empty record for all teachers for the new month.
+Scheduled: every month on day 1 at 00:05 Asia/Muscat
+Callable:  run_monthly_reset()  ← used by backend/scheduler.py
+CLI:       python jobs/monthly_reset.py  ← still works directly
 
-Cron entry (UTC, Muscat=UTC+4, so 00:05 Muscat = 20:05 UTC previous day):
-  5 20 28-31 * * [ "$(date +\%d -d tomorrow)" = "01" ] && /usr/bin/python3 /app/jobs/monthly_reset.py >> /var/log/monthly_reset.log 2>&1
-
-Simpler alternative (runs every month on the 1st at 00:05 Muscat = 20:05 UTC):
-  5 20 * * * [ $(date +\%d) = "01" ] && /usr/bin/python3 /app/jobs/monthly_reset.py
-
-Or simply:
-  5 20 1 * * /usr/bin/python3 /app/jobs/monthly_reset.py >> /var/log/monthly_reset.log 2>&1
+Logic:
+  - Rebuild MonthlyPointsSummary for the month that just ended
+  - Seed empty summary rows for the new current month
+    so all teachers appear in reports from day 1
 """
 
 import sys
@@ -23,51 +19,77 @@ from datetime import datetime
 
 import pytz
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../backend"))
+# ── Path bootstrap ─────────────────────────────────────────────────────────────
+# Needed when executed directly as a script.
+# Harmless when imported by backend/scheduler.py (path already on sys.path).
+_backend_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../backend")
+if _backend_path not in sys.path:
+    sys.path.insert(0, _backend_path)
 
 from database import SessionLocal
 from services.points_service import rebuild_monthly_summary_for_all
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [monthly_reset] %(levelname)s: %(message)s",
-)
-logger = logging.getLogger(__name__)
+# ── Logger ─────────────────────────────────────────────────────────────────────
+logger = logging.getLogger("firduty.jobs.monthly_reset")
 
 MUSCAT_TZ = pytz.timezone("Asia/Muscat")
 
 
-def main():
+# ── Callable ───────────────────────────────────────────────────────────────────
+
+def run_monthly_reset() -> None:
+    """
+    Core monthly reset logic. Called by APScheduler and by main() for CLI use.
+
+    Runs on the 1st of the month, so:
+      - Previous month = now.month - 1 (handles January → December rollover)
+      - Current month  = now.month     (seed empty rows for new month)
+    """
     now_muscat = datetime.now(MUSCAT_TZ)
-    logger.info(f"Monthly reset job started at {now_muscat.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+    logger.info(
+        f"[monthly_reset] Starting at {now_muscat.strftime('%Y-%m-%d %H:%M:%S %Z')}"
+    )
 
     db = SessionLocal()
     try:
-        # Rebuild summary for the month that just ended
-        # (this job runs on the 1st of the new month, so previous month = now - 1 month)
+        # Determine previous month
         if now_muscat.month == 1:
-            prev_year = now_muscat.year - 1
-            prev_month = 12
+            prev_year, prev_month = now_muscat.year - 1, 12
         else:
-            prev_year = now_muscat.year
-            prev_month = now_muscat.month - 1
+            prev_year, prev_month = now_muscat.year, now_muscat.month - 1
 
-        logger.info(f"Rebuilding summary for {prev_year}/{prev_month:02d}...")
+        # Finalize previous month
+        logger.info(f"[monthly_reset] Rebuilding {prev_year}/{prev_month:02d}...")
         rebuild_monthly_summary_for_all(db, prev_year, prev_month)
-        logger.info(f"✓ Monthly summary rebuilt for {prev_year}/{prev_month:02d}")
+        logger.info(f"[monthly_reset] ✓ Finalized {prev_year}/{prev_month:02d}")
 
-        # Also seed empty records for current month (so teachers appear in current-month report)
-        logger.info(f"Seeding current month {now_muscat.year}/{now_muscat.month:02d}...")
+        # Seed current month so teachers appear in reports immediately
+        logger.info(
+            f"[monthly_reset] Seeding {now_muscat.year}/{now_muscat.month:02d}..."
+        )
         rebuild_monthly_summary_for_all(db, now_muscat.year, now_muscat.month)
-        logger.info(f"✓ Current month seeded: {now_muscat.year}/{now_muscat.month:02d}")
+        logger.info(
+            f"[monthly_reset] ✓ Seeded {now_muscat.year}/{now_muscat.month:02d}"
+        )
 
-    except Exception as e:
-        logger.exception(f"Unexpected error in monthly_reset: {e}")
-        sys.exit(1)
+    except Exception:
+        logger.exception("[monthly_reset] Unexpected error")
+        raise  # Re-raise so APScheduler can log the failure properly
     finally:
         db.close()
 
-    logger.info("Monthly reset job completed.")
+    logger.info("[monthly_reset] Finished.")
+
+
+# ── CLI entry point ────────────────────────────────────────────────────────────
+
+def main() -> None:
+    """Configure logging for CLI use and run the job once."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [monthly_reset] %(levelname)s: %(message)s",
+    )
+    run_monthly_reset()
 
 
 if __name__ == "__main__":

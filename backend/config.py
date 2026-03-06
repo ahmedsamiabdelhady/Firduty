@@ -52,6 +52,11 @@ class Settings:
         if o.strip()
     ]
 
+    # ── Scheduler ─────────────────────────────────────────────────────────────
+    # Set RUN_SCHEDULER=false to disable the background scheduler on a specific
+    # instance (e.g. worker-only replicas). Default: "true" → starts on boot.
+    RUN_SCHEDULER: str = os.getenv("RUN_SCHEDULER", "true")
+
     # ── App ────────────────────────────────────────────────────────────────────
     TIMEZONE: str = "Asia/Muscat"
     REMINDER_MINUTES: int = 15

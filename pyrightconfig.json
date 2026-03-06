@@ -2,13 +2,26 @@
   "pythonVersion": "3.11",
   "pythonPlatform": "Windows",
   "include": [
-    "backend",
-    "jobs"
+    "backend"
   ],
   "extraPaths": [
-    "backend"
+    "backend",
+    "backend/jobs"
   ],
   "typeCheckingMode": "basic",
   "reportMissingImports": "warning",
-  "reportMissingModuleSource": "none"
+  "reportMissingModuleSource": "none",
+  "reportMissingModuleSourceFiles": "none",
+  "executionEnvironments": [
+    {
+      "root": "backend",
+      "pythonVersion": "3.11",
+      "extraPaths": ["backend", "backend/jobs"]
+    },
+    {
+      "root": "backend/jobs",
+      "pythonVersion": "3.11",
+      "extraPaths": ["backend", "backend/jobs"]
+    }
+  ]
 }

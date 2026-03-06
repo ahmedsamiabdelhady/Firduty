@@ -15,15 +15,16 @@
 4. [Database Models](#database-models)
 5. [API Reference](#api-reference)
 6. [Points System](#points-system)
-7. [Notifications](#notifications)
-8. [Multi-Language Support](#multi-language-support)
-9. [Environment Variables](#environment-variables)
-10. [Setup & Installation](#setup--installation)
+7. [Background Jobs](#background-jobs)
+8. [Notifications](#notifications)
+9. [Multi-Language Support](#multi-language-support)
+10. [Environment Variables](#environment-variables)
+11. [Setup & Installation](#setup--installation)
     - [Local Development](#local-development)
     - [Cloud Deployment — Koyeb + Supabase](#cloud-deployment--koyeb--supabase)
-11. [Week Rules](#week-rules)
-12. [Security Notes](#security-notes)
-13. [Quick Reference](#quick-reference)
+12. [Week Rules](#week-rules)
+13. [Security Notes](#security-notes)
+14. [Quick Reference](#quick-reference)
 
 ---
 
@@ -54,8 +55,8 @@ Firduty consists of three integrated parts:
 firduty/
 ├── README.md
 ├── pyrightconfig.json                   # Pylance import resolution (VS Code)
-│                                        #   extraPaths: backend/ — fixes yellow underlines
-│                                        #   include: backend/, jobs/
+│                                        #   extraPaths: backend/, backend/jobs/
+│                                        #   executionEnvironments for backend/ and backend/jobs/
 │
 ├── .vscode/
 │   └── settings.json                    # python.analysis.extraPaths = ["./backend"]
@@ -72,7 +73,17 @@ firduty/
 │   │                                    #   FIREBASE_CREDENTIALS_PATH
 │   │                                    #   PORT (default 8000)
 │   │                                    #   ALLOWED_ORIGINS (default *)
+│   │                                    #   RUN_SCHEDULER (default "true")
 │   │                                    #   TIMEZONE = Asia/Muscat
+│   │
+│   ├── scheduler.py                     # APScheduler integration
+│   │                                    #   BackgroundScheduler (Asia/Muscat)
+│   │                                    #   Job 1: auto_clone — Thu 16:00
+│   │                                    #   Job 2: monthly_reset — day 1 at 20:05
+│   │                                    #   start_scheduler() / stop_scheduler()
+│   │                                    #   RUN_SCHEDULER env var toggle
+│   │                                    #   Duplicate-start guard
+│   │                                    #   Structured success/failure logging
 │   │
 │   ├── database.py                      # SQLAlchemy engine + session factory
 │   │                                    #   PostgreSQL: sslmode=require (Supabase)
@@ -128,6 +139,22 @@ firduty/
 │                                        # get_monthly_report() — leaderboard query
 │                                        # rebuild_monthly_summary_for_all() — cron target
 │
+│   └── jobs/
+│       ├── auto_clone.py                # Weekly auto-clone job
+│       │                                #   Exposes: run_auto_clone()
+│       │                                #   Called by: backend/scheduler.py (APScheduler)
+│       │                                #   Also runnable directly: python backend/jobs/auto_clone.py
+│       │                                #   Finds latest published week
+│       │                                #   Clones → next week as Draft
+│       │                                #   Skips if target week already exists
+│       │
+│       └── monthly_reset.py             # Monthly points cache rebuild job
+│                                        #   Exposes: run_monthly_reset()
+│                                        #   Called by: backend/scheduler.py (APScheduler)
+│                                        #   Also runnable directly: python backend/jobs/monthly_reset.py
+│                                        #   Finalizes previous month summary
+│                                        #   Seeds new month for all teachers
+│
 ├── admin_ui/
 │   ├── login.html                       # Admin login page (EN/AR)
 │   ├── planner.html                     # Week planner — drag & drop assignments
@@ -149,20 +176,6 @@ firduty/
 │   └── i18n/
 │       ├── en.json                      # English UI strings (planner + reports)
 │       └── ar.json                      # Arabic UI strings (planner + reports)
-│
-├── jobs/
-│   ├── auto_clone.py                    # Weekly auto-clone cron script
-│   │                                    #   Runs: Thursday 16:00 Muscat (12:00 UTC)
-│   │                                    #   Finds latest published week
-│   │                                    #   Clones → next week as Draft
-│   │                                    #   Skips if target week already exists
-│   │                                    #   Cron: 0 12 * * 4 python3 auto_clone.py
-│   │
-│   └── monthly_reset.py                 # Monthly points cache rebuild script
-│                                        #   Runs: 1st of month 00:05 Muscat (20:05 UTC)
-│                                        #   Finalizes previous month summary
-│                                        #   Seeds new month for all teachers
-│                                        #   Cron: 5 20 1 * * python3 monthly_reset.py
 │
 └── flutter_app/
     ├── pubspec.yaml                     # Dependencies + flutter generate: true (l10n)
@@ -221,6 +234,11 @@ firduty/
 | pytz | Timezone handling (Asia/Muscat) |
 | pydantic[email] | Request/response validation |
 | python-dotenv | Load .env for local dev |
+
+### Scheduler
+| Package | Purpose |
+|---|---|
+| APScheduler | In-process background job scheduler |
 
 ### Admin UI
 | Tool | Purpose |
@@ -358,7 +376,7 @@ All times compared in **Asia/Muscat (UTC+4)** timezone.
 - One confirmation per assignment per teacher — duplicates rejected (HTTP 400)
 - Only **published** weeks are confirmable — draft weeks earn no points
 - Points accumulate per calendar month in **Asia/Muscat** timezone
-- Monthly totals reset automatically on the **1st of each month** via cron
+- Monthly totals reset automatically on the **1st of each month** via the internal APScheduler job
 - Historical data is preserved — any past month remains queryable
 
 ### Teacher Flow (Mobile App)
@@ -375,6 +393,85 @@ Navigate to `reports.html` from the planner header:
 - Color pills: 🟢 On Time · 🟡 Late · ⚫ No Points
 - Drill-down modal per teacher showing every confirmation with time
 - CSV export (UTF-8 BOM for Excel Arabic compatibility)
+
+---
+
+## Background Jobs
+
+Scheduled tasks run **inside the backend process** using APScheduler's `BackgroundScheduler`.
+No external cron service, platform scheduler, or separate worker process is required.
+
+### Scheduled Jobs
+
+| Job | File | Schedule | Timezone |
+|---|---|---|---|
+| Weekly auto-clone | `backend/jobs/auto_clone.py` | Every Thursday at **16:00** | Asia/Muscat |
+| Monthly reset | `backend/jobs/monthly_reset.py` | Day 1 of every month at **20:05** | Asia/Muscat |
+
+### How it works
+
+The scheduler is started inside FastAPI's `lifespan` context in `main.py` — it boots once when uvicorn loads the app and shuts down cleanly when the process receives SIGTERM (which Koyeb sends on deploy/restart). The `scheduler.py` module registers both jobs with `CronTrigger` and attaches a structured event listener that logs `✓ success` or `✗ FAILED` after every execution.
+
+### Job callables
+
+Each job file exposes a named function that APScheduler calls directly:
+
+```
+backend/jobs/auto_clone.py    →  run_auto_clone()
+backend/jobs/monthly_reset.py →  run_monthly_reset()
+```
+
+Both files can also be run from the command line for manual testing or one-off execution:
+
+```bash
+python backend/jobs/auto_clone.py
+python backend/jobs/monthly_reset.py
+```
+
+### Environment variable controls
+
+| Variable | Default | Effect |
+|---|---|---|
+| `RUN_SCHEDULER` | `"true"` | Set to `"false"` to disable the scheduler on a specific instance |
+| `SCHEDULER_JITTER` | `30` | Random seconds added to each trigger to soften multi-instance collision |
+
+### Scheduler startup log
+
+When the backend starts with `RUN_SCHEDULER=true` you will see:
+
+```
+INFO firduty.scheduler: [scheduler] APScheduler started (timezone: Asia/Muscat).
+INFO firduty.scheduler: [scheduler]   • 'auto_clone' (Weekly duty schedule auto-clone) — next run: 2026-03-13 16:00:00+04:00
+INFO firduty.scheduler: [scheduler]   • 'monthly_reset' (Monthly points summary rebuild) — next run: 2026-04-01 20:05:00+04:00
+```
+
+### Scheduler status endpoint
+
+```
+GET /scheduler/status
+```
+
+Returns whether the scheduler is running and the next fire time for each job. Useful to verify after a deploy:
+
+```json
+{
+  "running": true,
+  "jobs": [
+    {"id": "auto_clone", "name": "Weekly duty schedule auto-clone", "next_run": "2026-03-13 16:00:00+04:00"},
+    {"id": "monthly_reset", "name": "Monthly points summary rebuild", "next_run": "2026-04-01 20:05:00+04:00"}
+  ]
+}
+```
+
+### Multi-instance risk on Koyeb
+
+If Koyeb scales the service to more than one instance, **each instance runs its own scheduler**, meaning both jobs fire N times per trigger window.
+
+**Mitigation options (in order of preference):**
+
+1. **Keep Koyeb at 1 instance** (recommended — sufficient for a school system). Set instance count to 1 in the Koyeb service settings.
+2. **Disable on extra instances** — set `RUN_SCHEDULER=false` on all instances except one.
+3. **Jitter** — `SCHEDULER_JITTER=30` adds up to 30 s of random delay. Combined with idempotent job logic (auto_clone skips if week exists; monthly_reset is a pure recalculation) duplicate runs are harmless but wasteful.
 
 ---
 
@@ -428,6 +525,10 @@ FIREBASE_CREDENTIALS_PATH=./firebase-credentials.json
 
 PORT=8000
 ALLOWED_ORIGINS=*
+
+# Scheduler — disable during local dev if you don't want jobs firing
+RUN_SCHEDULER=true
+SCHEDULER_JITTER=30
 ```
 
 ### Koyeb Environment Variables (production)
@@ -439,6 +540,8 @@ ALLOWED_ORIGINS=*
 | `ADMIN_USERNAME` | ✅ | Admin login username |
 | `ADMIN_PASSWORD` | ✅ | Admin login password |
 | `ALLOWED_ORIGINS` | ⚠️ | Comma-separated allowed origins |
+| `RUN_SCHEDULER` | ⚠️ | Set `"false"` on extra instances if scaled beyond 1 |
+| `SCHEDULER_JITTER` | ❌ | Random jitter seconds (default 30) |
 | `PORT` | ❌ | Injected automatically by Koyeb |
 | `FIREBASE_CREDENTIALS_PATH` | ❌ | Only if using push notifications |
 
@@ -499,11 +602,13 @@ flutter gen-l10n          # Must run once — generates lib/gen/app_localization
 flutter run
 ```
 
-#### 4. Cron Jobs (manual test)
+#### 4. Background Jobs (manual run)
+
+The scheduler runs automatically when the backend starts. To trigger a job manually for testing:
 
 ```bash
-python jobs/auto_clone.py
-python jobs/monthly_reset.py
+python backend/jobs/auto_clone.py
+python backend/jobs/monthly_reset.py
 ```
 
 ---
@@ -551,14 +656,16 @@ const API = localStorage.getItem('firduty_api') || 'https://your-app.koyeb.app';
 static const String baseUrl = 'https://your-app.koyeb.app';
 ```
 
-#### Step 4 — Cron Jobs on Koyeb
+#### Step 4 — Background Jobs
 
-Add two scheduled jobs in Koyeb dashboard:
+No external scheduler or cron configuration needed. APScheduler runs inside the backend process and starts automatically on deploy.
 
-| Job | Command | Schedule |
-|---|---|---|
-| Auto-clone | `python jobs/auto_clone.py` | `0 12 * * 4` |
-| Monthly reset | `python jobs/monthly_reset.py` | `5 20 1 * *` |
+To verify jobs are registered after deployment, call the status endpoint:
+```
+GET https://your-app.koyeb.app/scheduler/status
+```
+
+If you scale to more than one Koyeb instance, set `RUN_SCHEDULER=false` on all instances except one to prevent duplicate job execution.
 
 #### Step 5 — Firebase (Push Notifications)
 
@@ -577,6 +684,12 @@ Add two scheduled jobs in Koyeb dashboard:
 | Timezone | Asia/Muscat (UTC+4) |
 | Draft | Editable, no notifications |
 | Published | Notifications active |
+
+### Auto-Clone (APScheduler — every Thursday 16:00 Muscat)
+Finds the latest published week and clones it to the next week as Draft. Skips silently if the target week already exists.
+
+### Monthly Reset (APScheduler — day 1 of month 20:05 Muscat)
+Finalizes the previous month's points cache and seeds empty summary rows for the new month so all teachers appear in reports from day 1. Historical data is never deleted.
 
 ---
 
@@ -610,13 +723,16 @@ cd flutter_app && flutter gen-l10n
 # Create tables
 cd backend && python -c "from database import Base, engine; Base.metadata.create_all(bind=engine)"
 
-# Test cron jobs
-python jobs/auto_clone.py
-python jobs/monthly_reset.py
+# Run background jobs manually (one-off / testing)
+python backend/jobs/auto_clone.py
+python backend/jobs/monthly_reset.py
 
 # ── Production ────────────────────────────────────────────────────────────────
-# Koyeb start command (Procfile)
+# Koyeb start command (from Procfile — scheduler starts automatically)
 uvicorn main:app --host 0.0.0.0 --port $PORT
+
+# Verify scheduler is running after deploy
+curl https://your-app.koyeb.app/scheduler/status
 
 # Health check
 curl https://your-app.koyeb.app/health
