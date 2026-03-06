@@ -5,7 +5,7 @@ import 'package:http/http.dart' as http;
 
 class ApiService {
   // Update this to your deployed backend URL
-  static const String baseUrl = 'http://localhost:8000';
+  static const String baseUrl = 'https://naval-donnamarie-firduty-6e288803.koyeb.app';
 
   // ─── Teachers ────────────────────────────────────────────────────────────────
 
