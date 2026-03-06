@@ -6,7 +6,7 @@ Two jobs are registered:
   2. monthly_reset → day 1 of every month at 20:05 Asia/Muscat
 
 Usage (called from main.py lifespan):
-    from scheduler import start_scheduler, stop_scheduler
+    from scheduler import start_scheduler, stop_scheduler, router
 
 Environment variables:
   RUN_SCHEDULER=true    (default) — start scheduler on app startup
@@ -31,8 +31,10 @@ Both job functions (run_auto_clone, run_monthly_reset) are idempotent:
 import logging
 import os
 import sys
+from typing import Any
 
 import pytz
+from fastapi import APIRouter
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
 
@@ -46,6 +48,9 @@ if _jobs_dir not in sys.path:
 from auto_clone import run_auto_clone          # noqa: E402
 from monthly_reset import run_monthly_reset    # noqa: E402
 
+# ── API Router ─────────────────────────────────────────────────────────────────
+router = APIRouter(tags=["Scheduler"])
+
 # ── Logger ─────────────────────────────────────────────────────────────────────
 logger = logging.getLogger("firduty.scheduler")
 
@@ -55,14 +60,10 @@ MUSCAT_TZ = pytz.timezone("Asia/Muscat")
 _JITTER = int(os.getenv("SCHEDULER_JITTER", "30"))
 
 # ── Singleton scheduler instance ───────────────────────────────────────────────
-# Module-level: created once per Python process at import time.
-# The lifespan guard in main.py prevents start() being called twice.
 _scheduler: BackgroundScheduler | None = None
 
 
 # ── Wrapped job functions ──────────────────────────────────────────────────────
-# Thin wrappers add entry-log lines without modifying the original job scripts.
-
 def _run_auto_clone_job() -> None:
     logger.info("[scheduler] ▶ Starting job: auto_clone")
     run_auto_clone()
@@ -74,7 +75,6 @@ def _run_monthly_reset_job() -> None:
 
 
 # ── Event listener ─────────────────────────────────────────────────────────────
-
 def _job_listener(event) -> None:
     """Structured success/failure logging after each job execution."""
     if event.exception:
@@ -86,8 +86,39 @@ def _job_listener(event) -> None:
         logger.info(f"[scheduler] ✓ Job '{event.job_id}' finished successfully.")
 
 
-# ── Public API ─────────────────────────────────────────────────────────────────
+# ── Helper for API status ──────────────────────────────────────────────────────
+def _serialize_jobs() -> list[dict[str, Any]]:
+    if not _scheduler:
+        return []
 
+    jobs: list[dict[str, Any]] = []
+    for job in _scheduler.get_jobs():
+        jobs.append(
+            {
+                "id": job.id,
+                "name": job.name,
+                "next_run_time": job.next_run_time.isoformat() if job.next_run_time else None,
+                "trigger": str(job.trigger),
+            }
+        )
+    return jobs
+
+
+# ── Public API route ───────────────────────────────────────────────────────────
+@router.get("/scheduler/status")
+def scheduler_status() -> dict[str, Any]:
+    run_scheduler_env = os.getenv("RUN_SCHEDULER", "true").strip().lower()
+
+    return {
+        "enabled_by_env": run_scheduler_env == "true",
+        "running": bool(_scheduler and _scheduler.running),
+        "timezone": "Asia/Muscat",
+        "jitter_seconds": _JITTER,
+        "jobs": _serialize_jobs(),
+    }
+
+
+# ── Public API ─────────────────────────────────────────────────────────────────
 def start_scheduler() -> None:
     """
     Build and start the APScheduler BackgroundScheduler.
@@ -95,12 +126,10 @@ def start_scheduler() -> None:
     Guards:
       - RUN_SCHEDULER env var must equal "true" (default).
         Set RUN_SCHEDULER=false to disable without changing code.
-      - If already running (e.g. lifespan called twice under --reload),
-        this is a no-op.
+      - If already running, this is a no-op.
     """
     global _scheduler
 
-    # ── Guard: env var toggle ──────────────────────────────────────────────────
     run = os.getenv("RUN_SCHEDULER", "true").strip().lower()
     if run != "true":
         logger.info(
@@ -108,15 +137,12 @@ def start_scheduler() -> None:
         )
         return
 
-    # ── Guard: already running ─────────────────────────────────────────────────
     if _scheduler is not None and _scheduler.running:
         logger.warning("[scheduler] Already running — ignoring duplicate start() call.")
         return
 
-    # ── Build scheduler ────────────────────────────────────────────────────────
     _scheduler = BackgroundScheduler(timezone=MUSCAT_TZ)
 
-    # Job 1: Weekly auto-clone — every Thursday at 16:00 Asia/Muscat
     _scheduler.add_job(
         func=_run_auto_clone_job,
         trigger="cron",
@@ -129,10 +155,9 @@ def start_scheduler() -> None:
         id="auto_clone",
         name="Weekly duty schedule auto-clone",
         replace_existing=True,
-        misfire_grace_time=3600,    # Run even if up to 1 h late (e.g. after restart)
+        misfire_grace_time=3600,
     )
 
-    # Job 2: Monthly reset — day 1 of every month at 20:05 Asia/Muscat
     _scheduler.add_job(
         func=_run_monthly_reset_job,
         trigger="cron",
@@ -148,10 +173,8 @@ def start_scheduler() -> None:
         misfire_grace_time=3600,
     )
 
-    # Attach structured event listener
     _scheduler.add_listener(_job_listener, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)
 
-    # ── Start ──────────────────────────────────────────────────────────────────
     _scheduler.start()
 
     logger.info("[scheduler] APScheduler started (timezone: Asia/Muscat).")

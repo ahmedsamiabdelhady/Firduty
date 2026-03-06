@@ -19,6 +19,7 @@ from config import settings
 from database import Base, engine
 from routers import auth, teachers, locations, shifts, weeks, points, reports
 from scheduler import start_scheduler, stop_scheduler
+from scheduler import router as scheduler_router
 
 # ── Logging ────────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -74,6 +75,7 @@ app.include_router(shifts.router)
 app.include_router(weeks.router)
 app.include_router(points.router)
 app.include_router(reports.router)
+app.include_router(scheduler_router)
 
 
 # ── Endpoints ──────────────────────────────────────────────────────────────────
