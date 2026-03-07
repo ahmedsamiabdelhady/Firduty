@@ -45,8 +45,8 @@ _jobs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../jobs")
 if _jobs_dir not in sys.path:
     sys.path.insert(0, _jobs_dir)
 
-from auto_clone import run_auto_clone          # noqa: E402
-from monthly_reset import run_monthly_reset    # noqa: E402
+from jobs.auto_clone import run_auto_clone          # noqa: E402
+from jobs.monthly_reset import run_monthly_reset   # noqa: E402
 
 # ── API Router ─────────────────────────────────────────────────────────────────
 router = APIRouter(tags=["Scheduler"])
