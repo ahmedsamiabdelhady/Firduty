@@ -4,7 +4,7 @@ jobs/auto_clone.py — Weekly duty schedule auto-clone job.
 
 Scheduled: every Thursday at 16:00 Asia/Muscat
 Callable:  run_auto_clone()  ← used by backend/scheduler.py
-CLI:       python jobs/auto_clone.py  ← still works directly
+CLI:       python backend/jobs/auto_clone.py  ← still works directly
 
 Logic:
   - Find the latest published WeekPlan
@@ -16,15 +16,19 @@ Logic:
 import sys
 import os
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date as date_type
+from typing import cast
 
 import pytz
 
 # ── Path bootstrap ─────────────────────────────────────────────────────────────
-# Needed when this file is executed directly as a script (python jobs/auto_clone.py).
-# When imported by backend/scheduler.py the backend/ directory is already on sys.path,
-# so this insert is harmless (Python deduplicates sys.path entries at import time).
-_backend_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../backend")
+# jobs/ lives inside backend/, so the parent directory of jobs/ IS backend/.
+# Adding ".." from __file__'s directory puts backend/ on sys.path, which is
+# exactly what the imports below need.
+#
+# When imported by backend/scheduler.py, backend/ is already on sys.path
+# so this insert is harmless (Python deduplicates sys.path at import time).
+_backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if _backend_path not in sys.path:
     sys.path.insert(0, _backend_path)
 
@@ -33,8 +37,6 @@ from models.models import WeekPlan
 from services.week_service import get_current_week_start, clone_week
 
 # ── Logger ─────────────────────────────────────────────────────────────────────
-# Use a named logger so output goes through whatever handler is active
-# (basicConfig when run as CLI, the app's root logger when run via APScheduler).
 logger = logging.getLogger("firduty.jobs.auto_clone")
 
 MUSCAT_TZ = pytz.timezone("Asia/Muscat")
@@ -71,7 +73,7 @@ def run_auto_clone() -> None:
         if existing:
             logger.info(
                 f"[auto_clone] Week {next_week_start} already exists "
-                f"(status={existing.status}). Skipping."
+                f"(status={cast(str, existing.status)}). Skipping."
             )
             return
 
@@ -88,13 +90,19 @@ def run_auto_clone() -> None:
             return
 
         logger.info(
-            f"[auto_clone] Cloning {source.week_start_date} → {next_week_start}"
+            f"[auto_clone] Cloning {cast(date_type, source.week_start_date)} → {next_week_start}"
         )
-        result = clone_week(db, source.week_start_date, next_week_start, actor="scheduler")
+        result = clone_week(
+            db,
+            cast(date_type, source.week_start_date),
+            next_week_start,
+            actor="scheduler",
+        )
 
         if result:
             logger.info(
-                f"[auto_clone] ✓ Week {next_week_start} created as DRAFT (id={result.id})"
+                f"[auto_clone] ✓ Week {next_week_start} created as DRAFT "
+                f"(id={cast(int, result.id)})"
             )
         else:
             logger.error("[auto_clone] clone_week() returned None — unexpected.")

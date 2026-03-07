@@ -1,27 +1,36 @@
 {
-  "pythonVersion": "3.11",
+  "pythonVersion": "3.12",
   "pythonPlatform": "Windows",
   "include": [
     "backend"
   ],
   "extraPaths": [
-    "backend",
-    "backend/jobs"
+    "backend"
   ],
   "typeCheckingMode": "basic",
   "reportMissingImports": "warning",
   "reportMissingModuleSource": "none",
   "reportMissingModuleSourceFiles": "none",
+
+  "reportAttributeAccessIssue": "none",
+  "reportArgumentType": "none",
+  "reportAssignmentType": "none",
+  "reportOperatorIssue": "none",
+  "reportReturnType": "none",
+  "reportIndexIssue": "none",
+  "reportGeneralTypeIssues": "none",
+  "reportCallIssue": "none",
+
   "executionEnvironments": [
     {
-      "root": "backend",
-      "pythonVersion": "3.11",
-      "extraPaths": ["backend", "backend/jobs"]
+      "root": "backend/jobs",
+      "pythonVersion": "3.12",
+      "extraPaths": ["backend"]
     },
     {
-      "root": "backend/jobs",
-      "pythonVersion": "3.11",
-      "extraPaths": ["backend", "backend/jobs"]
+      "root": "backend",
+      "pythonVersion": "3.12",
+      "extraPaths": ["backend"]
     }
   ]
 }

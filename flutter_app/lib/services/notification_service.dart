@@ -8,7 +8,6 @@ import 'api_service.dart';
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   // Background messages are handled automatically by the OS
-  // We just log here
 }
 
 class NotificationService {
@@ -38,9 +37,10 @@ class NotificationService {
       importance: Importance.high,
     );
 
+    // Fixed: generic type parameter <AndroidFlutterLocalNotificationsPlugin>
+    // was missing the opening `<`, causing a compile-time error.
     await _localNotifications
-        .resolvePlatformSpecificImplementation
-            AndroidFlutterLocalNotificationsPlugin>()
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
         ?.createNotificationChannel(androidChannel);
 
     // Init local notifications
@@ -76,7 +76,7 @@ class NotificationService {
     });
   }
 
-  /// Show a local notification when app is in foreground
+  /// Show a local notification when the app is in the foreground
   static Future<void> _showLocalNotification(RemoteMessage message) async {
     final notification = message.notification;
     if (notification == null) return;

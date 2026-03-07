@@ -1,20 +1,18 @@
-"""Firebase Cloud Messaging notification service."""
+"""Firebase Cloud Messaging notification service — bilingual, duty-type aware."""
 
 import logging
 import os
 from typing import List, Optional
-from datetime import datetime
 
 import firebase_admin
 from firebase_admin import credentials, messaging
 from config import settings
 
 logger = logging.getLogger(__name__)
-
-# Initialize Firebase Admin SDK once
 _firebase_initialized = False
 
-def _init_firebase():
+
+def _init_firebase() -> None:
     global _firebase_initialized
     if _firebase_initialized:
         return
@@ -31,26 +29,51 @@ def _init_firebase():
 # ─── Notification Templates ───────────────────────────────────────────────────
 
 TEMPLATES = {
-    "reminder": {
+    # 15-minute reminder — morning/end-of-day duty (has location)
+    "reminder_location": {
         "ar": {
             "title": "المناوبات",
-            "body": "تذكير: مناوبتك بعد 15 دقيقة — المكان: {location} — الفترة: {shift}"
+            "body": "تذكير: مناوبتك بعد 15 دقيقة — الموقع: {location} — الفترة: {shift}"
         },
         "en": {
             "title": "Duty Roster",
             "body": "Reminder: Your duty starts in 15 minutes — Location: {location} — Shift: {shift}"
         }
     },
-    "start": {
+    # 15-minute reminder — break duty (has grade/class, no location)
+    "reminder_break": {
         "ar": {
             "title": "المناوبات",
-            "body": "بدأت مناوبتك الآن — المكان: {location}"
+            "body": "تذكير: فترة الاستراحة بعد 15 دقيقة — الفصل: {grade_class} — الفترة: {shift}"
+        },
+        "en": {
+            "title": "Duty Roster",
+            "body": "Reminder: Your break duty starts in 15 minutes — Class: {grade_class} — Shift: {shift}"
+        }
+    },
+    # Duty started — morning/end-of-day
+    "start_location": {
+        "ar": {
+            "title": "المناوبات",
+            "body": "بدأت مناوبتك الآن — الموقع: {location}"
         },
         "en": {
             "title": "Duty Roster",
             "body": "Your duty has started — Location: {location}"
         }
     },
+    # Duty started — break
+    "start_break": {
+        "ar": {
+            "title": "المناوبات",
+            "body": "بدأت مناوبتك الآن — الفصل: {grade_class}"
+        },
+        "en": {
+            "title": "Duty Roster",
+            "body": "Your break duty has started — Class: {grade_class}"
+        }
+    },
+    # Schedule updated (no location/class detail needed)
     "updated": {
         "ar": {
             "title": "المناوبات",
@@ -60,7 +83,7 @@ TEMPLATES = {
             "title": "Duty Roster",
             "body": "Your duty schedule has been updated — Please check the app"
         }
-    }
+    },
 }
 
 
@@ -74,24 +97,20 @@ def get_notification_text(template_key: str, lang: str, **kwargs) -> dict:
     }
 
 
-def send_notification_to_tokens(tokens: List[str], title: str, body: str, data: dict = None) -> int:
-    """
-    Send a multicast push notification to a list of FCM tokens.
-    Returns the number of successful sends.
-    """
+def send_notification_to_tokens(
+    tokens: List[str], title: str, body: str, data: dict = None
+) -> int:
+    """Send multicast push notification. Returns success count."""
     _init_firebase()
     if not _firebase_initialized or not tokens:
         return 0
-
     message = messaging.MulticastMessage(
         tokens=tokens,
         notification=messaging.Notification(title=title, body=body),
         data=data or {},
         android=messaging.AndroidConfig(priority="high"),
         apns=messaging.APNSConfig(
-            payload=messaging.APNSPayload(
-                aps=messaging.Aps(sound="default")
-            )
+            payload=messaging.APNSPayload(aps=messaging.Aps(sound="default"))
         )
     )
     try:
@@ -103,22 +122,45 @@ def send_notification_to_tokens(tokens: List[str], title: str, body: str, data: 
         return 0
 
 
-def notify_teacher_updated(teacher_tokens: List[str], lang: str):
+def notify_teacher_updated(teacher_tokens: List[str], lang: str) -> None:
     """Notify a teacher that their weekly schedule was modified."""
     text = get_notification_text("updated", lang)
     send_notification_to_tokens(teacher_tokens, text["title"], text["body"],
-                                  data={"type": "schedule_updated"})
+                                data={"type": "schedule_updated"})
 
 
-def notify_duty_reminder(teacher_tokens: List[str], lang: str, location: str, shift: str):
-    """Send 15-minute reminder before a duty."""
-    text = get_notification_text("reminder", lang, location=location, shift=shift)
-    send_notification_to_tokens(teacher_tokens, text["title"], text["body"],
-                                  data={"type": "duty_reminder"})
+def notify_duty_reminder(
+    teacher_tokens: List[str],
+    lang: str,
+    shift: str,
+    duty_type: str = "morning_endofday",
+    location: Optional[str] = None,
+    grade_class: Optional[str] = None,
+) -> None:
+    """Send 15-minute reminder. Uses location for morning/end-of-day, grade_class for break."""
+    if duty_type == "break" and grade_class:
+        text = get_notification_text("reminder_break", lang, shift=shift, grade_class=grade_class)
+        data = {"type": "duty_reminder", "duty_type": "break"}
+    else:
+        loc = location or ""
+        text = get_notification_text("reminder_location", lang, shift=shift, location=loc)
+        data = {"type": "duty_reminder", "duty_type": "morning_endofday"}
+    send_notification_to_tokens(teacher_tokens, text["title"], text["body"], data=data)
 
 
-def notify_duty_start(teacher_tokens: List[str], lang: str, location: str):
+def notify_duty_start(
+    teacher_tokens: List[str],
+    lang: str,
+    duty_type: str = "morning_endofday",
+    location: Optional[str] = None,
+    grade_class: Optional[str] = None,
+) -> None:
     """Notify teacher that their duty has started."""
-    text = get_notification_text("start", lang, location=location)
-    send_notification_to_tokens(teacher_tokens, text["title"], text["body"],
-                                  data={"type": "duty_start"})
+    if duty_type == "break" and grade_class:
+        text = get_notification_text("start_break", lang, grade_class=grade_class)
+        data = {"type": "duty_start", "duty_type": "break"}
+    else:
+        loc = location or ""
+        text = get_notification_text("start_location", lang, location=loc)
+        data = {"type": "duty_start", "duty_type": "morning_endofday"}
+    send_notification_to_tokens(teacher_tokens, text["title"], text["body"], data=data)

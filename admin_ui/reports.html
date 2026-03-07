@@ -215,7 +215,7 @@
 <script src="js/i18n.js"></script>
 <script>
 /* ─── Auth ──────────────────────────────────────────────────────────────────── */
-const API = localStorage.getItem('firduty_api') || 'http://localhost:8000';
+const API = (localStorage.getItem('firduty_api') || 'https://naval-donnamarie-firduty-6e288803.koyeb.app').replace(/\/$/, '');
 const TOKEN = () => localStorage.getItem('firduty_token');
 
 if (!TOKEN()) window.location.href = 'login.html';
@@ -260,12 +260,9 @@ let maxPoints = 0;
 async function init() {
   await I18N.load(localStorage.getItem('firduty_lang') || 'ar');
   populateMonths();
-
-  // Default to current month
   const now = new Date();
   document.getElementById('yearInput').value = now.getFullYear();
   document.getElementById('monthInput').value = now.getMonth() + 1;
-
   await loadReport();
 }
 
@@ -306,16 +303,15 @@ function renderSummaryCards(data) {
   const total = data.teachers.reduce((s, t) => s + t.total_points, 0);
   const avg   = data.teachers.length ? Math.round(total / data.teachers.length) : 0;
 
-  document.getElementById('totalTeachers').textContent       = data.total_teachers;
-  document.getElementById('totalConfirmations').textContent  = data.total_confirmations;
-  document.getElementById('totalPoints').textContent         = total;
-  document.getElementById('avgPoints').textContent           = avg;
+  document.getElementById('totalTeachers').textContent      = data.total_teachers;
+  document.getElementById('totalConfirmations').textContent = data.total_confirmations;
+  document.getElementById('totalPoints').textContent        = total;
+  document.getElementById('avgPoints').textContent          = avg;
 }
 
 /* ─── Leaderboard Table ─────────────────────────────────────────────────────── */
 function renderTable(teachers) {
-  const lang   = I18N.getLang();
-  const tbody  = document.getElementById('reportBody');
+  const tbody = document.getElementById('reportBody');
   tbody.innerHTML = '';
 
   teachers.forEach((t, idx) => {
@@ -358,7 +354,8 @@ async function openDetail(teacherId, teacherName) {
 
   document.getElementById('detailModal').classList.remove('hidden');
   document.getElementById('modalTitle').textContent = teacherName;
-  document.getElementById('detailBody').innerHTML = `<tr><td colspan="6" style="text-align:center">${I18N.t('loading')}</td></tr>`;
+  document.getElementById('detailBody').innerHTML =
+    `<tr><td colspan="6" style="text-align:center">${I18N.t('loading')}</td></tr>`;
   document.getElementById('noDetailMsg').style.display = 'none';
 
   const res = await fetch(
@@ -403,16 +400,35 @@ function closeModal() {
   document.getElementById('detailModal').classList.add('hidden');
 }
 
-// Close modal on backdrop click
 document.getElementById('detailModal').addEventListener('click', function(e) {
   if (e.target === this) closeModal();
 });
 
 /* ─── Export CSV ────────────────────────────────────────────────────────────── */
-function exportCSV() {
+/**
+ * Download CSV using fetch + Blob so the JWT Authorization header is included.
+ * window.location.href cannot send custom headers and would get a 401.
+ */
+async function exportCSV() {
   const year  = document.getElementById('yearInput').value;
   const month = document.getElementById('monthInput').value;
-  window.location.href = `${API}/admin/reports/monthly-points/export/csv?year=${year}&month=${month}`;
+
+  const res = await fetch(
+    `${API}/admin/reports/monthly-points/export/csv?year=${year}&month=${month}`,
+    { headers: authHeaders() }
+  );
+
+  if (!res.ok) { showToast(I18N.t('error_generic'), 'error'); return; }
+
+  const blob = await res.blob();
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `firduty_points_${year}_${String(month).padStart(2, '0')}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 /* ─── Rebuild Cache ─────────────────────────────────────────────────────────── */

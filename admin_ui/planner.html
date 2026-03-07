@@ -5,24 +5,26 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Firduty — Week Planner</title>
   <link rel="stylesheet" href="css/style.css">
-  <!-- SortableJS for drag & drop -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
 </head>
 <body>
 
-<!-- ─── Header ─────────────────────────────────────────────────────────────── -->
 <header class="app-header">
   <h1 data-i18n="app_title">Firduty</h1>
   <div class="header-actions">
-    <button class="btn btn-lang btn-sm" onclick="I18N.toggle().then(()=>location.reload())">
-      عربي | EN
-    </button>
+    <button class="btn btn-lang btn-sm" onclick="I18N.toggle().then(()=>location.reload())">عربي | EN</button>
     <button class="btn btn-lang btn-sm" onclick="logout()" data-i18n="logout">Logout</button>
   </div>
 </header>
 
-<!-- ─── Main ──────────────────────────────────────────────────────────────── -->
 <main class="main-content">
+
+  <!-- Navigation -->
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+    <a href="dashboard.html" class="btn btn-secondary btn-sm" data-i18n="dashboard">Dashboard</a>
+    <a href="planner.html"   class="btn btn-primary btn-sm"   data-i18n="week_planner">Week Planner</a>
+    <a href="reports.html"   class="btn btn-secondary btn-sm" data-i18n="monthly_report">Report</a>
+  </div>
 
   <!-- Week Controls -->
   <div class="week-controls">
@@ -39,22 +41,14 @@
     </div>
   </div>
 
-  <!-- Planner Layout: Sidebar + Main -->
+  <!-- Planner Layout -->
   <div class="planner-layout">
-    <!-- Teacher Sidebar -->
     <aside class="sidebar">
       <h3 data-i18n="teachers">Teachers</h3>
-      <div class="teacher-list" id="teacherList">
-        <div class="spinner"></div>
-      </div>
+      <div class="teacher-list" id="teacherList"><div class="spinner"></div></div>
     </aside>
-
-    <!-- Day Tabs + Shift Content -->
     <div class="planner-main">
-      <!-- Day Tabs -->
       <div class="tabs" id="dayTabs"></div>
-
-      <!-- Day Panels -->
       <div id="dayPanels">
         <p style="color:#6c757d;text-align:center;margin-top:40px" id="noPlanMsg" data-i18n="no_week">No plan found for this week.</p>
       </div>
@@ -62,17 +56,12 @@
   </div>
 </main>
 
-<!-- ─── Toast Container ───────────────────────────────────────────────────── -->
 <div class="toast-container" id="toastContainer"></div>
 
 <script src="js/i18n.js"></script>
 <script src="js/planner.js"></script>
 <script>
-  // Auth guard
-  if (!localStorage.getItem('firduty_token')) {
-    window.location.href = 'login.html';
-  }
-  // Init i18n then load planner
+  if (!localStorage.getItem('firduty_token')) { window.location.href = 'login.html'; }
   I18N.load(localStorage.getItem('firduty_lang') || 'ar').then(() => initPlanner());
 </script>
 </body>

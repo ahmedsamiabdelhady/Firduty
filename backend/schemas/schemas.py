@@ -5,7 +5,7 @@ from typing import Optional, List
 from pydantic import BaseModel
 
 
-# ─── Auth ────────────────────────────────────────────────────────────────────
+# ─── Auth ─────────────────────────────────────────────────────────────────────
 
 class LoginRequest(BaseModel):
     username: str
@@ -86,6 +86,10 @@ class ShiftCreate(BaseModel):
     start_time: time
     end_time: time
     order: int = 0
+    # duty_type controls teacher-facing display:
+    #   'morning_endofday' → show location
+    #   'break'            → show grade/class
+    duty_type: str = "morning_endofday"
 
 class ShiftUpdate(BaseModel):
     name_en: Optional[str] = None
@@ -93,6 +97,7 @@ class ShiftUpdate(BaseModel):
     start_time: Optional[time] = None
     end_time: Optional[time] = None
     order: Optional[int] = None
+    duty_type: Optional[str] = None
 
 class ShiftOut(BaseModel):
     id: int
@@ -101,6 +106,7 @@ class ShiftOut(BaseModel):
     start_time: time
     end_time: time
     order: int
+    duty_type: str
     class Config:
         from_attributes = True
 
@@ -112,17 +118,18 @@ class AssignmentOut(BaseModel):
     slot_index: int
     teacher_id: Optional[int]
     teacher_name: Optional[str] = None
+    grade_class: Optional[str] = None   # populated for break duties
     class Config:
         from_attributes = True
 
 class ShiftLocationOut(BaseModel):
     id: int
     shift_id: int
-    location_id: int
+    location_id: Optional[int]          # None for break duties
     slots_count: int
     order: int
     shift: ShiftOut
-    location: LocationOut
+    location: Optional[LocationOut]     # None for break duties
     assignments: List[AssignmentOut] = []
     class Config:
         from_attributes = True
@@ -150,17 +157,18 @@ class WeekPlanOut(BaseModel):
 # ─── Week Plan Mutations ──────────────────────────────────────────────────────
 
 class ShiftLocationUpdate(BaseModel):
-    """Update slots_count for a shift+location within a day."""
+    """Update slots_count for a shift+location (or break shift) within a day."""
     day_date: date
     shift_id: int
-    location_id: int
+    location_id: Optional[int] = None   # None for break duties
     slots_count: int
 
 class AssignmentUpdate(BaseModel):
     """Assign/unassign a teacher to a specific slot."""
     shift_location_id: int
     slot_index: int
-    teacher_id: Optional[int]  # None = clear slot
+    teacher_id: Optional[int]           # None = clear slot
+    grade_class: Optional[str] = None   # for break duties only
 
 class WeekStatusUpdate(BaseModel):
     status: str  # 'draft' | 'published'
@@ -174,8 +182,12 @@ class TeacherDutySlot(BaseModel):
     shift_name_ar: str
     shift_start: time
     shift_end: time
-    location_name_en: str
-    location_name_ar: str
+    duty_type: str
+    # morning_endofday duties
+    location_name_en: Optional[str] = None
+    location_name_ar: Optional[str] = None
+    # break duties
+    grade_class: Optional[str] = None
 
 class TeacherScheduleResponse(BaseModel):
     teacher_id: int

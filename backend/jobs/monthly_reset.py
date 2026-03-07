@@ -2,7 +2,7 @@
 """
 jobs/monthly_reset.py — Monthly points summary rebuild job.
 
-Scheduled: every month on day 1 at 00:05 Asia/Muscat
+Scheduled: every month on day 1 at 20:05 Asia/Muscat
 Callable:  run_monthly_reset()  ← used by backend/scheduler.py
 CLI:       python jobs/monthly_reset.py  ← still works directly
 
@@ -20,8 +20,6 @@ from datetime import datetime
 import pytz
 
 # ── Path bootstrap ─────────────────────────────────────────────────────────────
-# Needed when executed directly as a script.
-# Harmless when imported by backend/scheduler.py (path already on sys.path).
 _backend_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../backend")
 if _backend_path not in sys.path:
     sys.path.insert(0, _backend_path)
@@ -41,7 +39,7 @@ def run_monthly_reset() -> None:
     """
     Core monthly reset logic. Called by APScheduler and by main() for CLI use.
 
-    Runs on the 1st of the month, so:
+    Runs on the 1st of the month at 20:05 Muscat, so:
       - Previous month = now.month - 1 (handles January → December rollover)
       - Current month  = now.month     (seed empty rows for new month)
     """
@@ -52,18 +50,15 @@ def run_monthly_reset() -> None:
 
     db = SessionLocal()
     try:
-        # Determine previous month
         if now_muscat.month == 1:
             prev_year, prev_month = now_muscat.year - 1, 12
         else:
             prev_year, prev_month = now_muscat.year, now_muscat.month - 1
 
-        # Finalize previous month
         logger.info(f"[monthly_reset] Rebuilding {prev_year}/{prev_month:02d}...")
         rebuild_monthly_summary_for_all(db, prev_year, prev_month)
         logger.info(f"[monthly_reset] ✓ Finalized {prev_year}/{prev_month:02d}")
 
-        # Seed current month so teachers appear in reports immediately
         logger.info(
             f"[monthly_reset] Seeding {now_muscat.year}/{now_muscat.month:02d}..."
         )
@@ -74,7 +69,7 @@ def run_monthly_reset() -> None:
 
     except Exception:
         logger.exception("[monthly_reset] Unexpected error")
-        raise  # Re-raise so APScheduler can log the failure properly
+        raise
     finally:
         db.close()
 
