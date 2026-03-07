@@ -91,26 +91,6 @@ def health():
     return {"status": "ok"}
 
 
-@app.get("/scheduler/status")
-def scheduler_status():
-    """
-    Returns the current status of the background scheduler and each job's
-    next scheduled run time. Useful for verifying jobs are registered after deploy.
-    """
-    from scheduler import _scheduler
-    if _scheduler is None or not _scheduler.running:
-        return {"running": False, "jobs": []}
-    jobs = [
-        {
-            "id": job.id,
-            "name": job.name,
-            "next_run": str(job.next_run_time),
-        }
-        for job in _scheduler.get_jobs()
-    ]
-    return {"running": True, "jobs": jobs}
-
-
 # ── Local dev entry point ──────────────────────────────────────────────────────
 # In production (Koyeb) the Procfile runs uvicorn directly.
 # This block is only used when running `python main.py` locally.
