@@ -1,0 +1,64 @@
+{
+  "@@locale": "en",
+  "appTitle": "Firduty",
+
+  "registerTitle": "Create Your Account",
+  "fullName": "Full Name",
+  "email": "Email Address",
+  "register": "Register",
+  "registering": "Registering...",
+  "nameRequired": "Name is required",
+  "emailRequired": "Please enter a valid email address",
+  "emailAlreadyRegistered": "This email is already registered. Please use a different email.",
+
+  "pendingTitle": "Waiting for Approval",
+  "pendingMessage": "Your account registration has been submitted. An administrator will review and approve your account shortly.",
+  "checkStatus": "Check Status",
+  "useAnotherAccount": "Use a different account",
+
+  "selectTeacher": "Select Teacher",
+  "teacher": "Teacher",
+  "chooseTeacher": "Choose your name",
+  "todayDuties": "Today",
+  "weekDuties": "This Week",
+  "myPoints": "My Points",
+  "settings": "Settings",
+  "language": "Language",
+  "arabic": "Arabic",
+  "english": "English",
+  "noDutiesToday": "No duties assigned for today.",
+  "noDutiesWeek": "No duties assigned this week.",
+  "location": "Location",
+  "gradeClass": "Class",
+  "shift": "Shift",
+  "date": "Date",
+  "time": "Time",
+  "loading": "Loading...",
+  "error": "Error loading data. Please try again.",
+  "save": "Save",
+  "confirm": "OK",
+  "confirmPresence": "Confirm Presence",
+  "confirmed": "Confirmed ✓",
+  "notificationsEnabled": "Notifications enabled",
+  "sunday": "Sunday",
+  "monday": "Monday",
+  "tuesday": "Tuesday",
+  "wednesday": "Wednesday",
+  "thursday": "Thursday",
+  "points": "Points",
+  "totalPoints": "Total Points",
+  "pointsHint": "On time = 2pts  |  1–5 min late = 1pt  |  After 5 min = 0pt\nDuty starts at {time}",
+  "@pointsHint": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "onTime": "On Time",
+  "late": "Late",
+  "missed": "No Points",
+  "noConfirmationsYet": "No confirmations yet this month.",
+  "close": "Close",
+  "month": "Month"
+}

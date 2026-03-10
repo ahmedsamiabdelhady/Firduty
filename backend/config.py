@@ -21,7 +21,7 @@ class Settings:
     #   postgresql://postgres:PASSWORD@db.xxxx.supabase.co:5432/postgres
     DATABASE_URL: str = os.getenv(
         "DATABASE_URL",
-        "sqlite:///./firduty.db"   # Safe local fallback — never used in production
+        "postgresql://postgres:[YOUR-PASSWORD]@db.[YOUR-PROJECT-REF].supabase.co:5432/postgres"   # Safe local fallback — never used in production
     )
 
     # ── JWT ────────────────────────────────────────────────────────────────────

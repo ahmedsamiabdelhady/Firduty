@@ -1,0 +1,46 @@
+name: firduty
+description: Firduty Teacher Duty Roster App
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Localizations (SDK flutter package — required for delegates)
+  flutter_localizations:
+    sdk: flutter
+
+  # HTTP
+  http: ^1.2.1
+
+  # Local storage
+  shared_preferences: ^2.2.3
+
+  # Firebase
+  firebase_core: ^2.30.1
+  firebase_messaging: ^14.9.4
+
+  # Local notification display (foreground messages)
+  flutter_local_notifications: ^17.2.2
+
+  # Internationalisation utilities (DateFormat etc.)
+  # Must be ^0.20.2 — flutter_localizations (SDK) pins intl to 0.20.2.
+  # Using ^0.19.0 causes version-solving failure because the SDK constraint
+  # requires exactly 0.20.2 which is outside the ^0.19.0 range.
+  intl: ^0.20.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+
+  # Enables automatic `flutter gen-l10n` during build.
+  # Config is in l10n.yaml (project root).
+  generate: true

@@ -2,7 +2,7 @@
 
 from datetime import date, time, datetime
 from typing import Optional, List
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 
 
 # ─── Auth ─────────────────────────────────────────────────────────────────────
@@ -30,19 +30,37 @@ class AppSettingUpdate(BaseModel):
 
 # ─── Teacher ──────────────────────────────────────────────────────────────────
 
+class TeacherRegister(BaseModel):
+    """Public self-registration payload. Creates a 'pending' teacher record."""
+    name: str
+    email: EmailStr
+
 class TeacherCreate(BaseModel):
+    """Admin-only: create a teacher directly (defaults to approved)."""
     name: str
     active: bool = True
     preferred_language: str = "ar"
+    email: Optional[str] = None
+    status: str = "approved"
 
 class TeacherUpdate(BaseModel):
     name: Optional[str] = None
     active: Optional[bool] = None
     preferred_language: Optional[str] = None
 
+class TeacherStatusOut(BaseModel):
+    """Lightweight response for the Flutter status-check endpoint."""
+    id: int
+    name: str
+    status: str   # 'pending' | 'approved'
+    class Config:
+        from_attributes = True
+
 class TeacherOut(BaseModel):
     id: int
     name: str
+    email: Optional[str] = None
+    status: str
     active: bool
     preferred_language: str
     created_at: datetime

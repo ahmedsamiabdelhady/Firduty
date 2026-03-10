@@ -1,12 +1,48 @@
 """
 main.py — FastAPI application entry point for Firduty.
+
+Firebase credentials bootstrap
+──────────────────────────────
+On Koyeb (or any platform where you cannot commit files to Git), you have
+two ways to supply Firebase credentials:
+
+  Option A — File on disk  (local dev / Koyeb Secrets volume):
+    Set  FIREBASE_CREDENTIALS_PATH=./firebase-credentials.json
+
+  Option B — Inline env var  (easiest on Koyeb free tier):
+    Set  FIREBASE_CREDENTIALS_JSON=<entire contents of firebase-credentials.json>
+    This block detects that env var, validates it, writes it to a temp file,
+    and sets FIREBASE_CREDENTIALS_PATH automatically before firebase-admin loads.
 """
 
+import json
 import logging
+import os
+import tempfile
 import uvicorn
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+# ── Firebase credentials bootstrap (runs before any service import) ───────────
+_fcm_json_str = os.getenv("FIREBASE_CREDENTIALS_JSON")
+if _fcm_json_str:
+    try:
+        json.loads(_fcm_json_str)   # validate before writing
+        _tmp = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False, prefix="firebase-creds-"
+        )
+        _tmp.write(_fcm_json_str)
+        _tmp.close()
+        os.environ["FIREBASE_CREDENTIALS_PATH"] = _tmp.name
+        logging.getLogger(__name__).info(
+            "Firebase credentials loaded from FIREBASE_CREDENTIALS_JSON env var."
+        )
+    except (json.JSONDecodeError, OSError) as _e:
+        logging.getLogger(__name__).warning(
+            f"FIREBASE_CREDENTIALS_JSON is set but could not be written: {_e}"
+        )
+# ─────────────────────────────────────────────────────────────────────────────
 
 from config import settings
 from database import Base, engine
@@ -36,7 +72,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Firduty API",
     description="School Duty Roster Management System",
-    version="2.1.0",
+    version="2.2.0",
     lifespan=lifespan,
 )
 
@@ -61,7 +97,7 @@ app.include_router(scheduler_router)
 
 @app.get("/")
 def root():
-    return {"service": "Firduty API", "version": "2.1.0", "status": "running"}
+    return {"service": "Firduty API", "version": "2.2.0", "status": "running"}
 
 
 @app.get("/health")

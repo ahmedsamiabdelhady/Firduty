@@ -4,6 +4,10 @@ SQLAlchemy ORM models for Firduty.
 Duty types (Shift.duty_type):
   - 'morning_endofday' : Morning / end-of-day duty  → teacher needs location
   - 'break'            : Break duty                  → teacher needs grade/class
+
+Teacher registration status (Teacher.status):
+  - 'pending'  : Self-registered, awaiting admin approval
+  - 'approved' : Admin-approved, can access the duty system
 """
 
 from datetime import datetime
@@ -32,6 +36,16 @@ class Teacher(Base):
     __tablename__ = "teachers"
     id                 = Column(Integer, primary_key=True, index=True)
     name               = Column(String(200), nullable=False)
+    # email is unique when set; NULL allowed for pre-existing admin-created records
+    email              = Column(String(255), unique=True, nullable=True, index=True)
+    # status: 'pending' = self-registered awaiting approval, 'approved' = active user
+    # Default is 'approved' so existing admin-created teachers are never blocked
+    status             = Column(
+        SAEnum("pending", "approved", name="teacher_status_enum"),
+        nullable=False,
+        default="approved",
+        server_default="approved",
+    )
     active             = Column(Boolean, default=True, nullable=False)
     preferred_language = Column(String(2), default="ar", nullable=False)
     created_at         = Column(DateTime, default=_utcnow)

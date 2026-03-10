@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "442695383131",
+    "project_id": "firduty-dede5",
+    "storage_bucket": "firduty-dede5.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:442695383131:android:286520ab33cf231548677e",
+        "android_client_info": {
+          "package_name": "com.example.firduty_mobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAN-zKgXX3rBEuO-ujq2KA5FoUS7eljOfE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

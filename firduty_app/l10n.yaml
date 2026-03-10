@@ -1,0 +1,15 @@
+# l10n.yaml — Flutter localisation generation config
+#
+# After adding/editing ARB files run:
+#   flutter gen-l10n
+# Or just run `flutter pub get` / build — the `generate: true` in pubspec.yaml
+# triggers gen-l10n automatically.
+#
+# synthetic-package: false  → writes real files to lib/gen/
+#   (required so code can use the relative import `../gen/app_localizations.dart`)
+
+arb-dir: lib/l10n
+template-arb-file: app_en.arb
+output-localization-file: app_localizations.dart
+output-dir: lib/gen
+nullable-getter: false

@@ -39,11 +39,17 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
 
 # ── Import job callables ───────────────────────────────────────────────────────
-# jobs/ sits one level above backend/ in the project tree.
-# Insert it so imports resolve regardless of the working directory.
-_jobs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../jobs")
-if _jobs_dir not in sys.path:
-    sys.path.insert(0, _jobs_dir)
+# Koyeb deploys with root=backend, so its working directory becomes /app/ and
+# backend/ content lands directly inside /app/.  jobs/ is therefore at /app/jobs/.
+#
+# The imports below use package style ("from jobs.X import …"), which requires
+# the PARENT of jobs/ — i.e. backend/ itself — to be on sys.path.
+# os.path.dirname(__file__) is already that directory on Koyeb (/app/) and
+# locally (backend/), so we insert it rather than a relative "../jobs" path
+# which would wrongly resolve to /jobs (a non-existent root-level directory).
+_backend_dir = os.path.dirname(os.path.abspath(__file__))
+if _backend_dir not in sys.path:
+    sys.path.insert(0, _backend_dir)
 
 from jobs.auto_clone import run_auto_clone          # noqa: E402
 from jobs.monthly_reset import run_monthly_reset   # noqa: E402

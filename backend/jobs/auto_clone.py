@@ -16,8 +16,7 @@ Logic:
 import sys
 import os
 import logging
-from datetime import datetime, timedelta, date as date_type
-from typing import cast
+from datetime import datetime, timedelta
 
 import pytz
 
@@ -73,7 +72,7 @@ def run_auto_clone() -> None:
         if existing:
             logger.info(
                 f"[auto_clone] Week {next_week_start} already exists "
-                f"(status={cast(str, existing.status)}). Skipping."
+                f"(status={existing.status}). Skipping."
             )
             return
 
@@ -90,26 +89,20 @@ def run_auto_clone() -> None:
             return
 
         logger.info(
-            f"[auto_clone] Cloning {cast(date_type, source.week_start_date)} → {next_week_start}"
+            f"[auto_clone] Cloning {source.week_start_date} → {next_week_start}"
         )
-        result = clone_week(
-            db,
-            cast(date_type, source.week_start_date),
-            next_week_start,
-            actor="scheduler",
-        )
+        result = clone_week(db, source.week_start_date, next_week_start, actor="scheduler")
 
         if result:
             logger.info(
-                f"[auto_clone] ✓ Week {next_week_start} created as DRAFT "
-                f"(id={cast(int, result.id)})"
+                f"[auto_clone] ✓ Week {next_week_start} created as DRAFT (id={result.id})"
             )
         else:
             logger.error("[auto_clone] clone_week() returned None — unexpected.")
 
     except Exception:
         logger.exception("[auto_clone] Unexpected error")
-        raise  # Re-raise so APScheduler can log the failure properly
+        raise
     finally:
         db.close()
 

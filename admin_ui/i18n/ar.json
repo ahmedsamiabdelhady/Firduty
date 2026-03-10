@@ -55,14 +55,13 @@
   "close": "إغلاق",
   "no_empty_slot": "لا توجد فتحات فارغة",
   "break": "استراحة",
-
   "duty_type": "نوع المناوبة",
   "morning_endofday": "صباحية / نهاية اليوم",
   "break_duty": "مناوبة الاستراحة",
   "grade_class": "الصف / الفصل",
   "grade_class_placeholder": "مثال: الصف الخامس أ",
   "location": "الموقع",
-
+  "location_or_class": "الموقع / الفصل",
   "monthly_report": "تقرير النقاط الشهري",
   "year": "السنة",
   "month": "الشهر",
@@ -89,7 +88,6 @@
   "shift_start": "بداية الفترة",
   "confirmed_at": "وقت التأكيد",
   "points": "النقاط",
-
   "current_week": "الأسبوع الحالي",
   "next_week": "الأسبوع القادم (مسودة)",
   "total_slots": "إجمالي الفتحات",
@@ -107,5 +105,19 @@
   "total_locations": "المواقع",
   "total_shifts": "أنواع الفترات",
   "duties": "مناوبات",
-  "more": "إضافية"
+  "more": "إضافية",
+  "teacher_approval": "المعلمون",
+  "tab_pending": "بانتظار الموافقة",
+  "tab_all_teachers": "جميع المعلمين",
+  "approve": "موافقة",
+  "approve_all": "موافقة على الجميع",
+  "refresh": "تحديث",
+  "status_pending": "قيد الانتظار",
+  "status_approved": "معتمد",
+  "actions": "إجراءات",
+  "no_pending_teachers": "لا يوجد معلمون في انتظار الموافقة.",
+  "no_teachers_yet": "لم يتم العثور على سجلات معلمين.",
+  "teacher_approved_ok": "تمت الموافقة على المعلم بنجاح.",
+  "all_approved_ok": "تمت الموافقة على جميع المعلمين المنتظرين",
+  "email": "البريد الإلكتروني"
 }

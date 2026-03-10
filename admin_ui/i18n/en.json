@@ -1,5 +1,5 @@
 {
-  "app_title": "Firduty — Duty Roster",
+  "app_title": "Firduty - Duty System",
   "login": "Login",
   "username": "Username",
   "password": "Password",
@@ -55,14 +55,13 @@
   "close": "Close",
   "no_empty_slot": "No empty slots available",
   "break": "Break",
-
   "duty_type": "Duty Type",
   "morning_endofday": "Morning / End-of-day",
   "break_duty": "Break Duty",
   "grade_class": "Grade / Class",
   "grade_class_placeholder": "e.g. Grade 5A",
   "location": "Location",
-
+  "location_or_class": "Location / Class",
   "monthly_report": "Monthly Points Report",
   "year": "Year",
   "month": "Month",
@@ -89,7 +88,6 @@
   "shift_start": "Shift Start",
   "confirmed_at": "Confirmed At",
   "points": "Points",
-
   "current_week": "Current Week",
   "next_week": "Next Week (Draft)",
   "total_slots": "Total Slots",
@@ -107,5 +105,19 @@
   "total_locations": "Locations",
   "total_shifts": "Shift Types",
   "duties": "Duties",
-  "more": "more"
+  "more": "more",
+  "teacher_approval": "Teachers",
+  "tab_pending": "Pending Approval",
+  "tab_all_teachers": "All Teachers",
+  "approve": "Approve",
+  "approve_all": "Approve All Pending",
+  "refresh": "Refresh",
+  "status_pending": "Pending",
+  "status_approved": "Approved",
+  "actions": "Actions",
+  "no_pending_teachers": "No teachers awaiting approval.",
+  "no_teachers_yet": "No teacher records found.",
+  "teacher_approved_ok": "Teacher approved successfully.",
+  "all_approved_ok": "All pending teachers approved",
+  "email": "Email"
 }
