@@ -159,7 +159,7 @@ def update_assignments(week_start: date, updates: list[AssignmentUpdate],
         except ValueError as e:
             raise HTTPException(400, str(e))
     db.refresh(week)
-    if week.status == "published":
+    if str(week.status) == "published":
         from services.week_service import _notify_assigned_teachers
         _notify_assigned_teachers(db, week)
     return _serialize_week(week)

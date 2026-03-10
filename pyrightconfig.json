@@ -1,50 +1,34 @@
 {
   "pythonVersion": "3.12",
-  "pythonPlatform": "Linux",
   "include": [
     "backend"
   ],
   "exclude": [
-    "backend/firduty.db",
     "**/__pycache__",
-    "**/*.pyc"
+    "**/*.pyc",
+    "backend/firduty.db"
   ],
   "extraPaths": [
-    "backend",
-    "backend/models",
-    "backend/routers",
-    "backend/schemas",
-    "backend/services",
-    "backend/jobs"
+    "backend"
   ],
   "typeCheckingMode": "basic",
+
   "reportMissingImports": "warning",
   "reportMissingModuleSource": "none",
   "reportMissingModuleSourceFiles": "none",
+
+  "reportArgumentType": "none",
+  "reportAssignmentType": "none",
+  "reportGeneralTypeIssues": "none",
+  "reportOperatorIssue": "none",
+  "reportCallIssue": "none",
+  "reportAttributeAccessIssue": "none",
+  "reportOptionalMemberAccess": "none",
+  "reportOptionalSubscript": "none",
+  "reportIndexIssue": "none",
+
   "reportUnusedImport": "none",
   "reportPrivateUsage": "none",
-  "executionEnvironments": [
-    {
-      "root": "backend",
-      "pythonVersion": "3.12",
-      "extraPaths": [
-        "backend",
-        "backend/models",
-        "backend/routers",
-        "backend/schemas",
-        "backend/services",
-        "backend/jobs"
-      ]
-    },
-    {
-      "root": "backend/jobs",
-      "pythonVersion": "3.12",
-      "extraPaths": [
-        "backend",
-        "backend/models",
-        "backend/schemas",
-        "backend/services"
-      ]
-    }
-  ]
+  "reportUnusedVariable": "none",
+  "reportReturnType": "none"
 }

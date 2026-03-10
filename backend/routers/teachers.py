@@ -204,16 +204,16 @@ def get_teacher_schedule(
     teacher = db.query(Teacher).filter(Teacher.id == teacher_id).first()
     if not teacher:
         raise HTTPException(404, "Teacher not found")
-    if teacher.status != "approved":
+    if str(teacher.status) != "approved":
         raise HTTPException(403, "Teacher account not yet approved")
 
     duties = []
     for day in db.query(DayPlan).filter(DayPlan.date == query_date).all():
-        if day.week_plan.status != "published":
+        if str(day.week_plan.status) != "published":
             continue
         for sl in day.shift_locations:
             for a in sl.assignments:
-                if a.teacher_id == teacher_id:
+                if int(a.teacher_id or 0) == teacher_id:
                     confirmation = db.query(DutyConfirmation).filter(
                         DutyConfirmation.teacher_id == teacher_id,
                         DutyConfirmation.assignment_id == a.id,
@@ -237,7 +237,7 @@ def get_teacher_week(
     teacher = db.query(Teacher).filter(Teacher.id == teacher_id).first()
     if not teacher:
         raise HTTPException(404, "Teacher not found")
-    if teacher.status != "approved":
+    if str(teacher.status) != "approved":
         raise HTTPException(403, "Teacher account not yet approved")
 
     week = db.query(WeekPlan).filter(WeekPlan.week_start_date == ws).first()
@@ -248,7 +248,7 @@ def get_teacher_week(
     for day in week.day_plans:
         for sl in day.shift_locations:
             for a in sl.assignments:
-                if a.teacher_id == teacher_id:
+                if int(a.teacher_id or 0) == teacher_id:
                     confirmation = db.query(DutyConfirmation).filter(
                         DutyConfirmation.teacher_id == teacher_id,
                         DutyConfirmation.assignment_id == a.id,

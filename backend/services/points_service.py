@@ -74,13 +74,13 @@ def confirm_duty(
     assignment = db.query(Assignment).filter(Assignment.id == assignment_id).first()
     if not assignment:
         raise ValueError(f"Assignment {assignment_id} not found.")
-    if assignment.teacher_id != teacher_id:
+    if int(assignment.teacher_id or 0) != teacher_id:
         raise ValueError("This assignment does not belong to this teacher.")
 
     sl: ShiftLocation = assignment.shift_location
     day: DayPlan = sl.day_plan
     week: WeekPlan = day.week_plan
-    if week.status != "published":
+    if str(week.status) != "published":
         raise ValueError("Cannot confirm a duty in a draft week.")
 
     existing = db.query(DutyConfirmation).filter(
@@ -140,9 +140,9 @@ def _compute_monthly_total(db: Session, teacher_id: int, year: int, month: int) 
     total = 0
     for row in rows:
         cm = pytz.utc.localize(row.confirmed_at).astimezone(MUSCAT_TZ)
-        if cm.year == year and cm.month == month:
+        if int(cm.year) == year and int(cm.month) == month:
             total += row.points_earned
-    return total
+    return int(total)
 
 
 def rebuild_monthly_summary_for_all(db: Session, year: int, month: int) -> None:
@@ -155,10 +155,10 @@ def rebuild_monthly_summary_for_all(db: Session, year: int, month: int) -> None:
     totals: dict[int, int] = defaultdict(int)
     for c in all_confs:
         cm = pytz.utc.localize(c.confirmed_at).astimezone(MUSCAT_TZ)
-        if cm.year == year and cm.month == month:
+        if int(cm.year) == year and int(cm.month) == month:
             totals[c.teacher_id] += c.points_earned
     for teacher in teachers:
-        total = totals.get(teacher.id, 0)
+        total = totals.get(teacher.id, int(0))
         summary = db.query(MonthlyPointsSummary).filter(
             MonthlyPointsSummary.teacher_id == teacher.id,
             MonthlyPointsSummary.year == year,
@@ -196,7 +196,7 @@ def get_monthly_report(db: Session, year: int, month: int) -> list[dict]:
     confs_by_teacher: dict[int, list] = defaultdict(list)
     for c in all_confs:
         cm = pytz.utc.localize(c.confirmed_at).astimezone(MUSCAT_TZ)
-        if cm.year == year and cm.month == month:
+        if int(cm.year) == year and int(cm.month) == month:
             confs_by_teacher[c.teacher_id].append(c)
     report = []
     for teacher in teachers:
@@ -204,11 +204,11 @@ def get_monthly_report(db: Session, year: int, month: int) -> list[dict]:
         report.append({
             "teacher_id":    teacher.id,
             "teacher_name":  teacher.name,
-            "total_points":  sum(c.points_earned for c in confs),
+            "total_points":  sum(int(c.points_earned) for c in confs),
             "confirmations": len(confs),
-            "on_time":       sum(1 for c in confs if c.points_earned == 2),
-            "late":          sum(1 for c in confs if c.points_earned == 1),
-            "no_points":     sum(1 for c in confs if c.points_earned == 0),
+            "on_time":       sum(1 for c in confs if int(c.points_earned) == 2),
+            "late":          sum(1 for c in confs if int(c.points_earned) == 1),
+            "no_points":     sum(1 for c in confs if int(c.points_earned) == 0),
         })
     report.sort(key=lambda x: x["total_points"], reverse=True)
     return report
@@ -232,7 +232,7 @@ def get_teacher_confirmation_detail(
     result = []
     for c in confirmations:
         cm = pytz.utc.localize(c.confirmed_at).astimezone(MUSCAT_TZ)
-        if cm.year != year or cm.month != month:
+        if int(cm.year) != year or int(cm.month) != month:
             continue
         sl: ShiftLocation = c.assignment.shift_location
         day: DayPlan = sl.day_plan
