@@ -14,6 +14,7 @@ import 'screens/points_screen.dart';
 import 'services/api_service.dart';
 import 'services/notification_service.dart';
 import 'gen/app_localizations.dart';
+import 'app_theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -62,10 +63,7 @@ class _FirdutyAppState extends State<FirdutyApp> {
     return MaterialApp(
       title: 'Firduty',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorSchemeSeed: const Color(0xFF1A73E8),
-        useMaterial3: true,
-      ),
+      theme: buildFirdutyTheme(),
       locale: _locale,
       localizationsDelegates: const [
         AppLocalizations.delegate,
@@ -168,9 +166,20 @@ class _StartupScreenState extends State<StartupScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Shown for a fraction of a second while routing logic runs
-    return const Scaffold(
-      body: Center(child: CircularProgressIndicator()),
+    return Scaffold(
+      backgroundColor: FirdutyColors.navBlue,
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Image.asset('assets/logo.png', width: 120, height: 120),
+            const SizedBox(height: 32),
+            const CircularProgressIndicator(
+              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -205,7 +214,7 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: Text(titles[_selectedIndex]),
         centerTitle: true,
-        backgroundColor: Theme.of(context).primaryColor,
+        backgroundColor: FirdutyColors.navBlue,
         foregroundColor: Colors.white,
         actions: [
           TextButton(

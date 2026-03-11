@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../gen/app_localizations.dart';
+import '../app_theme.dart';
 
 class WeekScreen extends StatefulWidget {
   const WeekScreen({super.key});
@@ -123,7 +124,7 @@ class _WeekScreenState extends State<WeekScreen> {
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 14,
-                                  color: Theme.of(context).primaryColor,
+                                  color: FirdutyColors.primaryGreen,
                                 ),
                               ),
                             ),
@@ -171,7 +172,7 @@ class _WeekScreenState extends State<WeekScreen> {
                                         ? Icons.groups
                                         : Icons.assignment,
                                     color: isBreak
-                                        ? Colors.purple.shade400
+                                        ? FirdutyColors.primaryGreen
                                         : Colors.blue,
                                   ),
                                   title: Text(shiftName as String),

@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../services/notification_service.dart';
 import '../gen/app_localizations.dart';
+import '../app_theme.dart';
 import 'dart:io';
 
 class PendingScreen extends StatefulWidget {
@@ -106,13 +107,13 @@ class _PendingScreenState extends State<PendingScreen> {
                 width: 88,
                 height: 88,
                 decoration: BoxDecoration(
-                  color: Colors.orange.shade50,
+                  color: FirdutyColors.warning.withValues(alpha: 0.12),
                   shape: BoxShape.circle,
                 ),
                 child: Icon(
                   Icons.hourglass_empty_rounded,
                   size: 48,
-                  color: Colors.orange.shade700,
+                  color: FirdutyColors.warning,
                 ),
               ),
               const SizedBox(height: 24),
@@ -138,13 +139,13 @@ class _PendingScreenState extends State<PendingScreen> {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.red.shade50,
+                    color: const Color(0xFFFDE8E8),
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.red.shade200),
+                    border: Border.all(color: const Color(0xFFF5BCBC)),
                   ),
                   child: Text(
                     _errorMsg!,
-                    style: TextStyle(color: Colors.red.shade800, fontSize: 13),
+                    style: TextStyle(color: FirdutyColors.danger, fontSize: 13),
                     textAlign: TextAlign.center,
                   ),
                 ),

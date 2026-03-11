@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../gen/app_localizations.dart';
+import '../app_theme.dart';
 
 class RegistrationScreen extends StatefulWidget {
   const RegistrationScreen({super.key});
@@ -54,7 +55,6 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n  = AppLocalizations.of(context);
-    final theme = Theme.of(context);
 
     return Scaffold(
       body: SafeArea(
@@ -69,7 +69,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     // ── Logo / title ──────────────────────────────────────
-                    Icon(Icons.school_rounded, size: 72, color: theme.primaryColor),
+                    Image.asset('assets/logo.png', width: 88, height: 88),
                     const SizedBox(height: 16),
                     Text(
                       l10n.appTitle,
@@ -77,7 +77,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                       style: TextStyle(
                         fontSize: 22,
                         fontWeight: FontWeight.bold,
-                        color: theme.primaryColor,
+                        color: FirdutyColors.navBlue,
                       ),
                     ),
                     const SizedBox(height: 8),

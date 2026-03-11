@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../gen/app_localizations.dart';
+import '../app_theme.dart';
 
 class PointsScreen extends StatefulWidget {
   const PointsScreen({super.key});
@@ -109,8 +110,8 @@ class _PointsScreenState extends State<PointsScreen> {
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: [
-                      Theme.of(context).primaryColor,
-                      Theme.of(context).primaryColor.withBlue(200),
+                      FirdutyColors.primaryGreen,
+                      FirdutyColors.primaryGreen.withBlue(200),
                     ],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
@@ -205,11 +206,11 @@ class _PointsScreenState extends State<PointsScreen> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Icon(Icons.emoji_events_outlined,
-                          size: 64, color: Colors.grey.shade300),
+                          size: 64, color: FirdutyColors.textMuted.withValues(alpha: 0.4)),
                       const SizedBox(height: 16),
                       Text(l10n.noConfirmationsYet,
                           style: TextStyle(
-                              color: Colors.grey.shade500,
+                              color: FirdutyColors.textMuted,
                               fontSize: 15)),
                     ],
                   ),
@@ -256,11 +257,11 @@ class _MiniStats extends StatelessWidget {
         _StatChip(
             label: l10n.onTime,
             value: '$onTime',
-            color: Colors.green.shade400),
+            color: FirdutyColors.primaryGreen),
         _StatChip(
             label: l10n.late,
             value: '$late',
-            color: Colors.orange.shade400),
+            color: FirdutyColors.warning),
         _StatChip(
             label: l10n.missed,
             value: '$missed',
@@ -344,10 +345,10 @@ class _ConfirmationRow extends StatelessWidget {
     }
 
     final ptColor = pts == 2
-        ? Colors.green
+        ? FirdutyColors.primaryGreen
         : pts == 1
-            ? Colors.orange
-            : Colors.grey;
+            ? FirdutyColors.warning
+            : FirdutyColors.textMuted;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
@@ -383,7 +384,7 @@ class _ConfirmationRow extends StatelessWidget {
             Row(
               children: [
                 Icon(Icons.schedule,
-                    size: 12, color: Colors.grey.shade400),
+                    size: 12, color: FirdutyColors.textMuted.withValues(alpha: 0.6)),
                 const SizedBox(width: 4),
                 Text(
                   '${l10n.shift}: $startTime  |  ${l10n.confirmed}: $confTime',
@@ -409,10 +410,10 @@ class _StatusBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (label, color) = points == 2
-        ? (l10n.onTime, Colors.green)
+        ? (l10n.onTime, FirdutyColors.primaryGreen)
         : points == 1
-            ? (l10n.late, Colors.orange)
-            : (l10n.missed, Colors.grey);
+            ? (l10n.late, FirdutyColors.warning)
+            : (l10n.missed, FirdutyColors.textMuted);
 
     return Container(
       padding:

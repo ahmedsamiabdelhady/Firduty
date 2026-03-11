@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
 import '../services/api_service.dart';
 import '../gen/app_localizations.dart';
+import '../app_theme.dart';
 
 class TodayScreen extends StatefulWidget {
   const TodayScreen({super.key});
@@ -162,11 +163,11 @@ class _TodayScreenState extends State<TodayScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(Icons.event_available,
-                size: 64, color: Colors.grey.shade300),
+                size: 64, color: FirdutyColors.accentGreen.withValues(alpha: 0.5)),
             const SizedBox(height: 16),
             Text(l10n.noDutiesToday,
                 style:
-                    TextStyle(fontSize: 16, color: Colors.grey.shade500)),
+                    TextStyle(fontSize: 16, color: FirdutyColors.textMuted)),
           ],
         ),
       );
@@ -267,8 +268,8 @@ class _DutyCard extends StatelessWidget {
                 Icon(
                   isBreak ? Icons.groups : Icons.access_time,
                   color: isBreak
-                      ? Colors.purple.shade400
-                      : Theme.of(context).primaryColor,
+                      ? FirdutyColors.primaryGreen
+                      : FirdutyColors.navBlue,
                   size: 20,
                 ),
                 const SizedBox(width: 8),
@@ -282,12 +283,12 @@ class _DutyCard extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(
                         horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
-                      color: Colors.green.shade100,
+                      color: FirdutyColors.accentGreen.withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(l10n.confirmed,
                         style: TextStyle(
-                            color: Colors.green.shade700,
+                            color: FirdutyColors.successDark,
                             fontSize: 12,
                             fontWeight: FontWeight.w600)),
                   ),
@@ -331,7 +332,7 @@ class _DutyCard extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: Colors.blue.shade50,
+                color: FirdutyColors.navBlue.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Row(
@@ -341,7 +342,7 @@ class _DutyCard extends StatelessWidget {
                     child: Text(
                       l10n.pointsHint(startTime),
                       style: TextStyle(
-                          fontSize: 12, color: Colors.blue.shade700),
+                          fontSize: 12, color: FirdutyColors.navBlue),
                     ),
                   ),
                 ],
@@ -360,8 +361,8 @@ class _DutyCard extends StatelessWidget {
                     isConfirmed ? l10n.confirmed : l10n.confirmPresence),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: isConfirmed
-                      ? Colors.green
-                      : Theme.of(context).primaryColor,
+                      ? FirdutyColors.primaryGreen
+                      : FirdutyColors.navBlue,
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   shape: RoundedRectangleBorder(
@@ -385,10 +386,10 @@ class _PointsBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = points == 2
-        ? Colors.green
+        ? FirdutyColors.primaryGreen
         : points == 1
-            ? Colors.orange
-            : Colors.grey;
+            ? FirdutyColors.warning
+            : FirdutyColors.textMuted;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
