@@ -27,7 +27,7 @@ class _OrmBase(BaseModel):
     """Base class for all schemas that are populated from SQLAlchemy ORM objects."""
     class Config:
         from_attributes = True   # Pydantic v2
-        orm_mode        = True   # Pydantic v1  (ignored/deprecated in v2 — harmless)
+        from_attributes = True   # Pydantic v2
 
 
 # ─── Auth ─────────────────────────────────────────────────────────────────────
