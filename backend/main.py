@@ -3,16 +3,13 @@ main.py — FastAPI application entry point for Firduty.
 
 Firebase credentials bootstrap
 ──────────────────────────────
-On Koyeb (or any platform where you cannot commit files to Git), you have
-two ways to supply Firebase credentials:
+Option A — File on disk  (local dev / Koyeb Secrets volume):
+  Set  FIREBASE_CREDENTIALS_PATH=./firebase-credentials.json
 
-  Option A — File on disk  (local dev / Koyeb Secrets volume):
-    Set  FIREBASE_CREDENTIALS_PATH=./firebase-credentials.json
-
-  Option B — Inline env var  (easiest on Koyeb free tier):
-    Set  FIREBASE_CREDENTIALS_JSON=<entire contents of firebase-credentials.json>
-    This block detects that env var, validates it, writes it to a temp file,
-    and sets FIREBASE_CREDENTIALS_PATH automatically before firebase-admin loads.
+Option B — Inline env var  (easiest on Koyeb free tier):
+  Set  FIREBASE_CREDENTIALS_JSON=<entire contents of firebase-credentials.json>
+  This block detects that env var, validates it, writes it to a temp file,
+  and sets FIREBASE_CREDENTIALS_PATH automatically before firebase-admin loads.
 """
 
 import json
@@ -46,9 +43,14 @@ if _fcm_json_str:
 
 from config import settings
 from database import Base, engine
-from routers import auth, teachers, locations, shifts, weeks, points, reports
+from routers.auth import router as auth_router, oauth2_scheme  # noqa: F401
+from routers.teachers import router as teachers_router
+from routers.locations import router as locations_router
+from routers.shifts import router as shifts_router
+from routers.weeks import router as weeks_router
+from routers.points import router as points_router
+from routers.reports import router as reports_router
 from routers.dashboard import router as dashboard_router
-from routers.auth import oauth2_scheme  # noqa: F401 — imported so Swagger picks it up
 from scheduler import start_scheduler, stop_scheduler
 from scheduler import router as scheduler_router
 
@@ -72,7 +74,11 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Firduty API",
-    description="School Duty Roster Management System",
+    description=(
+        "School Duty Roster Management System.\n\n"
+        "**Authentication:** Click the 🔓 Authorize button and enter your admin "
+        "username and password. All protected endpoints will then work from Swagger."
+    ),
     version="2.3.0",
     lifespan=lifespan,
 )
@@ -85,13 +91,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(auth.router)
-app.include_router(teachers.router)
-app.include_router(locations.router)
-app.include_router(shifts.router)
-app.include_router(weeks.router)
-app.include_router(points.router)
-app.include_router(reports.router)
+app.include_router(auth_router)
+app.include_router(teachers_router)
+app.include_router(locations_router)
+app.include_router(shifts_router)
+app.include_router(weeks_router)
+app.include_router(points_router)
+app.include_router(reports_router)
 app.include_router(dashboard_router)
 app.include_router(scheduler_router)
 

@@ -1,49 +1,38 @@
 """
-database.py — SQLAlchemy engine and session setup.
+database.py — SQLAlchemy engine, session factory, and Base declarative class.
 
-Automatically detects whether the DATABASE_URL points to PostgreSQL or SQLite
-and configures the engine accordingly.
-
-SSL is enabled for PostgreSQL connections (required by Supabase and most
-cloud-hosted PostgreSQL providers). It is skipped for SQLite (local dev).
+Supabase (PostgreSQL) requires SSL — configured via connect_args.
+SQLite is used for local development only (no SSL needed).
 """
 
+import os
 from sqlalchemy import create_engine
-from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
-from config import settings
+DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./firduty.db")
 
-DATABASE_URL = settings.DATABASE_URL
+# PostgreSQL (Supabase) — enforce SSL
+# SQLite — no SSL, no extra args needed
+_is_postgres = DATABASE_URL.startswith("postgresql")
 
-# ── Engine configuration ───────────────────────────────────────────────────────
+_engine_kwargs: dict = {}
+if _is_postgres:
+    _engine_kwargs["connect_args"] = {"sslmode": "require"}
+    _engine_kwargs["pool_pre_ping"] = True   # detect stale connections
+    _engine_kwargs["pool_recycle"] = 1800    # recycle connections every 30 min
 
-if DATABASE_URL.startswith("sqlite"):
-    # SQLite: local development only, no SSL, needs check_same_thread=False
-    engine = create_engine(
-        DATABASE_URL,
-        connect_args={"check_same_thread": False},
-    )
 
-else:
-    # PostgreSQL (Supabase, Koyeb, or any cloud-hosted PG)
-    # Supabase requires SSL. connect_args passes SSL mode to psycopg2.
-    engine = create_engine(
-        DATABASE_URL,
-        connect_args={"sslmode": "require"},
-        pool_pre_ping=True,       # Detect and recycle stale connections
-        pool_size=5,              # Keep a small pool — cloud DBs have connection limits
-        max_overflow=10,
-    )
-
-# ── Session factory ────────────────────────────────────────────────────────────
+engine = create_engine(DATABASE_URL, **_engine_kwargs)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-Base = declarative_base()
+
+class Base(DeclarativeBase):
+    pass
 
 
 def get_db():
-    """FastAPI dependency — yields a DB session and ensures it is closed."""
+    """FastAPI dependency that yields a database session and closes it on exit."""
     db = SessionLocal()
     try:
         yield db

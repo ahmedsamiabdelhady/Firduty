@@ -1,97 +1,104 @@
 """
-routers/points.py — Endpoints for duty confirmation and point retrieval.
+routers/points.py — Duty confirmation and points query endpoints.
+
+POST /points/teachers/{id}/confirm
+    Teacher confirms they attended a duty assignment.
+    Points are calculated based on how early/late the confirmation is
+    relative to the shift start time (Asia/Muscat timezone).
+
+    Scoring:
+      confirmed_at <= shift_start           → 2 points (on time)
+      shift_start < confirmed_at <= +5 min  → 1 point  (late but within window)
+      confirmed_at > shift_start + 5 min    → 0 points (missed)
+
+GET /points/teachers/{id}/monthly?year=&month=
+    Monthly total and per-duty confirmation history for a teacher.
 """
 
-from datetime import datetime
-from typing import Optional
-
+import logging
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models.models import Assignment
 from services.points_service import (
     confirm_duty,
     get_teacher_monthly_points,
     get_teacher_confirmation_detail,
+    rebuild_monthly_summary_for_all,
 )
+from schemas.schemas import ConfirmDutyRequest
+from routers.auth import get_current_admin
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/points", tags=["points"])
 
 
-# ─── Schemas ──────────────────────────────────────────────────────────────────
-
-class ConfirmDutyRequest(BaseModel):
-    assignment_id: int
-    # Optional: allow passing a custom timestamp (for testing).
-    # In production the server time is always used.
-    confirmed_at_utc: Optional[datetime] = None
-
-
-class ConfirmDutyResponse(BaseModel):
-    confirmation_id: int
-    assignment_id: int
-    confirmed_at: datetime
-    points_earned: int
-    message_en: str
-    message_ar: str
-
-
-# ─── Endpoints ────────────────────────────────────────────────────────────────
-
-@router.post("/teachers/{teacher_id}/confirm", response_model=ConfirmDutyResponse)
+@router.post("/teachers/{teacher_id}/confirm")
 def confirm_teacher_duty(
     teacher_id: int,
-    body: ConfirmDutyRequest,
+    data: ConfirmDutyRequest,
     db: Session = Depends(get_db),
 ):
     """
-    Teacher confirms they are present at their duty location.
-    Uses server UTC time unless confirmed_at_utc is provided (testing only).
+    Confirm a teacher attended their duty assignment.
+    Returns points earned and a bilingual confirmation message.
     """
     try:
         confirmation = confirm_duty(
             db=db,
             teacher_id=teacher_id,
-            assignment_id=body.assignment_id,
-            confirmed_at_utc=body.confirmed_at_utc,
+            assignment_id=data.assignment_id,
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        logger.exception(f"Unexpected error confirming duty for teacher {teacher_id}")
+        raise HTTPException(500, "Internal error confirming duty")
 
-    # Human-readable result messages per points earned
+    points = confirmation.points_earned
     messages = {
-        2: ("✅ On time! You earned 2 points.", "✅ في الوقت المحدد! حصلت على نقطتين."),
-        1: ("⏱ Slightly late. You earned 1 point.", "⏱ تأخرت قليلاً. حصلت على نقطة واحدة."),
-        0: ("❌ Too late. No points awarded.", "❌ تأخرت كثيراً. لم تحصل على نقاط."),
+        2: {"en": "On time! 2 points earned.", "ar": "في الوقت! حصلت على نقطتين."},
+        1: {"en": "Slightly late. 1 point earned.", "ar": "تأخر طفيف. حصلت على نقطة واحدة."},
+        0: {"en": "Too late. 0 points.", "ar": "فات الأوان. 0 نقاط."},
     }
-    msg_en, msg_ar = messages.get(confirmation.points_earned, ("Confirmed.", "تم التأكيد."))
+    msg = messages.get(points, messages[0])
 
-    return ConfirmDutyResponse(
-        confirmation_id=confirmation.id,
-        assignment_id=confirmation.assignment_id,
-        confirmed_at=confirmation.confirmed_at,
-        points_earned=confirmation.points_earned,
-        message_en=msg_en,
-        message_ar=msg_ar,
-    )
+    return {
+        "assignment_id": data.assignment_id,
+        "teacher_id":    teacher_id,
+        "points_earned": points,
+        "message_en":    msg["en"],
+        "message_ar":    msg["ar"],
+    }
 
 
 @router.get("/teachers/{teacher_id}/monthly")
-def get_teacher_points(
+def get_monthly_points(
     teacher_id: int,
     year: int,
     month: int,
     db: Session = Depends(get_db),
 ):
-    """Get a teacher's total points and per-duty breakdown for a given month."""
+    """Monthly total and per-duty confirmation breakdown for a teacher."""
     total = get_teacher_monthly_points(db, teacher_id, year, month)
     details = get_teacher_confirmation_detail(db, teacher_id, year, month)
     return {
-        "teacher_id": teacher_id,
-        "year": year,
-        "month": month,
-        "total_points": total,
-        "details": details,
+        "teacher_id":    teacher_id,
+        "year":          year,
+        "month":         month,
+        "total_points":  total,
+        "confirmations": details,
     }
+
+
+@router.post("/rebuild")
+def rebuild_points_cache(
+    year: int,
+    month: int,
+    db: Session = Depends(get_db),
+    _=Depends(get_current_admin),
+):
+    """Admin: rebuild the monthly points summary cache for all active teachers."""
+    rebuild_monthly_summary_for_all(db, year, month)
+    return {"status": "rebuilt", "year": year, "month": month}

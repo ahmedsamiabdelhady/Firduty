@@ -1,32 +1,31 @@
 # ── Web Framework ─────────────────────────────────────────────────────────────
-fastapi
-uvicorn[standard]
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
 
 # ── Database ──────────────────────────────────────────────────────────────────
-SQLAlchemy
-psycopg2-binary
+SQLAlchemy>=2.0.0
+psycopg2-binary>=2.9.0
+
+# ── Migrations ────────────────────────────────────────────────────────────────
+alembic>=1.13.0
 
 # ── Authentication ────────────────────────────────────────────────────────────
-python-jose[cryptography]
-passlib[bcrypt]
-python-multipart
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+python-multipart>=0.0.9        # required for OAuth2 form body (Swagger Authorize)
 
 # ── Validation ────────────────────────────────────────────────────────────────
-pydantic[email]
+pydantic[email]>=2.0.0         # v2 is required; schemas use from_attributes=True
 
-# ── Firebase / FCM (Android push + Web Push via Firebase Web SDK) ─────────────
-# firebase-admin delivers notifications to:
-#   - Android: via FCM
-#   - Web/iOS PWA: via FCM web registration tokens (VAPID-based Web Push)
-#     iOS Safari 16.4+ is supported when the PWA is installed via Add to Home Screen
-firebase-admin
+# ── Firebase / FCM ────────────────────────────────────────────────────────────
+firebase-admin>=6.0.0
 
 # ── Timezone ──────────────────────────────────────────────────────────────────
-pytz
+pytz>=2023.3
 
 # ── Scheduler ─────────────────────────────────────────────────────────────────
-apscheduler
+apscheduler>=3.10.0
 
 # ── Utilities ─────────────────────────────────────────────────────────────────
-python-dotenv
-aiofiles
+python-dotenv>=1.0.0
+aiofiles>=23.0.0
