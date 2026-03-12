@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Firduty — Teacher Approval</title>
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    .teachers-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+    }
+    .teachers-toolbar h2 {
+      flex: 1;
+      font-size: 1.1rem;
+      color: var(--text);
+    }
+    .badge {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 12px;
+      font-size: 0.78rem;
+      font-weight: 600;
+    }
+    .badge-pending  { background: #fff3cd; color: #856404; }
+    .badge-approved { background: #d1e7dd; color: #0a5c36; }
+    .teacher-table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--white);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .teacher-table th {
+      background: var(--primary);
+      color: var(--white);
+      padding: 12px 16px;
+      text-align: start;
+      font-weight: 600;
+      font-size: 0.85rem;
+    }
+    .teacher-table td {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.9rem;
+      vertical-align: middle;
+    }
+    .teacher-table tr:last-child td { border-bottom: none; }
+    .teacher-table tr:hover td     { background: #f8f9fa; }
+    .empty-state {
+      text-align: center;
+      padding: 48px 24px;
+      color: var(--text-muted);
+    }
+    .empty-state .empty-icon { font-size: 3rem; margin-bottom: 12px; }
+    .tabs {
+      display: flex;
+      gap: 4px;
+      border-bottom: 2px solid var(--border);
+      margin-bottom: 20px;
+    }
+    .tab-btn {
+      padding: 8px 20px;
+      border: none;
+      background: none;
+      cursor: pointer;
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      border-bottom: 3px solid transparent;
+      margin-bottom: -2px;
+      transition: color .15s, border-color .15s;
+    }
+    .tab-btn.active {
+      color: var(--primary);
+      border-bottom-color: var(--primary);
+      font-weight: 600;
+    }
+    #pendingCount {
+      background: var(--danger);
+      color: #fff;
+      border-radius: 10px;
+      padding: 1px 7px;
+      font-size: 0.75rem;
+      margin-inline-start: 6px;
+    }
+
+    /* ── Nav bar (same as dashboard.html; not in global style.css) ── */
+    .nav-bar {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+    }
+    .nav-btn {
+      padding: 6px 16px;
+      border-radius: var(--radius);
+      font-size: 0.88rem;
+      text-decoration: none;
+      background: var(--secondary);
+      color: var(--text);
+      border: 1px solid var(--border);
+      cursor: pointer;
+    }
+    .nav-btn.active, .nav-btn:hover { background: var(--primary); color: #fff; border-color: var(--primary); }
+  </style>
+</head>
+<body>
+
+<header class="app-header">
+  <h1 data-i18n="app_title">Firduty</h1>
+  <div class="header-actions">
+    <button class="btn btn-lang btn-sm" onclick="I18N.toggle().then(()=>location.reload())">عربي | EN</button>
+    <button class="btn btn-lang btn-sm" onclick="logout()" data-i18n="logout">Logout</button>
+  </div>
+</header>
+
+<main class="main-content">
+
+  <!-- Navigation -->
+  <div class="nav-bar">
+    <a class="nav-btn" href="dashboard.html" data-i18n="dashboard">Dashboard</a>
+    <a class="nav-btn" href="planner.html" data-i18n="week_planner">Week Planner</a>
+    <a class="nav-btn" href="reports.html" data-i18n="monthly_report">Monthly Report</a>
+    <a class="nav-btn active" href="teachers.html" data-i18n="teacher_approval">Teachers</a>
+  </div>
+
+  <!-- Toolbar -->
+  <div class="teachers-toolbar">
+    <h2 data-i18n="teacher_approval">Teacher Approval</h2>
+    <button class="btn btn-success btn-sm" id="approveAllBtn" onclick="approveAll()" data-i18n="approve_all">
+      Approve All Pending
+    </button>
+    <button class="btn btn-secondary btn-sm" onclick="loadAll()" data-i18n="refresh">Refresh</button>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab-btn active" id="tabPending" onclick="showTab('pending')" data-i18n="tab_pending">
+      Pending<span id="pendingCount" style="display:none"></span>
+    </button>
+    <button class="tab-btn" id="tabAll" onclick="showTab('all')" data-i18n="tab_all_teachers">All Teachers</button>
+  </div>
+
+  <!-- Alert -->
+  <div id="alertMsg" class="alert" style="display:none;margin-bottom:16px"></div>
+
+  <!-- Tables -->
+  <div id="pendingSection">
+    <div id="pendingLoading" style="text-align:center;padding:32px">
+      <div class="spinner"></div>
+    </div>
+    <div id="pendingTableWrap"></div>
+  </div>
+
+  <div id="allSection" style="display:none">
+    <div id="allLoading" style="text-align:center;padding:32px">
+      <div class="spinner"></div>
+    </div>
+    <div id="allTableWrap"></div>
+  </div>
+
+</main>
+
+<script src="js/i18n.js"></script>
+<script src="js/teachers.js"></script>
+<script>
+  if (!localStorage.getItem('firduty_token')) { window.location.href = 'login.html'; }
+  I18N.load(localStorage.getItem('firduty_lang') || 'ar').then(() => {
+    loadAll();
+  });
+</script>
+</body>
+</html>

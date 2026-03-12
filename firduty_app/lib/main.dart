@@ -1,11 +1,19 @@
 // main.dart — Firduty Flutter App entry point
+//
+// Platform support:
+//   Android  — native APK, FCM push notifications
+//   Web/PWA  — Flutter web build, runs on any browser including iOS Safari
+//
+// dart:io is NOT imported here — it is unavailable on Flutter Web.
+// Platform detection uses kIsWeb from flutter/foundation.dart.
 
-import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'firebase_options.dart';
 import 'screens/teacher_select_screen.dart' show RegistrationScreen;
 import 'screens/pending_screen.dart';
 import 'screens/today_screen.dart';
@@ -18,7 +26,9 @@ import 'app_theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
   runApp(const FirdutyApp());
 }
 
@@ -44,12 +54,10 @@ class _FirdutyAppState extends State<FirdutyApp> {
     if (savedLang != null) {
       setState(() => _locale = Locale(savedLang));
     } else {
-      final deviceLang = Platform.localeName.split('_').first;
-      final lang = ['ar', 'en'].contains(deviceLang) ? deviceLang : 'ar';
-      setState(() => _locale = Locale(lang));
+      // Default to Arabic (the school's primary language).
+      // Users can switch via the language toggle at any time.
+      setState(() => _locale = const Locale('ar'));
     }
-    // Note: notification initialisation is intentionally deferred to StartupScreen
-    // so it only runs after account approval is confirmed.
   }
 
   void _changeLocale(Locale locale) async {
@@ -101,9 +109,7 @@ class _FirdutyAppState extends State<FirdutyApp> {
   }
 }
 
-// ─── Startup Screen ─────────────────────────────────────────────────────────
-// Shown on every launch. Reads local state and checks the backend,
-// then redirects to /register, /pending, or /home.
+// ─── Startup Screen ──────────────────────────────────────────────────────────
 
 class StartupScreen extends StatefulWidget {
   final void Function(Locale) onLocaleChange;
@@ -117,7 +123,6 @@ class _StartupScreenState extends State<StartupScreen> {
   @override
   void initState() {
     super.initState();
-    // Defer past the first frame so BuildContext / Navigator are ready
     WidgetsBinding.instance.addPostFrameCallback((_) => _route());
   }
 
@@ -126,20 +131,19 @@ class _StartupScreenState extends State<StartupScreen> {
     final teacherId = prefs.getInt('teacher_id');
 
     if (teacherId == null) {
-      // No local identity → show registration
       if (!mounted) return;
       Navigator.pushReplacementNamed(context, '/register');
       return;
     }
 
-    // Local identity exists → verify with backend
     try {
       final result = await ApiService.getTeacherStatus(teacherId);
       final status = result['status'] as String;
 
       if (status == 'approved') {
-        // Init notifications only for approved teachers
-        final platform = Platform.isIOS ? 'ios' : 'android';
+        // 'web' covers iOS PWA and desktop browser.
+        // 'android' covers native Android app.
+        final platform = kIsWeb ? 'web' : 'android';
         await NotificationService.initialize(
           teacherId: teacherId,
           platform: platform,
@@ -151,13 +155,11 @@ class _StartupScreenState extends State<StartupScreen> {
         Navigator.pushReplacementNamed(context, '/pending');
       }
     } catch (e) {
-      // 404 = teacher record deleted remotely; clear local state
       if (e.toString().contains('404')) {
         await prefs.remove('teacher_id');
         if (!mounted) return;
         Navigator.pushReplacementNamed(context, '/register');
       } else {
-        // Network error — fall through to pending screen; it has a retry button
         if (!mounted) return;
         Navigator.pushReplacementNamed(context, '/pending');
       }
@@ -184,7 +186,7 @@ class _StartupScreenState extends State<StartupScreen> {
   }
 }
 
-// ─── Home Screen — 3 tabs ──────────────────────────────────────────────────────
+// ─── Home Screen — 3 tabs ─────────────────────────────────────────────────────
 
 class HomeScreen extends StatefulWidget {
   final void Function(Locale) onLocaleChange;
@@ -207,7 +209,6 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final isAr = Localizations.localeOf(context).languageCode == 'ar';
-
     final titles = [l10n.todayDuties, l10n.weekDuties, l10n.myPoints];
 
     return Scaffold(

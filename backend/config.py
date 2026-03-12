@@ -16,12 +16,9 @@ load_dotenv()
 
 class Settings:
     # ── Database ───────────────────────────────────────────────────────────────
-    # Full PostgreSQL connection string.
-    # Supabase example:
-    #   postgresql://postgres:PASSWORD@db.xxxx.supabase.co:5432/postgres
     DATABASE_URL: str = os.getenv(
         "DATABASE_URL",
-        "postgresql://postgres:[YOUR-PASSWORD]@db.[YOUR-PROJECT-REF].supabase.co:5432/postgres"   # Safe local fallback — never used in production
+        "sqlite:///./firduty.db"   # Safe local fallback — never used in production
     )
 
     # ── JWT ────────────────────────────────────────────────────────────────────
@@ -33,19 +30,37 @@ class Settings:
     ADMIN_USERNAME: str = os.getenv("ADMIN_USERNAME", "admin")
     ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "admin123")
 
-    # ── Firebase ───────────────────────────────────────────────────────────────
+    # ── Firebase / FCM (Android + Web Push via Firebase) ──────────────────────
+    # Path to your downloaded Firebase service account JSON file.
     FIREBASE_CREDENTIALS_PATH: str = os.getenv(
         "FIREBASE_CREDENTIALS_PATH", "./firebase-credentials.json"
     )
 
+    # ── VAPID Keys (Web Push — iOS PWA + desktop browsers) ───────────────────
+    # Used by pywebpush to sign web push requests.
+    # Generation (run once, store the output in your env):
+    #
+    #   pip install py-vapid
+    #   vapid --gen
+    #   # Outputs vapid_private.pem and vapid_public.pem
+    #
+    # Or generate programmatically:
+    #   from py_vapid import Vapid
+    #   v = Vapid(); v.generate_keys()
+    #   print("Private:", v.private_key)   # base64url
+    #   print("Public:", v.public_key)     # base64url — also set in firebase_options.dart
+    #
+    # VAPID_PUBLIC_KEY must also be set in flutter_app/lib/firebase_options.dart
+    # as kVapidPublicKey for the Flutter app to request the correct web push token.
+    VAPID_PRIVATE_KEY: str = os.getenv("VAPID_PRIVATE_KEY", "")
+    VAPID_PUBLIC_KEY: str  = os.getenv("VAPID_PUBLIC_KEY", "")
+    # Contact email shown in VAPID claims (required by push services)
+    VAPID_CONTACT_EMAIL: str = os.getenv("VAPID_CONTACT_EMAIL", "admin@yourschool.com")
+
     # ── Server ─────────────────────────────────────────────────────────────────
-    # PORT is injected automatically by Koyeb. Default to 8000 for local dev.
     PORT: int = int(os.getenv("PORT", "8000"))
 
     # ── CORS ───────────────────────────────────────────────────────────────────
-    # Comma-separated list of allowed origins.
-    # Example: https://admin.yourschool.com,https://yourschool.com
-    # Defaults to "*" for local dev. Always set this explicitly in production.
     ALLOWED_ORIGINS: list[str] = [
         o.strip()
         for o in os.getenv("ALLOWED_ORIGINS", "*").split(",")
@@ -53,8 +68,6 @@ class Settings:
     ]
 
     # ── Scheduler ─────────────────────────────────────────────────────────────
-    # Set RUN_SCHEDULER=false to disable the background scheduler on a specific
-    # instance (e.g. worker-only replicas). Default: "true" → starts on boot.
     RUN_SCHEDULER: str = os.getenv("RUN_SCHEDULER", "true")
 
     # ── App ────────────────────────────────────────────────────────────────────

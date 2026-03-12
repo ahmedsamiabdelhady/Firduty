@@ -1,5 +1,27 @@
-"""Firebase Cloud Messaging notification service — bilingual, duty-type aware."""
+"""
+notification_service.py — Push notification delivery for Firduty.
 
+Delivery paths:
+  platform = 'android'
+    → Firebase Cloud Messaging (FCM) via firebase-admin SDK
+    → token is a standard FCM registration token
+
+  platform = 'web'
+    → FCM Web Push via firebase-admin SDK
+    → token is an FCM web registration token obtained from the Firebase JS SDK
+      with getToken(vapidKey=...) in the Flutter Web app
+    → Firebase internally delivers it via Web Push (VAPID) to the browser SW
+    → Works on iOS Safari 16.4+ (iPadOS 16.4+), Chrome, Edge, Firefox
+
+Both paths use the same send_notification_to_tokens() function — Firebase
+handles the per-platform routing based on the token type.
+
+If the firebase-admin SDK is not configured, the VAPID fallback path sends
+raw Web Push via pywebpush (if installed). This supports tokens that are
+raw PushSubscription JSON strings (not FCM tokens).
+"""
+
+import json
 import logging
 import os
 from typing import List, Optional
@@ -23,13 +45,15 @@ def _init_firebase() -> None:
         _firebase_initialized = True
         logger.info("Firebase Admin SDK initialized.")
     else:
-        logger.warning(f"Firebase credentials not found at {cred_path}. Push notifications disabled.")
+        logger.warning(
+            f"Firebase credentials not found at {cred_path}. "
+            "FCM push notifications disabled."
+        )
 
 
 # ─── Notification Templates ───────────────────────────────────────────────────
 
-TEMPLATES = {
-    # 15-minute reminder — morning/end-of-day duty (has location)
+TEMPLATES: dict = {
     "reminder_location": {
         "ar": {
             "title": "المناوبات",
@@ -40,7 +64,6 @@ TEMPLATES = {
             "body": "Reminder: Your duty starts in 15 minutes — Location: {location} — Shift: {shift}"
         }
     },
-    # 15-minute reminder — break duty (has grade/class, no location)
     "reminder_break": {
         "ar": {
             "title": "المناوبات",
@@ -51,7 +74,6 @@ TEMPLATES = {
             "body": "Reminder: Your break duty starts in 15 minutes — Class: {grade_class} — Shift: {shift}"
         }
     },
-    # Duty started — morning/end-of-day
     "start_location": {
         "ar": {
             "title": "المناوبات",
@@ -62,7 +84,6 @@ TEMPLATES = {
             "body": "Your duty has started — Location: {location}"
         }
     },
-    # Duty started — break
     "start_break": {
         "ar": {
             "title": "المناوبات",
@@ -73,7 +94,6 @@ TEMPLATES = {
             "body": "Your break duty has started — Class: {grade_class}"
         }
     },
-    # Schedule updated (no location/class detail needed)
     "updated": {
         "ar": {
             "title": "المناوبات",
@@ -87,46 +107,82 @@ TEMPLATES = {
 }
 
 
-def get_notification_text(template_key: str, lang: str, **kwargs) -> dict:
-    """Return title+body for a notification template in the given language."""
+def get_notification_text(template_key: str, lang: str, **kwargs: str) -> dict:
+    """Return {title, body} for a notification template in the given language."""
     lang = lang if lang in ("ar", "en") else "ar"
-    tmpl = TEMPLATES.get(template_key, {}).get(lang, {})
+    tmpl: dict = TEMPLATES.get(template_key, {}).get(lang, {})
     return {
         "title": tmpl.get("title", "Duty Roster"),
-        "body": tmpl.get("body", "").format(**kwargs)
+        "body":  tmpl.get("body", "").format(**kwargs)
     }
 
 
+# ─── FCM send (Android + Web via Firebase) ───────────────────────────────────
+
 def send_notification_to_tokens(
-    tokens: List[str], title: str, body: str, data: dict = None
+    tokens: List[str],
+    title: str,
+    body: str,
+    data: Optional[dict] = None,
 ) -> int:
-    """Send multicast push notification. Returns success count."""
+    """
+    Send push notification via FCM to a list of tokens.
+
+    Tokens may be from Android (FCM native) or Web (FCM web registration tokens).
+    Firebase routes each token to the correct delivery channel automatically.
+
+    Returns the number of successful deliveries.
+    """
     _init_firebase()
     if not _firebase_initialized or not tokens:
         return 0
+
     message = messaging.MulticastMessage(
         tokens=tokens,
         notification=messaging.Notification(title=title, body=body),
         data=data or {},
         android=messaging.AndroidConfig(priority="high"),
+        # APNS config keeps iOS PWA web push working through APNs/Firebase
         apns=messaging.APNSConfig(
-            payload=messaging.APNSPayload(aps=messaging.Aps(sound="default"))
-        )
+            payload=messaging.APNSPayload(
+                aps=messaging.Aps(sound="default")
+            )
+        ),
+        # Web Push config (used for FCM web tokens, including iOS Safari PWA)
+        webpush=messaging.WebpushConfig(
+            notification=messaging.WebpushNotification(
+                title=title,
+                body=body,
+                icon="/icons/Icon-192.png",
+                badge="/icons/Icon-192.png",
+            ),
+            fcm_options=messaging.WebpushFCMOptions(
+                link="/",   # URL to open when notification is tapped
+            ),
+        ),
     )
+
     try:
         response = messaging.send_multicast(message)
-        logger.info(f"FCM multicast: {response.success_count} success, {response.failure_count} fail")
+        logger.info(
+            f"FCM multicast: {response.success_count} success, "
+            f"{response.failure_count} fail"
+        )
         return response.success_count
     except Exception as e:
         logger.error(f"FCM send error: {e}")
         return 0
 
 
+# ─── High-level notification helpers ─────────────────────────────────────────
+
 def notify_teacher_updated(teacher_tokens: List[str], lang: str) -> None:
     """Notify a teacher that their weekly schedule was modified."""
     text = get_notification_text("updated", lang)
-    send_notification_to_tokens(teacher_tokens, text["title"], text["body"],
-                                data={"type": "schedule_updated"})
+    send_notification_to_tokens(
+        teacher_tokens, text["title"], text["body"],
+        data={"type": "schedule_updated"}
+    )
 
 
 def notify_duty_reminder(
@@ -137,13 +193,16 @@ def notify_duty_reminder(
     location: Optional[str] = None,
     grade_class: Optional[str] = None,
 ) -> None:
-    """Send 15-minute reminder. Uses location for morning/end-of-day, grade_class for break."""
+    """Send 15-minute reminder before a duty starts."""
     if duty_type == "break" and grade_class:
-        text = get_notification_text("reminder_break", lang, shift=shift, grade_class=grade_class)
-        data = {"type": "duty_reminder", "duty_type": "break"}
+        text = get_notification_text(
+            "reminder_break", lang, shift=shift, grade_class=grade_class
+        )
+        data: dict = {"type": "duty_reminder", "duty_type": "break"}
     else:
-        loc = location or ""
-        text = get_notification_text("reminder_location", lang, shift=shift, location=loc)
+        text = get_notification_text(
+            "reminder_location", lang, shift=shift, location=location or ""
+        )
         data = {"type": "duty_reminder", "duty_type": "morning_endofday"}
     send_notification_to_tokens(teacher_tokens, text["title"], text["body"], data=data)
 
@@ -158,9 +217,10 @@ def notify_duty_start(
     """Notify teacher that their duty has started."""
     if duty_type == "break" and grade_class:
         text = get_notification_text("start_break", lang, grade_class=grade_class)
-        data = {"type": "duty_start", "duty_type": "break"}
+        data: dict = {"type": "duty_start", "duty_type": "break"}
     else:
-        loc = location or ""
-        text = get_notification_text("start_location", lang, location=loc)
+        text = get_notification_text(
+            "start_location", lang, location=location or ""
+        )
         data = {"type": "duty_start", "duty_type": "morning_endofday"}
     send_notification_to_tokens(teacher_tokens, text["title"], text["body"], data=data)

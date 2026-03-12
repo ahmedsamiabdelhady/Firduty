@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <!--
+    ─── Firduty Web App ────────────────────────────────────────────────────────
+    Generated for Flutter Web + iOS PWA support.
+    
+    iOS PWA Requirements (Safari "Add to Home Screen"):
+    • apple-mobile-web-app-capable       — full-screen mode
+    • apple-mobile-web-app-status-bar    — status bar styling
+    • apple-touch-icon                   — home screen icon
+    • apple-mobile-web-app-title         — name shown under icon
+    ───────────────────────────────────────────────────────────────────────── -->
+
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=Edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+
+  <!-- ── PWA / Theme ─────────────────────────────────────────────────────── -->
+  <meta name="theme-color" content="#2E7DA7">
+  <meta name="description" content="Firduty — School Duty Roster Management">
+
+  <!-- ── iOS PWA (Safari "Add to Home Screen") ───────────────────────────── -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Firduty">
+  <link rel="apple-touch-icon" sizes="192x192" href="icons/Icon-192.png">
+  <link rel="apple-touch-icon" sizes="512x512" href="icons/Icon-512.png">
+
+  <!-- iOS Splash Screens (iPhone common sizes) -->
+  <!-- These are optional but improve the launch experience. -->
+  <!-- Generate from Icon-512.png using a tool like PWACompat or Maskable.app -->
+
+  <!-- ── Standard Icons / Manifest ───────────────────────────────────────── -->
+  <link rel="icon" type="image/png" sizes="32x32"  href="icons/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16"  href="icons/favicon-16x16.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/Icon-192.png">
+  <link rel="manifest" href="manifest.json">
+
+  <title>Firduty</title>
+
+  <!-- ── Flutter engine bootstrap ────────────────────────────────────────── -->
+  <script>
+    // The value below is injected by flutter build, do not change.
+    const serviceWorkerVersion = null;
+  </script>
+  <script src="flutter.js" defer></script>
+
+  <!-- ── PWA install helper (iOS) ────────────────────────────────────────── -->
+  <style>
+    /* Hide the default browser install banner on iOS Safari — 
+       we show our own install prompt instead. */
+    body { margin: 0; background-color: #2E7DA7; }
+
+    #pwa-install-banner {
+      display: none;
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      background: #1F2D3A;
+      color: #fff;
+      padding: 14px 16px 20px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 14px;
+      z-index: 9999;
+      border-radius: 16px 16px 0 0;
+      box-shadow: 0 -4px 24px rgba(0,0,0,0.3);
+    }
+    #pwa-install-banner .banner-row {
+      display: flex; align-items: center; gap: 12px; margin-bottom: 10px;
+    }
+    #pwa-install-banner img { width: 44px; height: 44px; border-radius: 10px; }
+    #pwa-install-banner strong { display: block; font-size: 15px; }
+    #pwa-install-banner span { color: #aaa; font-size: 13px; }
+    #pwa-install-banner .btn-row {
+      display: flex; gap: 8px; justify-content: flex-end;
+    }
+    #pwa-install-banner button {
+      padding: 8px 20px; border-radius: 8px; border: none;
+      font-size: 14px; cursor: pointer; font-weight: 600;
+    }
+    #btn-install-dismiss { background: #3a4a5a; color: #fff; }
+    #btn-install-confirm { background: #7FB33F; color: #fff; }
+  </style>
+</head>
+<body>
+
+  <!-- ── iOS Install Banner ─────────────────────────────────────────────── -->
+  <!-- Shown on iOS Safari when the app is not yet installed as a PWA.     -->
+  <div id="pwa-install-banner">
+    <div class="banner-row">
+      <img src="icons/Icon-192.png" alt="Firduty">
+      <div>
+        <strong>Firduty — المناوبات</strong>
+        <span>أضف إلى الشاشة الرئيسية للحصول على أفضل تجربة</span>
+      </div>
+    </div>
+    <div class="banner-row" style="font-size:13px;color:#aaa;margin-bottom:6px">
+      اضغط على <strong style="color:#fff">مشاركة ⬆</strong> ثم اختر
+      <strong style="color:#fff">"إضافة إلى الشاشة الرئيسية"</strong>
+    </div>
+    <div class="btn-row">
+      <button id="btn-install-dismiss">لاحقاً</button>
+    </div>
+  </div>
+
+  <script>
+    // ── iOS PWA Install Banner ──────────────────────────────────────────────
+    // Safari does not fire the 'beforeinstallprompt' event.
+    // Instead, detect iOS + not-in-standalone and show instructions.
+    (function () {
+      const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
+      const isInStandalone = ('standalone' in window.navigator) && window.navigator.standalone;
+      const dismissed = sessionStorage.getItem('pwa_banner_dismissed');
+
+      if (isIos && !isInStandalone && !dismissed) {
+        document.getElementById('pwa-install-banner').style.display = 'block';
+      }
+
+      document.getElementById('btn-install-dismiss').addEventListener('click', function () {
+        sessionStorage.setItem('pwa_banner_dismissed', '1');
+        document.getElementById('pwa-install-banner').style.display = 'none';
+      });
+    })();
+
+    // ── Android / Chrome install prompt ────────────────────────────────────
+    let _deferredPrompt = null;
+    window.addEventListener('beforeinstallprompt', function (e) {
+      e.preventDefault();
+      _deferredPrompt = e;
+      // Flutter app can call window.triggerInstallPrompt() to show it
+    });
+    window.triggerInstallPrompt = function () {
+      if (_deferredPrompt) {
+        _deferredPrompt.prompt();
+        _deferredPrompt.userChoice.then(function () { _deferredPrompt = null; });
+      }
+    };
+
+    // ── Service Worker registration ─────────────────────────────────────────
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function () {
+        // Firebase Messaging SW (handles background push notifications)
+        navigator.serviceWorker.register('firebase-messaging-sw.js', { scope: '/' })
+          .then(function (reg) {
+            console.log('[SW] firebase-messaging-sw registered, scope:', reg.scope);
+          })
+          .catch(function (err) {
+            console.warn('[SW] firebase-messaging-sw registration failed:', err);
+          });
+      });
+    }
+
+    // ── Flutter bootstrap ───────────────────────────────────────────────────
+    window.addEventListener('load', function () {
+      _flutter.loader.loadEntrypoint({
+        serviceWorker: {
+          serviceWorkerVersion: serviceWorkerVersion,
+        },
+        onEntrypointLoaded: function (engineInitializer) {
+          engineInitializer.initializeEngine().then(function (appRunner) {
+            appRunner.runApp();
+          });
+        }
+      });
+    });
+  </script>
+</body>
+</html>

@@ -8,12 +8,17 @@ Duty types (Shift.duty_type):
 Teacher registration status (Teacher.status):
   - 'pending'  : Self-registered, awaiting admin approval
   - 'approved' : Admin-approved, can access the duty system
+
+DeviceToken.platform values:
+  - 'android' : Native Android app — token is an FCM registration token
+  - 'web'     : Flutter Web / iOS PWA — token is an FCM web registration token
+                (obtained via getToken(vapidKey=...) in the Firebase Web SDK)
 """
 
 from datetime import datetime
 from sqlalchemy import (
-    Column, Integer, String, Boolean, DateTime, Date, Time,
-    ForeignKey, Text, Enum as SAEnum, UniqueConstraint, Index
+    Column, Integer, String, Boolean, DateTime, Date, Time, Text,
+    ForeignKey, Enum as SAEnum, UniqueConstraint, Index
 )
 from sqlalchemy.orm import relationship
 from database import Base
@@ -36,10 +41,7 @@ class Teacher(Base):
     __tablename__ = "teachers"
     id                 = Column(Integer, primary_key=True, index=True)
     name               = Column(String(200), nullable=False)
-    # email is unique when set; NULL allowed for pre-existing admin-created records
     email              = Column(String(255), unique=True, nullable=True, index=True)
-    # status: 'pending' = self-registered awaiting approval, 'approved' = active user
-    # Default is 'approved' so existing admin-created teachers are never blocked
     status             = Column(
         SAEnum("pending", "approved", name="teacher_status_enum"),
         nullable=False,
@@ -57,11 +59,23 @@ class Teacher(Base):
 
 
 class DeviceToken(Base):
+    """
+    Stores push notification tokens for a teacher.
+
+    platform = 'android'
+        token = FCM registration token (standard string)
+
+    platform = 'web'
+        token = FCM web registration token obtained via
+                firebase_messaging.getToken(vapidKey=...) in the Flutter Web app.
+                The Firebase backend delivers this via Web Push (VAPID) to the
+                browser's service worker.
+    """
     __tablename__ = "device_tokens"
     id         = Column(Integer, primary_key=True, index=True)
     teacher_id = Column(Integer, ForeignKey("teachers.id"), nullable=False)
     token      = Column(String(500), nullable=False, unique=True)
-    platform   = Column(String(10), nullable=False)
+    platform   = Column(String(10), nullable=False)   # 'android' | 'web'
     updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
     teacher    = relationship("Teacher", back_populates="device_tokens")
 
@@ -121,15 +135,11 @@ class DayPlan(Base):
 
 
 class ShiftLocation(Base):
-    """
-    Shift + location (or no location for break duties) within a day.
-    location_id is NULL for break duties.
-    """
     __tablename__ = "shift_locations"
     id          = Column(Integer, primary_key=True, index=True)
     day_plan_id = Column(Integer, ForeignKey("day_plans.id"),  nullable=False)
     shift_id    = Column(Integer, ForeignKey("shifts.id"),     nullable=False)
-    location_id = Column(Integer, ForeignKey("locations.id"),  nullable=True)   # NULL for break duties
+    location_id = Column(Integer, ForeignKey("locations.id"),  nullable=True)
     slots_count = Column(Integer, default=1)
     order       = Column(Integer, default=0)
     day_plan    = relationship("DayPlan",    back_populates="shift_locations")
@@ -140,16 +150,12 @@ class ShiftLocation(Base):
 
 
 class Assignment(Base):
-    """
-    A duty slot assigned to a teacher.
-    grade_class is populated for break duties; location comes from ShiftLocation for morning/end-of-day.
-    """
     __tablename__ = "assignments"
     id                = Column(Integer, primary_key=True, index=True)
     shift_location_id = Column(Integer, ForeignKey("shift_locations.id"), nullable=False)
     slot_index        = Column(Integer, nullable=False)
     teacher_id        = Column(Integer, ForeignKey("teachers.id"), nullable=True)
-    grade_class       = Column(String(100), nullable=True)   # e.g. "Grade 5A" — break duties only
+    grade_class       = Column(String(100), nullable=True)
     shift_location = relationship("ShiftLocation",   back_populates="assignments")
     teacher        = relationship("Teacher",          back_populates="assignments")
     confirmation   = relationship("DutyConfirmation", back_populates="assignment",

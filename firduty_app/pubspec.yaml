@@ -1,7 +1,7 @@
 name: firduty
-description: Firduty Teacher Duty Roster App
+description: Firduty Teacher Duty Roster App — Android native + Web PWA (iOS Safari)
 publish_to: 'none'
-version: 1.0.0+1
+version: 2.3.0+3
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -20,17 +20,16 @@ dependencies:
   # Local storage
   shared_preferences: ^2.2.3
 
-  # Firebase
+  # Firebase — supports Android (native) and Web (FCM web push / iOS Safari PWA)
   firebase_core: ^2.30.1
   firebase_messaging: ^14.9.4
 
-  # Local notification display (foreground messages)
+  # Local notification display — Android only.
+  # Guarded with kIsWeb in notification_service.dart (not invoked on web).
   flutter_local_notifications: ^17.2.2
 
   # Internationalisation utilities (DateFormat etc.)
   # Must be ^0.20.2 — flutter_localizations (SDK) pins intl to 0.20.2.
-  # Using ^0.19.0 causes version-solving failure because the SDK constraint
-  # requires exactly 0.20.2 which is outside the ^0.19.0 range.
   intl: ^0.20.2
 
 dev_dependencies:

@@ -1,12 +1,15 @@
 // pending_screen.dart — Shown after registration while awaiting admin approval.
+//
+// dart:io removed — Platform is unavailable on Flutter Web.
+// kIsWeb (flutter/foundation.dart) is used for platform detection instead.
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../services/notification_service.dart';
 import '../gen/app_localizations.dart';
 import '../app_theme.dart';
-import 'dart:io';
 
 class PendingScreen extends StatefulWidget {
   final void Function(Locale) onLocaleChange;
@@ -22,7 +25,10 @@ class _PendingScreenState extends State<PendingScreen> {
 
   /// Poll the backend; if approved, init notifications and go to /home.
   Future<void> _checkStatus() async {
-    setState(() { _checking = true; _errorMsg = null; });
+    setState(() {
+      _checking = true;
+      _errorMsg = null;
+    });
 
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -36,8 +42,8 @@ class _PendingScreenState extends State<PendingScreen> {
       final status = result['status'] as String;
 
       if (status == 'approved') {
-        // Initialize push notifications now that the account is active
-        final platform = Platform.isIOS ? 'ios' : 'android';
+        // 'web' for iOS PWA and desktop browser; 'android' for native APK.
+        final platform = kIsWeb ? 'web' : 'android';
         await NotificationService.initialize(
           teacherId: teacherId,
           platform: platform,
@@ -45,11 +51,9 @@ class _PendingScreenState extends State<PendingScreen> {
         if (!mounted) return;
         Navigator.pushReplacementNamed(context, '/home');
       } else {
-        // Still pending
-        setState(() { _checking = false; });
+        setState(() => _checking = false);
       }
     } catch (e) {
-      // 404 means the record was deleted — send them back to register
       final msg = e.toString();
       if (msg.contains('404') || msg.contains('not found')) {
         final prefs = await SharedPreferences.getInstance();
@@ -74,24 +78,25 @@ class _PendingScreenState extends State<PendingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final l10n  = AppLocalizations.of(context);
-    final theme = Theme.of(context);
-    final isAr  = Localizations.localeOf(context).languageCode == 'ar';
+    final l10n = AppLocalizations.of(context);
+    final isAr = Localizations.localeOf(context).languageCode == 'ar';
 
     return Scaffold(
       appBar: AppBar(
         title: Text(l10n.appTitle),
         centerTitle: true,
-        backgroundColor: theme.primaryColor,
+        backgroundColor: FirdutyColors.navBlue,
         foregroundColor: Colors.white,
         actions: [
           TextButton(
             onPressed: () {
-              widget.onLocaleChange(isAr ? const Locale('en') : const Locale('ar'));
+              widget.onLocaleChange(
+                  isAr ? const Locale('en') : const Locale('ar'));
             },
             child: Text(
               isAr ? 'EN' : 'عربي',
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              style: const TextStyle(
+                  color: Colors.white, fontWeight: FontWeight.bold),
             ),
           ),
         ],
@@ -102,7 +107,6 @@ class _PendingScreenState extends State<PendingScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // Icon
               Container(
                 width: 88,
                 height: 88,
@@ -117,24 +121,20 @@ class _PendingScreenState extends State<PendingScreen> {
                 ),
               ),
               const SizedBox(height: 24),
-
-              // Title
               Text(
                 l10n.pendingTitle,
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                style: const TextStyle(
+                    fontSize: 20, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 12),
-
-              // Message
               Text(
                 l10n.pendingMessage,
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 15, color: Colors.black54, height: 1.5),
+                style: const TextStyle(
+                    fontSize: 15, color: Colors.black54, height: 1.5),
               ),
               const SizedBox(height: 32),
-
-              // Error
               if (_errorMsg != null) ...[
                 Container(
                   padding: const EdgeInsets.all(12),
@@ -151,25 +151,23 @@ class _PendingScreenState extends State<PendingScreen> {
                 ),
                 const SizedBox(height: 16),
               ],
-
-              // Check status button
               FilledButton.icon(
                 onPressed: _checking ? null : _checkStatus,
                 icon: _checking
                     ? const SizedBox(
                         width: 18,
                         height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white),
                       )
                     : const Icon(Icons.refresh_rounded),
                 label: Text(l10n.checkStatus),
                 style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
                 ),
               ),
               const SizedBox(height: 16),
-
-              // Log out / use different account
               TextButton(
                 onPressed: _logout,
                 child: Text(

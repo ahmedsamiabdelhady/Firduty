@@ -14,7 +14,11 @@ python-multipart
 # ── Validation ────────────────────────────────────────────────────────────────
 pydantic[email]
 
-# ── Firebase / Push Notifications ─────────────────────────────────────────────
+# ── Firebase / FCM (Android push + Web Push via Firebase Web SDK) ─────────────
+# firebase-admin delivers notifications to:
+#   - Android: via FCM
+#   - Web/iOS PWA: via FCM web registration tokens (VAPID-based Web Push)
+#     iOS Safari 16.4+ is supported when the PWA is installed via Add to Home Screen
 firebase-admin
 
 # ── Timezone ──────────────────────────────────────────────────────────────────

@@ -71,8 +71,19 @@ class TeacherOut(BaseModel):
 # ─── Device Token ─────────────────────────────────────────────────────────────
 
 class DeviceTokenCreate(BaseModel):
+    """
+    Register a push notification token for a teacher.
+
+    platform = 'android'
+        token = FCM registration token from FirebaseMessaging.getToken() on Android
+
+    platform = 'web'
+        token = FCM web registration token from FirebaseMessaging.getToken(vapidKey=...)
+                in the Flutter Web app. Firebase delivers this via Web Push to the
+                browser's service worker (supports iOS Safari 16.4+).
+    """
     token: str
-    platform: str  # 'android' | 'ios'
+    platform: str   # 'android' | 'web'
 
 
 # ─── Location ─────────────────────────────────────────────────────────────────
@@ -104,9 +115,6 @@ class ShiftCreate(BaseModel):
     start_time: time
     end_time: time
     order: int = 0
-    # duty_type controls teacher-facing display:
-    #   'morning_endofday' → show location
-    #   'break'            → show grade/class
     duty_type: str = "morning_endofday"
 
 class ShiftUpdate(BaseModel):
@@ -136,18 +144,18 @@ class AssignmentOut(BaseModel):
     slot_index: int
     teacher_id: Optional[int]
     teacher_name: Optional[str] = None
-    grade_class: Optional[str] = None   # populated for break duties
+    grade_class: Optional[str] = None
     class Config:
         from_attributes = True
 
 class ShiftLocationOut(BaseModel):
     id: int
     shift_id: int
-    location_id: Optional[int]          # None for break duties
+    location_id: Optional[int]
     slots_count: int
     order: int
     shift: ShiftOut
-    location: Optional[LocationOut]     # None for break duties
+    location: Optional[LocationOut]
     assignments: List[AssignmentOut] = []
     class Config:
         from_attributes = True
@@ -175,21 +183,19 @@ class WeekPlanOut(BaseModel):
 # ─── Week Plan Mutations ──────────────────────────────────────────────────────
 
 class ShiftLocationUpdate(BaseModel):
-    """Update slots_count for a shift+location (or break shift) within a day."""
     day_date: date
     shift_id: int
-    location_id: Optional[int] = None   # None for break duties
+    location_id: Optional[int] = None
     slots_count: int
 
 class AssignmentUpdate(BaseModel):
-    """Assign/unassign a teacher to a specific slot."""
     shift_location_id: int
     slot_index: int
-    teacher_id: Optional[int]           # None = clear slot
-    grade_class: Optional[str] = None   # for break duties only
+    teacher_id: Optional[int]
+    grade_class: Optional[str] = None
 
 class WeekStatusUpdate(BaseModel):
-    status: str  # 'draft' | 'published'
+    status: str   # 'draft' | 'published'
 
 
 # ─── Teacher Schedule ─────────────────────────────────────────────────────────
@@ -201,10 +207,8 @@ class TeacherDutySlot(BaseModel):
     shift_start: time
     shift_end: time
     duty_type: str
-    # morning_endofday duties
     location_name_en: Optional[str] = None
     location_name_ar: Optional[str] = None
-    # break duties
     grade_class: Optional[str] = None
 
 class TeacherScheduleResponse(BaseModel):

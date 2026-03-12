@@ -1,59 +1,90 @@
 /**
- * i18n.js — Internationalization module for Firduty Admin UI
- * Supports: Arabic (ar, RTL) and English (en, LTR)
+ * i18n.js — Bilingual (Arabic / English) runtime language switching.
+ *
+ * Usage:
+ *   I18N.load('ar')          — load a language and apply translations to the DOM
+ *   I18N.getLang()           — returns current language code ('ar' | 'en')
+ *   I18N.t('key')            — return a translated string
+ *
+ * Translations are loaded from:
+ *   i18n/ar.json  (Arabic)
+ *   i18n/en.json  (English)
+ *
+ * HTML elements opt-in to translation via data attributes:
+ *   data-i18n="key"             → element.textContent = I18N.t(key)
+ *   data-i18n-placeholder="key" → element.placeholder  = I18N.t(key)
+ *   data-i18n-title="key"       → element.title        = I18N.t(key)
  */
 
 const I18N = (() => {
-  let currentLang = localStorage.getItem('firduty_lang') || 'ar';
-  let translations = {};
+  let _strings = {};
+  let _lang = 'ar';
 
-  /** Load translation file for the given language */
+  /**
+   * Load a language pack and apply translations to the page.
+   * Persists the selection to localStorage as 'firduty_lang'.
+   * @param {string} lang — 'ar' or 'en'
+   */
   async function load(lang) {
-    const res = await fetch(`/i18n/${lang}.json`);
-    translations = await res.json();
-    currentLang = lang;
-    localStorage.setItem('firduty_lang', lang);
-    applyDirection();
-    applyTranslations();
+    _lang = (lang === 'en') ? 'en' : 'ar';
+    localStorage.setItem('firduty_lang', _lang);
+
+    try {
+      const res = await fetch(`i18n/${_lang}.json?v=${Date.now()}`);
+      if (!res.ok) throw new Error(`Failed to load i18n/${_lang}.json`);
+      _strings = await res.json();
+    } catch (err) {
+      console.warn('[i18n] Could not load language pack:', err);
+      _strings = {};
+    }
+
+    _apply();
   }
 
-  /** Apply RTL/LTR direction to the HTML element */
-  function applyDirection() {
-    document.documentElement.setAttribute('dir', currentLang === 'ar' ? 'rtl' : 'ltr');
-    document.documentElement.setAttribute('lang', currentLang);
+  /**
+   * Return the current language code.
+   * @returns {'ar'|'en'}
+   */
+  function getLang() {
+    return _lang;
   }
 
-  /** Apply translations to all elements with data-i18n attribute */
-  function applyTranslations() {
+  /**
+   * Translate a key. Returns the key itself if not found.
+   * @param {string} key
+   * @returns {string}
+   */
+  function t(key) {
+    return _strings[key] || key;
+  }
+
+  /**
+   * Apply translations to the entire document.
+   * Also sets <html lang> and <html dir> for correct RTL/LTR rendering.
+   */
+  function _apply() {
+    // Set document direction and language
+    document.documentElement.lang = _lang;
+    document.documentElement.dir  = (_lang === 'ar') ? 'rtl' : 'ltr';
+
+    // Translate text content
     document.querySelectorAll('[data-i18n]').forEach(el => {
       const key = el.getAttribute('data-i18n');
-      if (translations[key]) {
-        el.textContent = translations[key];
-      }
+      if (key) el.textContent = t(key);
     });
-    // Also handle placeholders
+
+    // Translate placeholder attributes
     document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
       const key = el.getAttribute('data-i18n-placeholder');
-      if (translations[key]) {
-        el.setAttribute('placeholder', translations[key]);
-      }
+      if (key) el.placeholder = t(key);
+    });
+
+    // Translate title attributes (tooltips)
+    document.querySelectorAll('[data-i18n-title]').forEach(el => {
+      const key = el.getAttribute('data-i18n-title');
+      if (key) el.title = t(key);
     });
   }
 
-  /** Get a translated string */
-  function t(key) {
-    return translations[key] || key;
-  }
-
-  /** Toggle between ar and en */
-  async function toggle() {
-    await load(currentLang === 'ar' ? 'en' : 'ar');
-  }
-
-  /** Get current language */
-  function getLang() {
-    return currentLang;
-  }
-
-  return { load, t, toggle, getLang, applyTranslations };
+  return { load, getLang, t };
 })();

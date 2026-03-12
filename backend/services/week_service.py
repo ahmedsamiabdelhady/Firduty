@@ -237,6 +237,22 @@ def update_assignment(
         assignment = Assignment(shift_location_id=shift_location_id, slot_index=slot_index)
         db.add(assignment)
 
+    # Guard: a teacher may not occupy more than one slot within the same
+    # ShiftLocation (same shift + same day + same time).
+    # They are still free to appear in multiple ShiftLocations across the day/week.
+    if teacher_id is not None:
+        conflict = db.query(Assignment).filter(
+            Assignment.shift_location_id == shift_location_id,
+            Assignment.teacher_id == teacher_id,
+            Assignment.slot_index != slot_index,   # a different slot in the same block
+        ).first()
+        if conflict:
+            raise ValueError(
+                f"Teacher {teacher_id} is already assigned to another slot "
+                f"in the same shift block (shift_location_id={shift_location_id}). "
+                f"A teacher can only cover one slot per shift per day."
+            )
+
     assignment.teacher_id = teacher_id
     assignment.grade_class = grade_class
 

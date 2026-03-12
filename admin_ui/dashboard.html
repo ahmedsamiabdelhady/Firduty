@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Firduty — Dashboard</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">
+  <link rel="apple-touch-icon" sizes="192x192" href="favicon-192x192.png">
+  <style>
+    /* ─── Dashboard-specific styles ───────────────────────────────────────── */
+    .dash-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 14px;
+      margin-bottom: 24px;
+    }
+    .stat-card {
+      background: var(--white);
+      border-radius: var(--radius);
+      padding: 18px 20px;
+      box-shadow: var(--shadow);
+      text-align: center;
+      border-top: 4px solid var(--nav);
+    }
+    .stat-card.green  { border-color: var(--success); }
+    .stat-card.orange { border-color: var(--warning); }
+    .stat-card.red    { border-color: var(--danger);  }
+    .stat-value { font-size: 2rem; font-weight: 700; color: var(--nav); }
+    .stat-card.green  .stat-value { color: var(--success); }
+    .stat-card.orange .stat-value { color: #e65100; }
+    .stat-card.red    .stat-value { color: var(--danger);  }
+    .stat-label { font-size: 0.8rem; color: var(--text-muted); margin-top: 4px; }
+
+    .section-card {
+      background: var(--white);
+      border-radius: var(--radius);
+      padding: 20px;
+      box-shadow: var(--shadow);
+      margin-bottom: 20px;
+    }
+    .section-card h3 {
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--nav);
+      margin-bottom: 14px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .week-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 20px;
+      background: var(--white);
+      padding: 14px 20px;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      flex-wrap: wrap;
+    }
+    .week-header h2 { font-size: 1.1rem; font-weight: 600; margin: 0; }
+
+    .bar-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+      font-size: 0.9rem;
+    }
+    .bar-label { width: 140px; text-align: end; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .bar-track { flex: 1; background: #e9ecef; border-radius: 4px; height: 16px; min-width: 60px; }
+    .bar-fill  { height: 16px; border-radius: 4px; background: var(--primary); transition: width 0.4s; }
+    .bar-fill.break-type { background: #7c3aed; }
+    .bar-count { width: 28px; text-align: start; font-weight: 600; color: var(--text); }
+
+    .warn-list { list-style: none; padding: 0; margin: 0; }
+    .warn-list li {
+      padding: 8px 12px;
+      background: #fff3cd;
+      border-left: 4px solid var(--warning);
+      border-radius: 4px;
+      margin-bottom: 8px;
+      font-size: 0.88rem;
+    }
+    [dir="rtl"] .warn-list li { border-left: none; border-right: 4px solid var(--warning); }
+    .warn-list li.info { background: #e8f4fd; border-color: var(--nav); }
+
+    .teacher-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    .teacher-table th, .teacher-table td {
+      padding: 8px 12px;
+      text-align: start;
+      border-bottom: 1px solid var(--border);
+    }
+    .teacher-table th { font-weight: 600; color: var(--text-muted); font-size: 0.8rem; }
+    .teacher-table tr:last-child td { border-bottom: none; }
+    .rank-badge {
+      display: inline-block;
+      width: 24px; height: 24px;
+      border-radius: 50%;
+      background: var(--primary);
+      color: #fff;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-align: center;
+      line-height: 24px;
+    }
+    .rank-badge.gold   { background: #f59e0b; }
+    .rank-badge.silver { background: #9ca3af; }
+    .rank-badge.bronze { background: #92400e; color: #fff; }
+
+    .no-duty-chip {
+      display: inline-block;
+      background: #fee2e2;
+      color: #b91c1c;
+      border-radius: 12px;
+      padding: 2px 10px;
+      font-size: 0.78rem;
+      margin: 2px;
+    }
+
+    .status-pill {
+      display: inline-block;
+      padding: 3px 12px;
+      border-radius: 12px;
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+    .status-pill.published { background: #d1fae5; color: #065f46; }
+    .status-pill.draft     { background: #fef9c3; color: #92400e; }
+    .status-pill.none      { background: #f3f4f6; color: #6b7280; }
+
+    .type-pill {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 10px;
+      font-size: 0.78rem;
+      font-weight: 600;
+    }
+    .type-pill.morning { background: #dbeafe; color: #1d4ed8; }
+    .type-pill.break   { background: #ede9fe; color: #5b21b6; }
+
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    @media (max-width: 700px) { .two-col { grid-template-columns: 1fr; } }
+
+    .spinner-dash {
+      text-align: center;
+      padding: 60px;
+      color: var(--text-muted);
+    }
+
+    .nav-bar {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+    }
+    .nav-btn {
+      padding: 6px 16px;
+      border-radius: var(--radius);
+      font-size: 0.88rem;
+      text-decoration: none;
+      background: var(--secondary);
+      color: var(--text);
+      border: 1px solid var(--border);
+      cursor: pointer;
+    }
+    .nav-btn.active, .nav-btn:hover { background: var(--primary); color: #fff; border-color: var(--nav); }
+  </style>
+</head>
+<body>
+
+<header class="app-header">
+  <h1 data-i18n="app_title"><img src="logo.png" alt="Firduty logo">Firduty</h1>
+  <div class="header-actions">
+    <button class="btn btn-lang btn-sm" onclick="I18N.toggle().then(()=>location.reload())">عربي | EN</button>
+    <button class="btn btn-lang btn-sm" onclick="logout()" data-i18n="logout">Logout</button>
+  </div>
+</header>
+
+<main class="main-content">
+
+  <!-- Navigation -->
+  <div class="nav-bar">
+    <a class="nav-btn active" href="dashboard.html" data-i18n="dashboard">Dashboard</a>
+    <a class="nav-btn" href="planner.html" data-i18n="week_planner">Week Planner</a>
+    <a class="nav-btn" href="reports.html" data-i18n="monthly_report">Monthly Report</a>
+    <a class="nav-btn" href="teachers.html" data-i18n="teacher_approval">Teachers</a>
+  </div>
+
+  <div id="dashContent"><div class="spinner-dash"><div class="spinner"></div></div></div>
+
+</main>
+
+<div class="toast-container" id="toastContainer"></div>
+
+<script src="js/i18n.js"></script>
+<script src="js/dashboard.js"></script>
+<script>
+  if (!localStorage.getItem('firduty_token')) { window.location.href = 'login.html'; }
+  I18N.load(localStorage.getItem('firduty_lang') || 'ar').then(() => loadDashboard());
+</script>
+</body>
+</html>

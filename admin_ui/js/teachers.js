@@ -8,7 +8,7 @@
  *   POST /teachers/approve-all      — approve all pending teachers
  */
 
-const API_BASE = localStorage.getItem('firduty_api') || 'https://YOUR-APP-NAME.koyeb.app/';
+const API_BASE = localStorage.getItem('firduty_api') || 'https://naval-donnamarie-firduty-6e288803.koyeb.app/';
 const TOKEN = () => localStorage.getItem('firduty_token');
 
 function authHeaders() {

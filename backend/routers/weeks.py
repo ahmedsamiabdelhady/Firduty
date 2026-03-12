@@ -22,9 +22,9 @@ def _serialize_week(week: WeekPlan) -> dict:
     result = {
         "id": week.id,
         "week_start_date": str(week.week_start_date),
-        "status": week.status,
+        "status": str(week.status),
         "version": week.version,
-        "cloned_from_week_start": str(week.cloned_from_week_start) if week.cloned_from_week_start else None,
+        "cloned_from_week_start": str(week.cloned_from_week_start) if week.cloned_from_week_start is not None else None,
         "created_at": week.created_at.isoformat(),
         "updated_at": week.updated_at.isoformat(),
         "day_plans": []
