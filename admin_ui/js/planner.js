@@ -2,26 +2,16 @@
  * planner.js — Firduty Admin Week Planner
  * Handles: week loading, day/shift tabs, drag-and-drop, slot management.
  * Duty-type aware: break duties show grade/class input instead of location.
+ *
+ * Auth is handled by auth.js (loaded before this script in planner.html).
+ * Use apiFetch() for all API calls — it attaches the token and handles 401.
  */
-
-const API_BASE = localStorage.getItem('firduty_api') || 'https://naval-donnamarie-firduty-6e288803.koyeb.app/';
-const TOKEN = () => localStorage.getItem('firduty_token');
 
 let currentWeekData = null;
 let allTeachers = [];
 let pendingAssignments = {};   // slId → { slotIdx → { teacher_id, grade_class } }
 let pendingSlots = {};         // key → { dayDate, shiftId, locationId, slotsCount }
 let lang = () => I18N.getLang();
-
-function authHeaders() {
-  return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${TOKEN()}` };
-}
-function logout() {
-  localStorage.removeItem('firduty_token');
-  window.location.href = 'login.html';
-}
-
-// ─── Toast ───────────────────────────────────────────────────────────────────
 
 function showToast(message, type = 'success') {
   const c = document.getElementById('toastContainer');
@@ -30,14 +20,6 @@ function showToast(message, type = 'success') {
   t.textContent = message;
   c.appendChild(t);
   setTimeout(() => t.remove(), 3500);
-}
-
-// ─── API ──────────────────────────────────────────────────────────────────────
-
-async function apiFetch(path, opts = {}) {
-  const res = await fetch(`${API_BASE}${path}`, { headers: authHeaders(), ...opts });
-  if (res.status === 401) { logout(); return null; }
-  return res;
 }
 
 // ─── Init ─────────────────────────────────────────────────────────────────────

@@ -48,6 +48,7 @@ from config import settings
 from database import Base, engine
 from routers import auth, teachers, locations, shifts, weeks, points, reports
 from routers.dashboard import router as dashboard_router
+from routers.auth import oauth2_scheme  # noqa: F401 — imported so Swagger picks it up
 from scheduler import start_scheduler, stop_scheduler
 from scheduler import router as scheduler_router
 
@@ -72,7 +73,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Firduty API",
     description="School Duty Roster Management System",
-    version="2.2.0",
+    version="2.3.0",
     lifespan=lifespan,
 )
 
@@ -97,7 +98,7 @@ app.include_router(scheduler_router)
 
 @app.get("/")
 def root():
-    return {"service": "Firduty API", "version": "2.2.0", "status": "running"}
+    return {"service": "Firduty API", "version": "2.3.0", "status": "running"}
 
 
 @app.get("/health")

@@ -216,6 +216,7 @@ firduty/
 │   ├── login.html, dashboard.html, planner.html, reports.html, teachers.html
 │   ├── css/style.css                      ← Firduty brand palette (#7FB33F, #2E7DA7)
 │   ├── js/
+│   │   ├── auth.js                        ← shared auth: authHeaders(), apiFetch(), guardPage(), logout()
 │   │   ├── i18n.js                        ← AR/EN runtime language switching (I18N.load/t/getLang)
 │   │   ├── login.js                       ← JWT login flow, auto-redirect, Enter key support
 │   │   ├── dashboard.js                   ← loads /admin/dashboard, renders stats + charts
@@ -951,9 +952,24 @@ Interactive docs (Swagger UI):
 
 | Method | Endpoint | Auth | Description |
 |---|---|---|---|
-| POST | `/auth/admin/login` | — | Body: `{username, password}` → returns JWT `access_token` |
+| POST | `/auth/admin/login` | — | **OAuth2 form body** (`application/x-www-form-urlencoded`). Used by Swagger UI Authorize button. Fields: `username`, `password` |
+| POST | `/auth/admin/login/json` | — | **JSON body** (`application/json`). Used by Admin Web UI and API clients. Body: `{username, password}` |
+| GET | `/auth/validate` | JWT | Confirm a token is valid. Returns `{username, role, expires_at}` |
+
+Both login routes return:
+```json
+{ "access_token": "eyJ...", "token_type": "bearer" }
+```
 
 All admin endpoints require `Authorization: Bearer <token>` header.
+
+**How to log in from Swagger UI:**
+1. Open `https://YOUR-APP-NAME.koyeb.app/docs`
+2. Click the **Authorize** button (🔓 top right)
+3. Enter your `ADMIN_USERNAME` and `ADMIN_PASSWORD`
+4. Click **Authorize** — Swagger will attach the token to all subsequent requests automatically
+
+**Token lifetime:** controlled by `ACCESS_TOKEN_EXPIRE_MINUTES` env var (default: 1440 minutes = 24 hours). After expiry, log in again.
 
 ### Teachers
 

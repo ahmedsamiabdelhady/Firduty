@@ -8,20 +8,8 @@
  *   POST /teachers/approve-all      — approve all pending teachers
  */
 
-const API_BASE = localStorage.getItem('firduty_api') || 'https://naval-donnamarie-firduty-6e288803.koyeb.app/';
-const TOKEN = () => localStorage.getItem('firduty_token');
+// Auth is handled by auth.js — use apiFetch() for all API calls.
 
-function authHeaders() {
-  return {
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${TOKEN()}`,
-  };
-}
-
-function logout() {
-  localStorage.removeItem('firduty_token');
-  window.location.href = 'login.html';
-}
 
 // ─── Tab management ───────────────────────────────────────────────────────────
 
@@ -46,10 +34,8 @@ async function loadPending() {
   document.getElementById('pendingLoading').style.display = '';
   document.getElementById('pendingTableWrap').innerHTML = '';
 
-  const res = await fetch(`${API_BASE}teachers/pending`, { headers: authHeaders() });
+  const res = await apiFetch('teachers/pending');
   document.getElementById('pendingLoading').style.display = 'none';
-
-  if (res.status === 401) { logout(); return; }
   if (!res.ok) {
     showAlert(I18N.t('error_generic'), 'danger');
     return;
@@ -77,10 +63,8 @@ async function loadAllTeachers() {
   document.getElementById('allLoading').style.display = '';
   document.getElementById('allTableWrap').innerHTML = '';
 
-  const res = await fetch(`${API_BASE}teachers/all`, { headers: authHeaders() });
+  const res = await apiFetch('teachers/all');
   document.getElementById('allLoading').style.display = 'none';
-
-  if (res.status === 401) { logout(); return; }
   if (!res.ok) {
     showAlert(I18N.t('error_generic'), 'danger');
     return;
@@ -97,12 +81,7 @@ async function approveTeacher(id) {
   const btn = document.getElementById(`btn-approve-${id}`);
   if (btn) { btn.disabled = true; btn.textContent = '...'; }
 
-  const res = await fetch(`${API_BASE}teachers/${id}/approve`, {
-    method: 'POST',
-    headers: authHeaders(),
-  });
-
-  if (res.status === 401) { logout(); return; }
+  const res = await apiFetch('teachers/${id}/approve', { method: 'POST' });
   if (!res.ok) {
     showAlert(I18N.t('error_generic'), 'danger');
     if (btn) { btn.disabled = false; btn.textContent = I18N.t('approve'); }
@@ -117,12 +96,7 @@ async function approveAll() {
   const btn = document.getElementById('approveAllBtn');
   btn.disabled = true;
 
-  const res = await fetch(`${API_BASE}teachers/approve-all`, {
-    method: 'POST',
-    headers: authHeaders(),
-  });
-
-  if (res.status === 401) { logout(); return; }
+  const res = await apiFetch('teachers/approve-all', { method: 'POST' });
   if (!res.ok) {
     showAlert(I18N.t('error_generic'), 'danger');
     btn.disabled = false;

@@ -1,33 +1,51 @@
-"""JWT authentication service."""
+"""
+auth_service.py — JWT token creation and validation.
 
-from datetime import datetime, timedelta
+Used by routers/auth.py only. All other routers import
+get_current_admin() from routers.auth directly.
+"""
+
+from datetime import datetime, timedelta, timezone
 from typing import Optional
+
 from jose import JWTError, jwt
-from passlib.context import CryptContext
+
 from config import settings
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
+def create_access_token(data: dict) -> str:
+    """
+    Encode a JWT with an expiry claim.
 
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+    Args:
+        data: payload dict — must include 'sub' and 'role' keys.
 
-
-def get_password_hash(password: str) -> str:
-    return pwd_context.hash(password)
-
-
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-    """Create a signed JWT token."""
+    Returns:
+        Signed JWT string.
+    """
     to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
-    to_encode.update({"exp": expire})
+    expire = datetime.now(timezone.utc) + timedelta(
+        minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
+    )
+    to_encode.update({
+        "exp": expire,
+        "iat": datetime.now(timezone.utc),
+    })
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
 def decode_token(token: str) -> Optional[dict]:
-    """Decode and validate a JWT token. Returns payload or None."""
+    """
+    Decode and validate a JWT.
+
+    Returns:
+        Decoded payload dict if valid and not expired, else None.
+    """
     try:
-        return jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        return jwt.decode(
+            token,
+            settings.SECRET_KEY,
+            algorithms=[settings.ALGORITHM],
+        )
     except JWTError:
         return None

@@ -1,23 +1,15 @@
 /**
  * dashboard.js — Admin Dashboard for Firduty
  * Loads /admin/dashboard and renders stats, charts, and warnings.
+ *
+ * Auth is handled by auth.js (loaded before this script in dashboard.html).
+ * Use apiFetch() for all API calls — it attaches the token and handles 401.
  */
 
-const API_BASE = localStorage.getItem('firduty_api') || 'https://naval-donnamarie-firduty-6e288803.koyeb.app/';
-const TOKEN = () => localStorage.getItem('firduty_token');
 const lang = () => I18N.getLang();
 
-function authHeaders() {
-  return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${TOKEN()}` };
-}
-function logout() {
-  localStorage.removeItem('firduty_token');
-  window.location.href = 'login.html';
-}
-
 async function loadDashboard() {
-  const res = await fetch(`${API_BASE}admin/dashboard`, { headers: authHeaders() });
-  if (res.status === 401) { logout(); return; }
+  const res = await apiFetch('admin/dashboard');
   if (!res.ok) {
     document.getElementById('dashContent').innerHTML =
       `<p style="color:red;text-align:center">Error loading dashboard (${res.status})</p>`;

@@ -1,22 +1,35 @@
 /**
  * login.js — Admin login flow for Firduty.
  *
- * Handles:
- *   - Form submission via doLogin()
- *   - POST /auth/admin/login → JWT stored in localStorage as 'firduty_token'
- *   - Redirect to dashboard.html on success
- *   - Inline error display on failure
- *   - Language toggle (AR / EN)
- *   - Auto-redirect if already logged in
+ * Login endpoint: POST /auth/admin/login/json  (JSON body)
+ *   - The Swagger UI uses POST /auth/admin/login (OAuth2 form body)
+ *   - The Admin Web UI uses /auth/admin/login/json to keep the request as JSON
+ *
+ * Token validation: GET /auth/validate
+ *   - Called on page load to auto-redirect if a valid token already exists
+ *
+ * Token storage: localStorage key 'firduty_token'
  */
 
-const API_BASE = localStorage.getItem('firduty_api') || 'https://naval-donnamarie-firduty-6e288803.koyeb.app/';
+const API_BASE = localStorage.getItem('firduty_api') || 'https://YOUR-APP-NAME.koyeb.app/';
 
 // ── Auto-redirect if already authenticated ────────────────────────────────────
-(function () {
+(async function () {
   const token = localStorage.getItem('firduty_token');
-  if (token) {
-    window.location.href = 'dashboard.html';
+  if (!token) return;
+
+  try {
+    const res = await fetch(`${API_BASE}auth/validate`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    if (res.ok) {
+      window.location.href = 'dashboard.html';
+    } else {
+      // Token is expired or invalid — clear it so the form is shown clean
+      localStorage.removeItem('firduty_token');
+    }
+  } catch (_) {
+    // Network error — just show the login form, don't crash
   }
 })();
 
@@ -39,7 +52,6 @@ async function doLogin() {
   const errorEl  = document.getElementById('loginError');
   const btn      = document.getElementById('loginBtn');
 
-  // Clear previous error
   if (errorEl) { errorEl.textContent = ''; errorEl.style.display = 'none'; }
 
   if (!username || !password) {
@@ -47,11 +59,10 @@ async function doLogin() {
     return;
   }
 
-  // Disable button while request is in flight
   if (btn) { btn.disabled = true; btn.textContent = I18N.t('loading'); }
 
   try {
-    const res = await fetch(`${API_BASE}auth/admin/login`, {
+    const res = await fetch(`${API_BASE}auth/admin/login/json`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ username, password }),
@@ -76,10 +87,7 @@ async function doLogin() {
 
 function _showError(msg) {
   const el = document.getElementById('loginError');
-  if (el) {
-    el.textContent = msg;
-    el.style.display = 'block';
-  }
+  if (el) { el.textContent = msg; el.style.display = 'block'; }
 }
 
 // ── Allow Enter key to submit ─────────────────────────────────────────────────

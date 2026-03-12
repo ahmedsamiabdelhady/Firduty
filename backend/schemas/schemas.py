@@ -15,6 +15,11 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
 
+class AdminIdentity(BaseModel):
+    username: str
+    role: str = "admin"
+    expires_at: Optional[int] = None   # Unix timestamp from JWT 'exp' claim
+
 
 # ─── App Settings ─────────────────────────────────────────────────────────────
 
