@@ -44,7 +44,7 @@ config = context.config
 
 # Override the SQLAlchemy URL with the real DATABASE_URL from the environment.
 database_url = os.getenv("DATABASE_URL", "sqlite:///./firduty.db")
-config.set_main_option("sqlalchemy.url", database_url)
+config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

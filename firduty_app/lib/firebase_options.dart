@@ -38,16 +38,16 @@ class DefaultFirebaseOptions {
   // ── Web / iOS PWA ─────────────────────────────────────────────────────────
   // Get these from: Firebase Console → Project Settings → Your apps → Web
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey:            'YOUR_WEB_API_KEY',            // TODO
-    appId:             'YOUR_WEB_APP_ID',             // TODO
-    messagingSenderId: 'YOUR_SENDER_ID',              // TODO
-    projectId:         'YOUR_PROJECT_ID',             // TODO
-    authDomain:        'YOUR_PROJECT_ID.firebaseapp.com', // TODO
-    storageBucket:     'YOUR_PROJECT_ID.appspot.com', // TODO
+    apiKey:            'AIzaSyD0lAw3ym33tl8PVh7xjZBDJ64QhKbwv1k',            // TODO
+    appId:             '1:442695383131:web:011bbb04af4dde2448677e',             // TODO
+    messagingSenderId: '442695383131',              // TODO
+    projectId:         'firduty-dede5',             // TODO
+    authDomain:        'firduty-dede5.firebaseapp.com', // TODO
+    storageBucket:     'firduty-dede5.firebasestorage.app', // TODO
     // VAPID key for Web Push (FCM web):
     // Firebase Console → Project Settings → Cloud Messaging → Web Push certificates
     // → Generate key pair → copy the Key pair value
-    measurementId:     'YOUR_MEASUREMENT_ID',        // TODO (optional)
+    measurementId:     'G-Y4DN8HJPC5',        // TODO (optional)
   );
 
   // ── Android ───────────────────────────────────────────────────────────────
