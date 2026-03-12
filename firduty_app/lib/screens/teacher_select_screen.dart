@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../gen/app_localizations.dart';
-import '../app_theme.dart';
 
 class RegistrationScreen extends StatefulWidget {
   const RegistrationScreen({super.key});
@@ -69,17 +68,9 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     // ── Logo / title ──────────────────────────────────────
-                    Image.asset('assets/logo.png', width: 88, height: 88),
+                    Image.asset('assets/logo.png', width: 200, height: 200),
                     const SizedBox(height: 16),
-                    Text(
-                      l10n.appTitle,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                        color: FirdutyColors.navBlue,
-                      ),
-                    ),
+
                     const SizedBox(height: 8),
                     Text(
                       l10n.registerTitle,
