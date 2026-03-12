@@ -215,7 +215,7 @@
 <script src="js/i18n.js"></script>
 <script>
 /* ─── Auth ──────────────────────────────────────────────────────────────────── */
-const API = (localStorage.getItem('firduty_api') || 'https://naval-donnamarie-firduty-6e288803.koyeb.app').replace(/\/$/, '');
+const API = (localStorage.getItem('firduty_api') || 'https://naval-donnamarie-firduty-6e288803.koyeb.app/').replace(/\/$/, '');
 const TOKEN = () => localStorage.getItem('firduty_token');
 
 if (!TOKEN()) window.location.href = 'login.html';

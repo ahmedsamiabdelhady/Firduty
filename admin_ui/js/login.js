@@ -11,7 +11,7 @@
  * Token storage: localStorage key 'firduty_token'
  */
 
-const API_BASE = localStorage.getItem('firduty_api') || 'https://YOUR-APP-NAME.koyeb.app/';
+const API_BASE = localStorage.getItem('firduty_api') || 'https://naval-donnamarie-firduty-6e288803.koyeb.app/';
 
 // ── Auto-redirect if already authenticated ────────────────────────────────────
 (async function () {
