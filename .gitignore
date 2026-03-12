@@ -44,5 +44,8 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
+/build/
+firduty_app/build/
+
 
 backend/firebase-credentials.json

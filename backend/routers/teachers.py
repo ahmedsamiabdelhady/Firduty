@@ -79,7 +79,10 @@ def create_teacher(
         existing = db.query(Teacher).filter(Teacher.email == data.email).first()
         if existing:
             raise HTTPException(409, "Email already registered")
-    teacher = Teacher(**data.model_dump())
+
+    payload = data.model_dump() if hasattr(data, "model_dump") else data.dict()
+    teacher = Teacher(**payload)
+
     db.add(teacher)
     db.commit()
     db.refresh(teacher)
