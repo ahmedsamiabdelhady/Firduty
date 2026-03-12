@@ -44,3 +44,8 @@ flutter:
   # Enables automatic `flutter gen-l10n` during build.
   # Config is in l10n.yaml (project root).
   generate: true
+
+  assets:
+    - assets/logo.png
+    - assets/logo_icon.png
+    - assets/logo_small.png
