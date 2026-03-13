@@ -39,78 +39,85 @@ async function loadAll() {
 }
 
 async function loadPending() {
-
   const pendingLoading = byId('pendingLoading');
   const pendingTableWrap = byId('pendingTableWrap');
   const pendingCount = byId('pendingCount');
   const approveAllBtn = byId('approveAllBtn');
 
-  if (pendingLoading) pendingLoading.style.display = '';
-  if (pendingTableWrap) pendingTableWrap.innerHTML = '';
+  try {
+    if (pendingLoading) pendingLoading.style.display = '';
+    if (pendingTableWrap) pendingTableWrap.innerHTML = '';
 
-  const res = await apiFetch('/teachers/pending');
+    const res = await apiFetch('/teachers/pending');
 
-  if (pendingLoading) pendingLoading.style.display = 'none';
-
-  if (!res.ok) {
-    showAlert(I18N.t('error_generic'), 'danger');
-    return;
-  }
-
-  const teachers = await res.json();
-
-  /* update pending badge */
-  if (pendingCount) {
-    if (teachers.length > 0) {
-      pendingCount.textContent = teachers.length;
-      pendingCount.style.display = '';
-    } else {
-      pendingCount.style.display = 'none';
+    if (!res.ok) {
+      showAlert(I18N.t('error_generic'), 'danger');
+      return;
     }
-  }
 
-  /* disable approve all if empty */
-  if (approveAllBtn) approveAllBtn.disabled = teachers.length === 0;
+    const teachers = await res.json();
 
-  if (pendingTableWrap) {
-    pendingTableWrap.innerHTML =
-      teachers.length === 0
-        ? emptyState('no_pending_teachers')
-        : buildTable(teachers, true);
+    if (pendingCount) {
+      if (teachers.length > 0) {
+        pendingCount.textContent = teachers.length;
+        pendingCount.style.display = '';
+      } else {
+        pendingCount.style.display = 'none';
+      }
+    }
+
+    if (approveAllBtn) {
+      approveAllBtn.disabled = teachers.length === 0;
+    }
+
+    if (pendingTableWrap) {
+      pendingTableWrap.innerHTML =
+        teachers.length === 0
+          ? emptyState('no_pending_teachers')
+          : buildTable(teachers, true);
+    }
+  } catch (err) {
+    console.error('loadPending failed:', err);
+    showAlert(I18N.t('error_generic'), 'danger');
+  } finally {
+    if (pendingLoading) pendingLoading.style.display = 'none';
   }
 }
 
 async function loadAllTeachers() {
-
   const allLoading = byId('allLoading');
   const allTableWrap = byId('allTableWrap');
 
-  if (allLoading) allLoading.style.display = '';
-  if (allTableWrap) allTableWrap.innerHTML = '';
+  try {
+    if (allLoading) allLoading.style.display = '';
+    if (allTableWrap) allTableWrap.innerHTML = '';
 
-  const res = await apiFetch('/teachers/all');
+    const res = await apiFetch('/teachers/all');
 
-  if (allLoading) allLoading.style.display = 'none';
+    if (!res.ok) {
+      showAlert(I18N.t('error_generic'), 'danger');
+      return;
+    }
 
-  if (!res.ok) {
+    const teachers = await res.json();
+
+    if (allTableWrap) {
+      allTableWrap.innerHTML =
+        teachers.length === 0
+          ? emptyState('no_teachers_yet')
+          : buildTable(teachers, false);
+    }
+  } catch (err) {
+    console.error('loadAllTeachers failed:', err);
     showAlert(I18N.t('error_generic'), 'danger');
-    return;
-  }
-
-  const teachers = await res.json();
-
-  if (allTableWrap) {
-    allTableWrap.innerHTML =
-      teachers.length === 0
-        ? emptyState('no_teachers_yet')
-        : buildTable(teachers, false);
+  } finally {
+    if (allLoading) allLoading.style.display = 'none';
   }
 }
 
 /* ───────────────── Approve actions ───────────────── */
 
 async function approveTeacher(id) {
-
   const btn = byId(`btn-approve-${id}`);
 
   if (btn) {
@@ -118,54 +125,66 @@ async function approveTeacher(id) {
     btn.textContent = '...';
   }
 
-  const res = await apiFetch(`/teachers/${id}/approve`, { method: 'POST' });
+  try {
+    const res = await apiFetch(`/teachers/${id}/approve`, { method: 'POST' });
 
-  if (!res.ok) {
+    if (!res.ok) {
+      showAlert(I18N.t('error_generic'), 'danger');
+
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = I18N.t('approve');
+      }
+      return;
+    }
+
+    showAlert(I18N.t('teacher_approved_ok'), 'success');
+    await loadAll();
+  } catch (err) {
+    console.error('approveTeacher failed:', err);
     showAlert(I18N.t('error_generic'), 'danger');
 
     if (btn) {
       btn.disabled = false;
       btn.textContent = I18N.t('approve');
     }
-
-    return;
   }
-
-  showAlert(I18N.t('teacher_approved_ok'), 'success');
-
-  await loadAll();
 }
 
 async function approveAll() {
-
   const btn = byId('approveAllBtn');
   if (btn) btn.disabled = true;
 
-  const res = await apiFetch('/teachers/approve-all', { method: 'POST' });
+  try {
+    const res = await apiFetch('/teachers/approve-all', { method: 'POST' });
 
-  if (!res.ok) {
+    if (!res.ok) {
+      showAlert(I18N.t('error_generic'), 'danger');
+      if (btn) btn.disabled = false;
+      return;
+    }
+
+    const data = await res.json();
+    const count = data.approved_count ?? 0;
+
+    showAlert(
+      count > 0
+        ? `${I18N.t('all_approved_ok')} (${count})`
+        : I18N.t('no_pending_teachers'),
+      'success'
+    );
+
+    await loadAll();
+  } catch (err) {
+    console.error('approveAll failed:', err);
     showAlert(I18N.t('error_generic'), 'danger');
     if (btn) btn.disabled = false;
-    return;
   }
-
-  const data = await res.json();
-  const count = data.approved_count ?? 0;
-
-  showAlert(
-    count > 0
-      ? `${I18N.t('all_approved_ok')} (${count})`
-      : I18N.t('no_pending_teachers'),
-    'success'
-  );
-
-  await loadAll();
 }
 
 /* ───────────────── Table builder ───────────────── */
 
 function buildTable(teachers, showApproveBtn) {
-
   const isAr = I18N.getLang() === 'ar';
 
   const headers = [
@@ -179,16 +198,11 @@ function buildTable(teachers, showApproveBtn) {
   ].join('');
 
   const rows = teachers.map((t, i) => {
-
     const statusBadge = t.status === 'pending'
       ? `<span class="badge badge-pending">${I18N.t('status_pending')}</span>`
       : `<span class="badge badge-approved">${I18N.t('status_approved')}</span>`;
 
-    const lang =
-      t.preferred_language === 'ar'
-        ? I18N.t('arabic')
-        : I18N.t('english');
-
+    const lang = t.preferred_language === 'ar' ? I18N.t('arabic') : I18N.t('english');
     const createdAt = t.created_at
       ? new Date(t.created_at).toLocaleDateString(isAr ? 'ar-OM' : 'en-GB')
       : '—';
@@ -197,9 +211,7 @@ function buildTable(teachers, showApproveBtn) {
 
     const approveCell = showApproveBtn
       ? `<td>
-          <button class="btn btn-success btn-sm"
-            id="btn-approve-${t.id}"
-            onclick="approveTeacher(${t.id})">
+          <button class="btn btn-success btn-sm" id="btn-approve-${t.id}" onclick="approveTeacher(${t.id})">
             ${I18N.t('approve')}
           </button>
         </td>`
@@ -216,14 +228,11 @@ function buildTable(teachers, showApproveBtn) {
         ${approveCell}
       </tr>
     `;
-
   }).join('');
 
   return `
     <table class="teacher-table">
-      <thead>
-        <tr>${headers}</tr>
-      </thead>
+      <thead><tr>${headers}</tr></thead>
       <tbody>${rows}</tbody>
     </table>
   `;
@@ -241,7 +250,6 @@ function emptyState(key) {
 }
 
 function showAlert(msg, type) {
-
   const el = byId('alertMsg');
   if (!el) return;
 
@@ -265,4 +273,21 @@ function escHtml(str) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+/* ───────────────── Page init ───────────────── */
+
+async function initTeachersPage() {
+  try {
+    showTab('pending');
+    await loadAll();
+  } catch (err) {
+    console.error('initTeachersPage failed:', err);
+  }
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initTeachersPage);
+} else {
+  initTeachersPage();
 }
