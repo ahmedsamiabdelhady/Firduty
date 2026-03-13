@@ -11,7 +11,7 @@
  * Token storage: localStorage key 'firduty_token'
  */
 
-const API_BASE = localStorage.getItem('firduty_api') || 'https://naval-donnamarie-firduty-6e288803.koyeb.app/';
+const API_BASE = window.API_BASE || localStorage.getItem('firduty_api') || 'https://naval-donnamarie-firduty-6e288803.koyeb.app/';
 
 // ── Auto-redirect if already authenticated ────────────────────────────────────
 (async function () {
@@ -19,7 +19,7 @@ const API_BASE = localStorage.getItem('firduty_api') || 'https://naval-donnamari
   if (!token) return;
 
   try {
-    const res = await fetch(`${API_BASE}auth/validate`, {
+    const res = await fetch(`${window.API_BASE}auth/validate`, {
       headers: { 'Authorization': `Bearer ${token}` },
     });
     if (res.ok) {
@@ -62,7 +62,7 @@ async function doLogin() {
   if (btn) { btn.disabled = true; btn.textContent = I18N.t('loading'); }
 
   try {
-    const res = await fetch(`${API_BASE}auth/admin/login/json`, {
+    const res = await fetch(`${window.API_BASE}auth/admin/login/json`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ username, password }),
