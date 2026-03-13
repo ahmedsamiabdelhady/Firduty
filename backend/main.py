@@ -18,6 +18,7 @@ import os
 import tempfile
 import uvicorn
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -25,7 +26,7 @@ from fastapi.middleware.cors import CORSMiddleware
 _fcm_json_str = os.getenv("FIREBASE_CREDENTIALS_JSON")
 if _fcm_json_str:
     try:
-        json.loads(_fcm_json_str)   # validate before writing
+        json.loads(_fcm_json_str)
         _tmp = tempfile.NamedTemporaryFile(
             mode="w", suffix=".json", delete=False, prefix="firebase-creds-"
         )
@@ -42,7 +43,7 @@ if _fcm_json_str:
 # ─────────────────────────────────────────────────────────────────────────────
 
 from config import settings
-from database import Base, engine
+from database import Base, engine, SessionLocal
 from routers.auth import router as auth_router, oauth2_scheme  # noqa: F401
 from routers.teachers import router as teachers_router
 from routers.locations import router as locations_router
@@ -53,6 +54,7 @@ from routers.reports import router as reports_router
 from routers.dashboard import router as dashboard_router
 from scheduler import start_scheduler, stop_scheduler
 from scheduler import router as scheduler_router
+from seed_data import seed_shifts, seed_locations
 
 logging.basicConfig(
     level=logging.INFO,
@@ -60,7 +62,29 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-Base.metadata.create_all(bind=engine)
+
+def bootstrap_database() -> None:
+    """
+    Create tables if missing, then seed required master data.
+    Safe to run on every startup.
+    """
+    Base.metadata.create_all(bind=engine)
+
+    db = SessionLocal()
+    try:
+        seed_shifts(db)
+        seed_locations(db)
+        db.commit()
+        logger.info("Database bootstrap completed successfully.")
+    except Exception:
+        db.rollback()
+        logger.exception("Database bootstrap failed.")
+        raise
+    finally:
+        db.close()
+
+
+bootstrap_database()
 
 
 @asynccontextmanager

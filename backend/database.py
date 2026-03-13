@@ -5,11 +5,12 @@ Supabase (PostgreSQL) requires SSL — configured via connect_args.
 SQLite is used for local development only (no SSL needed).
 """
 
-import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
-DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./firduty.db")
+from config import settings
+
+DATABASE_URL: str = settings.DATABASE_URL
 
 # PostgreSQL (Supabase) — enforce SSL
 # SQLite — no SSL, no extra args needed
@@ -18,9 +19,8 @@ _is_postgres = DATABASE_URL.startswith("postgresql")
 _engine_kwargs: dict = {}
 if _is_postgres:
     _engine_kwargs["connect_args"] = {"sslmode": "require"}
-    _engine_kwargs["pool_pre_ping"] = True   # detect stale connections
-    _engine_kwargs["pool_recycle"] = 1800    # recycle connections every 30 min
-
+    _engine_kwargs["pool_pre_ping"] = True
+    _engine_kwargs["pool_recycle"] = 1800
 
 engine = create_engine(DATABASE_URL, **_engine_kwargs)
 

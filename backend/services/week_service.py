@@ -20,14 +20,101 @@ import pytz
 from sqlalchemy.orm import Session
 
 from models.models import (
-    WeekPlan, DayPlan, ShiftLocation,
-    Assignment, ChangeLog, Teacher, DeviceToken,
+    WeekPlan,
+    DayPlan,
+    ShiftLocation,
+    Assignment,
+    ChangeLog,
+    Teacher,
+    DeviceToken,
+    Shift,
+    Location,
 )
 
 logger = logging.getLogger(__name__)
 
 MUSCAT_TZ = pytz.timezone("Asia/Muscat")
 WEEK_DAYS = 5  # Sun–Thu (Oman working week)
+
+# ── Templates / constants ────────────────────────────────────────────────────
+
+# Match shifts using English / Arabic names from DB.
+SHIFT_NAME_ALIASES = {
+    "morning": {
+        "en": {"morning duty", "morning"},
+        "ar": {"المناوبة الصباحية", "الصباحية"},
+    },
+    "break_1": {
+        "en": {"first break", "break 1"},
+        "ar": {"البريك الأول", "الاستراحة الأولى", "الفسحة الأولى"},
+    },
+    "break_2": {
+        "en": {"second break", "break 2"},
+        "ar": {"البريك الثاني", "الاستراحة الثانية", "الفسحة الثانية"},
+    },
+    "end_of_day": {
+        "en": {"end of day duty", "end of day", "evening duty"},
+        "ar": {"المناوبة المسائية", "نهاية الدوام", "المسائية"},
+    },
+}
+
+MORNING_LOCATION_SPECS = [
+    {"name_en": "First floor - Interior corridor", "slots_count": 1},
+    {"name_en": "First floor - Main corridor", "slots_count": 1},
+    {"name_en": "First floor - Beside teachers room", "slots_count": 1},
+    {"name_en": "Area A", "slots_count": 1},
+    {"name_en": "Area B", "slots_count": 1},
+    {"name_en": "Area C", "slots_count": 1},
+    {"name_en": "Area D", "slots_count": 1},
+    {"name_en": "Second floor - Interior corridor", "slots_count": 1},
+    {"name_en": "Second floor - Main corridor", "slots_count": 2},
+    {"name_en": "Second floor - Beside teachers room", "slots_count": 1},
+    {"name_en": "Play ground", "slots_count": 6},
+    {"name_en": "Ground floor", "slots_count": 1},
+    {"name_en": "Ground floor / KG2A", "slots_count": 2},
+    {"name_en": "General supervision", "slots_count": 1},
+]
+
+END_OF_DAY_LOCATION_SPECS = [
+    {"name_en": "Waiting room", "slots_count": 1},
+    {"name_en": "Glass door", "slots_count": 1},
+    {"name_en": "Stairs - KG", "slots_count": 1},
+    {"name_en": "Basement floor", "slots_count": 7},
+    {"name_en": "Area A", "slots_count": 1},
+    {"name_en": "Area B", "slots_count": 1},
+    {"name_en": "Area C", "slots_count": 1},
+    {"name_en": "Area D", "slots_count": 1},
+    {"name_en": "First floor", "slots_count": 1},
+    {"name_en": "Second floor", "slots_count": 1},
+    {"name_en": "Ground floor", "slots_count": 1},
+    {"name_en": "Play ground", "slots_count": 6},
+    {"name_en": "General supervision", "slots_count": 1},
+]
+
+BREAK_GRADE_CLASSES = [
+    "1/A",
+    "1/B",
+    "1/C",
+    "1/D",
+    "2/A",
+    "2/B",
+    "2/C",
+    "2/D",
+    "3/A",
+    "3/B",
+    "3/C",
+    "4/A",
+    "4/B",
+    "4/C",
+    "5/A",
+    "5/B",
+    "6/A",
+    "6/B",
+    "7/A",
+    "7/B",
+    "8/AB",
+    "9",
+]
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -38,7 +125,7 @@ def get_current_week_start() -> date:
     isoweekday(): Mon=1 … Sun=7. (isoweekday % 7) gives days-since-Sunday.
     """
     now = datetime.now(MUSCAT_TZ).date()
-    days_since_sunday = now.isoweekday() % 7   # Sun=0, Mon=1, …, Sat=6
+    days_since_sunday = now.isoweekday() % 7
     return now - timedelta(days=days_since_sunday)
 
 
@@ -58,21 +145,216 @@ def _log_change(
     db.add(entry)
 
 
+def _normalize(value: Optional[str]) -> str:
+    return " ".join(
+        (value or "")
+        .strip()
+        .lower()
+        .replace("_", " ")
+        .replace("-", " ")
+        .replace("/", " / ")
+        .split()
+    )
+
+
+def _shift_matches(shift: Shift, alias_key: str) -> bool:
+    alias = SHIFT_NAME_ALIASES[alias_key]
+
+    shift_en = _normalize(getattr(shift, "name_en", None))
+    shift_ar = _normalize(getattr(shift, "name_ar", None))
+
+    alias_en = {_normalize(v) for v in alias["en"]}
+    alias_ar = {_normalize(v) for v in alias["ar"]}
+
+    return shift_en in alias_en or shift_ar in alias_ar
+
+
+def _get_shift_by_alias(db: Session, alias_key: str) -> Shift:
+    shifts = db.query(Shift).order_by(Shift.order.asc(), Shift.id.asc()).all()
+    for shift in shifts:
+        if _shift_matches(shift, alias_key):
+            return shift
+
+    raise ValueError(
+        f"Required shift '{alias_key}' was not found in DB. "
+        "Please seed shifts with names for Morning Duty / First Break / "
+        "Second Break / End of Day Duty."
+    )
+
+
+def _get_location_by_name_en(db: Session, location_name_en: str) -> Location:
+    target = _normalize(location_name_en)
+    locations = db.query(Location).order_by(Location.order.asc(), Location.id.asc()).all()
+
+    for loc in locations:
+        loc_en = _normalize(getattr(loc, "name_en", None))
+        if loc_en == target:
+            return loc
+
+    raise ValueError(
+        f"Required location '{location_name_en}' was not found in DB. "
+        "Please seed the Location table with all planner locations."
+    )
+
+
+def _ensure_assignments_for_shift_location(
+    db: Session,
+    shift_location: ShiftLocation,
+    slots_count: int,
+) -> None:
+    existing = {int(a.slot_index): a for a in shift_location.assignments}
+    shift_location.slots_count = slots_count
+
+    for idx in range(slots_count):
+        if idx not in existing:
+            db.add(
+                Assignment(
+                    shift_location_id=shift_location.id,
+                    slot_index=idx,
+                    teacher_id=None,
+                    grade_class=None,
+                )
+            )
+
+    for idx, assignment in existing.items():
+        if idx >= slots_count:
+            db.delete(assignment)
+
+
+def _create_shift_location_block(
+    db: Session,
+    day: DayPlan,
+    shift_id: int,
+    location_id: Optional[int],
+    slots_count: int,
+    order: int,
+) -> ShiftLocation:
+    sl = ShiftLocation(
+        day_plan_id=day.id,
+        shift_id=shift_id,
+        location_id=location_id,
+        slots_count=slots_count,
+        order=order,
+    )
+    db.add(sl)
+    db.flush()
+
+    _ensure_assignments_for_shift_location(db, sl, slots_count)
+    return sl
+
+
+def _create_break_shift_block(
+    db: Session,
+    day: DayPlan,
+    shift_id: int,
+    order: int,
+) -> ShiftLocation:
+    sl = ShiftLocation(
+        day_plan_id=day.id,
+        shift_id=shift_id,
+        location_id=None,
+        slots_count=len(BREAK_GRADE_CLASSES),
+        order=order,
+    )
+    db.add(sl)
+    db.flush()
+
+    for idx, grade_class in enumerate(BREAK_GRADE_CLASSES):
+        db.add(
+            Assignment(
+                shift_location_id=sl.id,
+                slot_index=idx,
+                teacher_id=None,
+                grade_class=grade_class,
+            )
+        )
+
+    return sl
+
+
 # ── Week creation ─────────────────────────────────────────────────────────────
 
 def create_week_plan(db: Session, week_start: date, actor: str = "admin") -> WeekPlan:
-    """Create a new empty draft WeekPlan for the given Sunday start date."""
+    """
+    Create a new draft WeekPlan for the given Sunday start date,
+    pre-populated with:
+      - 5 DayPlans (Sun → Thu)
+      - 4 shifts per day
+      - Morning Duty locations
+      - First Break block (grade_class-based)
+      - Second Break block (grade_class-based)
+      - End of Day Duty locations
+    """
+    existing = db.query(WeekPlan).filter(WeekPlan.week_start_date == week_start).first()
+    if existing:
+        logger.info(f"Week plan already exists for {week_start} (id={existing.id})")
+        return existing
+
+    morning_shift = _get_shift_by_alias(db, "morning")
+    break_1_shift = _get_shift_by_alias(db, "break_1")
+    break_2_shift = _get_shift_by_alias(db, "break_2")
+    end_of_day_shift = _get_shift_by_alias(db, "end_of_day")
+
     week = WeekPlan(week_start_date=week_start, status="draft", version=1)
     db.add(week)
     db.flush()
 
     for i in range(WEEK_DAYS):
-        db.add(DayPlan(week_plan_id=week.id, date=week_start + timedelta(days=i)))
+        day_date = week_start + timedelta(days=i)
+        day = DayPlan(week_plan_id=week.id, date=day_date)
+        db.add(day)
+        db.flush()
+
+        order_counter = 0
+
+        # Morning Duty locations
+        for spec in MORNING_LOCATION_SPECS:
+            loc = _get_location_by_name_en(db, spec["name_en"])
+            _create_shift_location_block(
+                db=db,
+                day=day,
+                shift_id=morning_shift.id,
+                location_id=loc.id,
+                slots_count=int(spec["slots_count"]),
+                order=order_counter,
+            )
+            order_counter += 1
+
+        # First Break block
+        _create_break_shift_block(
+            db=db,
+            day=day,
+            shift_id=break_1_shift.id,
+            order=order_counter,
+        )
+        order_counter += 1
+
+        # Second Break block
+        _create_break_shift_block(
+            db=db,
+            day=day,
+            shift_id=break_2_shift.id,
+            order=order_counter,
+        )
+        order_counter += 1
+
+        # End of Day Duty locations
+        for spec in END_OF_DAY_LOCATION_SPECS:
+            loc = _get_location_by_name_en(db, spec["name_en"])
+            _create_shift_location_block(
+                db=db,
+                day=day,
+                shift_id=end_of_day_shift.id,
+                location_id=loc.id,
+                slots_count=int(spec["slots_count"]),
+                order=order_counter,
+            )
+            order_counter += 1
 
     _log_change(db, week, actor, "create_week", {"week_start": str(week_start)})
     db.commit()
     db.refresh(week)
-    logger.info(f"Created empty week plan for {week_start} (id={week.id})")
+    logger.info(f"Created prefilled week plan for {week_start} (id={week.id})")
     return week
 
 
@@ -126,12 +408,14 @@ def clone_week(
             db.flush()
 
             for src_a in src_sl.assignments:
-                db.add(Assignment(
-                    shift_location_id=new_sl.id,
-                    slot_index=src_a.slot_index,
-                    teacher_id=src_a.teacher_id,
-                    grade_class=src_a.grade_class,
-                ))
+                db.add(
+                    Assignment(
+                        shift_location_id=new_sl.id,
+                        slot_index=src_a.slot_index,
+                        teacher_id=src_a.teacher_id,
+                        grade_class=src_a.grade_class,
+                    )
+                )
 
     _log_change(db, new_week, actor, "clone_week", {
         "source": str(source_week_start),
@@ -158,6 +442,10 @@ def update_shift_location_slots(
     Set the number of assignment slots for a shift+location on a given day.
     Finds or creates DayPlan / ShiftLocation rows as needed.
     Pads or trims Assignment rows to match slots_count.
+
+    IMPORTANT:
+    Matching is done by (day_plan_id + shift_id + location_id), not only shift_id.
+    This is required because a single shift can have many locations on the same day.
     """
     day = db.query(DayPlan).filter(
         DayPlan.week_plan_id == week.id,
@@ -168,17 +456,29 @@ def update_shift_location_slots(
         db.add(day)
         db.flush()
 
-    sl = db.query(ShiftLocation).filter(
+    sl_query = db.query(ShiftLocation).filter(
         ShiftLocation.day_plan_id == day.id,
         ShiftLocation.shift_id == shift_id,
-    ).first()
+    )
+
+    if location_id is None:
+        sl_query = sl_query.filter(ShiftLocation.location_id.is_(None))
+    else:
+        sl_query = sl_query.filter(ShiftLocation.location_id == location_id)
+
+    sl = sl_query.first()
+
     if not sl:
+        max_order = db.query(ShiftLocation).filter(
+            ShiftLocation.day_plan_id == day.id
+        ).count()
+
         sl = ShiftLocation(
             day_plan_id=day.id,
             shift_id=shift_id,
             location_id=location_id,
             slots_count=slots_count,
-            order=0,
+            order=max_order,
         )
         db.add(sl)
         db.flush()
@@ -188,16 +488,26 @@ def update_shift_location_slots(
 
     existing = sorted(sl.assignments, key=lambda a: a.slot_index)
     current = len(existing)
+
     if slots_count > current:
         for idx in range(current, slots_count):
-            db.add(Assignment(shift_location_id=sl.id, slot_index=idx, teacher_id=None))
+            db.add(
+                Assignment(
+                    shift_location_id=sl.id,
+                    slot_index=idx,
+                    teacher_id=None,
+                    grade_class=None,
+                )
+            )
     elif slots_count < current:
         for a in existing[slots_count:]:
             db.delete(a)
 
     _log_change(db, week, actor, "update_slots", {
-        "day": str(day_date), "shift_id": shift_id,
-        "location_id": location_id, "slots_count": slots_count,
+        "day": str(day_date),
+        "shift_id": shift_id,
+        "location_id": location_id,
+        "slots_count": slots_count,
     })
     db.commit()
     db.refresh(sl)
@@ -237,20 +547,19 @@ def update_assignment(
         assignment = Assignment(shift_location_id=shift_location_id, slot_index=slot_index)
         db.add(assignment)
 
-    # Guard: a teacher may not occupy more than one slot within the same
-    # ShiftLocation (same shift + same day + same time).
-    # They are still free to appear in multiple ShiftLocations across the day/week.
+    # Guard:
+    # A teacher may not occupy more than one slot inside the same ShiftLocation block.
     if teacher_id is not None:
         conflict = db.query(Assignment).filter(
             Assignment.shift_location_id == shift_location_id,
             Assignment.teacher_id == teacher_id,
-            Assignment.slot_index != slot_index,   # a different slot in the same block
+            Assignment.slot_index != slot_index,
         ).first()
         if conflict:
             raise ValueError(
                 f"Teacher {teacher_id} is already assigned to another slot "
                 f"in the same shift block (shift_location_id={shift_location_id}). "
-                f"A teacher can only cover one slot per shift per day."
+                f"A teacher can only cover one slot per shift block."
             )
 
     assignment.teacher_id = teacher_id
@@ -304,6 +613,7 @@ def _notify_assigned_teachers(db: Session, week: WeekPlan) -> None:
         teacher = db.query(Teacher).filter(Teacher.id == tid).first()
         if not teacher:
             continue
+
         tokens = [
             str(dt.token)
             for dt in db.query(DeviceToken).filter(DeviceToken.teacher_id == tid).all()
