@@ -11,6 +11,7 @@ let currentWeekData = null;
 let allTeachers = [];
 let pendingAssignments = {};   // slId → { slotIdx → { teacher_id, grade_class } }
 let pendingSlots = {};         // key → { dayDate, shiftId, locationId, slotsCount }
+let selectedDate = null;       // the exact day chosen by admin in the date picker
 let lang = () => I18N.getLang();
 
 function byId(id) {
@@ -36,15 +37,43 @@ function showToast(message, type = 'success') {
   setTimeout(() => t.remove(), 3500);
 }
 
+function formatDateLocal(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function parseLocalDate(dateStr) {
+  return new Date(`${dateStr}T12:00:00`);
+}
+
+function getWeekStartFromDate(dateStr) {
+  const d = parseLocalDate(dateStr);
+  d.setDate(d.getDate() - d.getDay()); // Sunday
+  return formatDateLocal(d);
+}
+
+function getCurrentLocalDate() {
+  return formatDateLocal(new Date());
+}
+
+function getCurrentSunday() {
+  return getWeekStartFromDate(getCurrentLocalDate());
+}
+
 /* ─── Init ────────────────────────────────────────────────────────────────── */
 
 async function initPlanner() {
   try {
-    const todaySunday = getCurrentSunday();
     const weekInput = byId('weekStartInput');
+    const today = getCurrentLocalDate();
+
     if (weekInput && !weekInput.value) {
-      weekInput.value = todaySunday;
+      weekInput.value = today;
     }
+
+    selectedDate = weekInput?.value || today;
 
     await Promise.all([
       loadTeachers(),
@@ -56,14 +85,12 @@ async function initPlanner() {
   }
 }
 
-function getCurrentSunday() {
-  const d = new Date();
-  d.setDate(d.getDate() - d.getDay());
-  return d.toISOString().slice(0, 10);
-}
+async function onWeekSelected() {
+  const weekInput = byId('weekStartInput');
+  if (!weekInput || !weekInput.value) return;
 
-function onWeekSelected() {
-  /* user changed date input */
+  selectedDate = weekInput.value;
+  await loadWeek();
 }
 
 /* ─── Teachers Sidebar ────────────────────────────────────────────────────── */
@@ -121,8 +148,11 @@ async function loadWeek() {
   const dayPanels = byId('dayPanels');
   const plannerLoading = byId('plannerLoading');
 
-  const weekStart = weekInput ? weekInput.value : '';
-  if (!weekStart) return;
+  const pickedDate = weekInput ? weekInput.value : '';
+  if (!pickedDate) return;
+
+  selectedDate = pickedDate;
+  const weekStart = getWeekStartFromDate(pickedDate);
 
   pendingAssignments = {};
   pendingSlots = {};
@@ -215,32 +245,57 @@ function renderWeek() {
   panelsEl.innerHTML = '';
   hideEl(noPlanMsg);
 
+  const activeIdx = getActiveDayIndex();
+
   currentWeekData.day_plans.forEach((dayPlan, idx) => {
-    const dayDate = new Date(dayPlan.date + 'T00:00:00');
+    const dayDate = new Date(dayPlan.date + 'T12:00:00');
     const dayOfWeek = dayDate.getDay();
     const dayLabel = I18N.t(DAY_KEYS[dayOfWeek] || `Day ${idx}`);
 
     const tab = document.createElement('button');
-    tab.className = 'tab-btn' + (idx === 0 ? ' active' : '');
-    tab.textContent = dayLabel + (dayPlan.is_published ? " ✔" : "");
+    tab.className = 'tab-btn' + (idx === activeIdx ? ' active' : '');
+    tab.textContent = dayLabel + (dayPlan.is_published ? ' ✔' : '');
     tab.onclick = () => switchDayTab(idx);
     tabsEl.appendChild(tab);
 
     const panel = document.createElement('div');
-    panel.className = 'tab-panel' + (idx === 0 ? ' active' : '');
+    panel.className = 'tab-panel' + (idx === activeIdx ? ' active' : '');
     panel.innerHTML = renderDayPanel(dayPlan, dayPlan.is_editable);
+    if (idx !== activeIdx) {
+      panel.style.display = 'none';
+    }
     panelsEl.appendChild(panel);
   });
 
   initDragAndDrop();
 }
 
+function getActiveDayIndex() {
+  if (!currentWeekData?.day_plans?.length) return 0;
+
+  const exactMatch = currentWeekData.day_plans.findIndex(d => d.date === selectedDate);
+  if (exactMatch >= 0) return exactMatch;
+
+  const today = getCurrentLocalDate();
+  const todayMatch = currentWeekData.day_plans.findIndex(d => d.date === today);
+  if (todayMatch >= 0) return todayMatch;
+
+  return 0;
+}
+
 function switchDayTab(idx) {
   document.querySelectorAll('.tab-btn').forEach((b, i) => b.classList.toggle('active', i === idx));
-  document.querySelectorAll('.tab-panel').forEach((p, i) => p.classList.toggle('active', i === idx));
+  document.querySelectorAll('.tab-panel').forEach((p, i) => {
+    const isActive = i === idx;
+    p.classList.toggle('active', isActive);
+    p.style.display = isActive ? 'block' : 'none';
+  });
 
   const day = currentWeekData.day_plans[idx];
   if (day) {
+    selectedDate = day.date;
+    const weekInput = byId('weekStartInput');
+    if (weekInput) weekInput.value = day.date;
     showToast(`Loaded ${day.date}`, 'info');
   }
 }
@@ -260,6 +315,14 @@ function renderDayPanel(dayPlan, isEditable) {
   if (!shifts.length) {
     return `<p style="color:#999;margin-top:20px;text-align:center">No shifts configured for this day.</p>`;
   }
+
+  const dayBadge = isEditable
+    ? `<span style="font-size:0.8rem;color:#15803d;background:#dcfce7;padding:4px 10px;border-radius:999px">${I18N.t('editable') || 'Editable'}</span>`
+    : `<span style="font-size:0.8rem;color:#991b1b;background:#fee2e2;padding:4px 10px;border-radius:999px">${I18N.t('locked') || 'Locked'}</span>`;
+
+  const publishBtn = dayPlan.is_published
+    ? `<span style="font-size:0.8rem;color:#166534;background:#dcfce7;padding:6px 10px;border-radius:999px">Published</span>`
+    : `<button class="btn btn-success btn-sm" onclick="publishDay('${dayPlan.date}')">Publish Day</button>`;
 
   const shiftTabsHtml = shifts.map((s, i) => {
     const dutyBadge = s.shift.duty_type === 'break'
@@ -281,7 +344,7 @@ function renderDayPanel(dayPlan, isEditable) {
   const shiftPanelsHtml = shifts.map((s, i) => `
     <div class="shift-panel${i === 0 ? ' active' : ''}"
          id="shift-panel-${dayPlan.date}-${s.shift.id}"
-         style="${i === 0 ? '' : 'display:none'}">
+         style="${i === 0 ? 'display:block' : 'display:none'}">
       <div class="locations-grid">
         ${s.locations.map(sl => renderLocationColumn(dayPlan.date, sl, isEditable)).join('')}
       </div>
@@ -289,6 +352,15 @@ function renderDayPanel(dayPlan, isEditable) {
   `).join('');
 
   return `
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <strong>${dayPlan.date}</strong>
+        ${dayBadge}
+      </div>
+      <div>
+        ${publishBtn}
+      </div>
+    </div>
     <div class="shift-tabs" id="shift-tabs-${dayPlan.date}">${shiftTabsHtml}</div>
     ${shiftPanelsHtml}
   `;
@@ -322,7 +394,7 @@ function renderLocationColumn(dayDate, sl, isEditable) {
   const slots = [];
   for (let i = 0; i < sl.slots_count; i++) {
     const assignment = sl.assignments.find(a => a.slot_index === i);
-    slots.push(renderSlot(sl.id, i, assignment, isBreak));
+    slots.push(renderSlot(sl.id, i, assignment, isBreak, isEditable));
   }
 
   return `
@@ -331,15 +403,18 @@ function renderLocationColumn(dayDate, sl, isEditable) {
          data-day="${dayDate}"
          data-shift="${sl.shift_id}"
          data-loc="${sl.location_id || ''}"
-         data-duty-type="${isBreak ? 'break' : 'morning_endofday'}">
+         data-duty-type="${isBreak ? 'break' : 'morning_endofday'}"
+         data-editable="${isEditable ? 'true' : 'false'}">
       <div class="location-header">
         <span class="location-name">${colTitle}</span>
         <div class="slot-controls">
           <button class="btn-slot btn-slot-sub"
-        ${!isEditable ? 'disabled style="opacity:0.4;pointer-events:none"' : ''} onclick="changeSlots('${dayDate}', ${sl.shift_id}, ${sl.location_id || 'null'}, -1)">−</button>
+                  ${!isEditable ? 'disabled style="opacity:0.4;pointer-events:none"' : ''}
+                  onclick="changeSlots('${dayDate}', ${sl.shift_id}, ${sl.location_id || 'null'}, -1)">−</button>
           <span class="slot-count" id="slot-count-${sl.id}">${sl.slots_count}</span>
           <button class="btn-slot btn-slot-add"
-        ${!isEditable ? 'disabled style="opacity:0.4;pointer-events:none"' : ''} onclick="changeSlots('${dayDate}', ${sl.shift_id}, ${sl.location_id || 'null'}, +1)">+</button>
+                  ${!isEditable ? 'disabled style="opacity:0.4;pointer-events:none"' : ''}
+                  onclick="changeSlots('${dayDate}', ${sl.shift_id}, ${sl.location_id || 'null'}, +1)">+</button>
         </div>
       </div>
       <div class="slots-list"
@@ -352,7 +427,7 @@ function renderLocationColumn(dayDate, sl, isEditable) {
   `;
 }
 
-function renderSlot(slId, slotIdx, assignment, isBreak) {
+function renderSlot(slId, slotIdx, assignment, isBreak, isEditable = true) {
   if (assignment && assignment.teacher_id) {
     const gradeHtml = isBreak
       ? `<input class="grade-input" type="text"
@@ -360,14 +435,15 @@ function renderSlot(slId, slotIdx, assignment, isBreak) {
                 value="${assignment.grade_class || ''}"
                 onchange="updateGradeClass(${slId}, ${slotIdx}, this.value)"
                 onclick="event.stopPropagation()"
-                style="margin-top:4px;width:100%;font-size:0.8rem;padding:3px 6px;border:1px solid #c4b5fd;border-radius:4px">`
+                ${!isEditable ? 'disabled' : ''}
+                style="margin-top:4px;width:100%;font-size:0.8rem;padding:3px 6px;border:1px solid #c4b5fd;border-radius:4px;${!isEditable ? 'opacity:0.6;background:#f3f4f6' : ''}">`
       : '';
 
     return `
       <div class="slot-item filled" data-sl-id="${slId}" data-slot-idx="${slotIdx}" data-teacher-id="${assignment.teacher_id}">
         <div class="teacher-card" data-teacher-id="${assignment.teacher_id}" data-teacher-name="${escHtml(assignment.teacher_name)}">
           <span>${escHtml(assignment.teacher_name)}</span>
-          <span class="remove-btn" onclick="removeTeacher(${slId}, ${slotIdx})">✕</span>
+          ${isEditable ? `<span class="remove-btn" onclick="removeTeacher(${slId}, ${slotIdx})">✕</span>` : ''}
         </div>
         ${gradeHtml}
       </div>
@@ -384,6 +460,14 @@ function renderSlot(slId, slotIdx, assignment, isBreak) {
 /* ─── Grade/Class update ──────────────────────────────────────────────────── */
 
 function updateGradeClass(slId, slotIdx, value) {
+  const list = byId(`slots-${slId}`);
+  const col = list?.closest('.location-column');
+
+  if (col?.dataset.editable !== 'true') {
+    showToast(I18N.t('day_locked') || 'Past days cannot be edited', 'error');
+    return;
+  }
+
   if (!pendingAssignments[slId]) pendingAssignments[slId] = {};
   if (!pendingAssignments[slId][slotIdx]) pendingAssignments[slId][slotIdx] = {};
   pendingAssignments[slId][slotIdx].grade_class = value;
@@ -419,6 +503,7 @@ function initDragAndDrop() {
           evt.item.parentNode && evt.item.parentNode.removeChild(evt.item);
           return;
         }
+
         const slId = parseInt(list.dataset.slId, 10);
         const teacherId = parseInt(evt.item.dataset.teacherId, 10);
         const teacherName = evt.item.dataset.teacherName;
@@ -438,7 +523,7 @@ function initDragAndDrop() {
           teacher_name: teacherName,
           slot_index: slotIdx,
           grade_class: null,
-        }, isBreak);
+        }, isBreak, true);
 
         evt.item.parentNode && evt.item.parentNode.removeChild(evt.item);
       }
@@ -452,14 +537,21 @@ function recordAssignment(slId, slotIdx, teacherId, gradeClass) {
 }
 
 function removeTeacher(slId, slotIdx) {
+  const list = byId(`slots-${slId}`);
+  const col = list?.closest('.location-column');
+
+  if (col?.dataset.editable !== 'true') {
+    showToast(I18N.t('day_locked') || 'Past days cannot be edited', 'error');
+    return;
+  }
+
   recordAssignment(slId, slotIdx, null, null);
 
-  const list = byId(`slots-${slId}`);
   if (!list) return;
 
   const slotEl = list.querySelector(`[data-slot-idx="${slotIdx}"]`);
   if (slotEl) {
-    slotEl.outerHTML = renderSlot(slId, slotIdx, null, list.dataset.dutyType === 'break');
+    slotEl.outerHTML = renderSlot(slId, slotIdx, null, list.dataset.dutyType === 'break', true);
   }
 }
 
@@ -471,6 +563,7 @@ function changeSlots(dayDate, shiftId, locationId, delta) {
     showToast(I18N.t('day_locked') || 'Past days cannot be edited', 'error');
     return;
   }
+
   const locId = locationId === 'null' ? null : locationId;
   const key = `${dayDate}:${shiftId}:${locId}`;
 
@@ -503,7 +596,7 @@ function changeSlots(dayDate, shiftId, locationId, delta) {
 
   if (delta > 0) {
     const div = document.createElement('div');
-    div.innerHTML = renderSlot(slId, current, null, isBreak);
+    div.innerHTML = renderSlot(slId, current, null, isBreak, true);
     list.appendChild(div.firstChild);
     initDragAndDrop();
   } else if (delta < 0 && current > 0) {
@@ -536,7 +629,13 @@ async function flushPendingChanges() {
       body: JSON.stringify(updates)
     });
 
-    if (res && res.ok) pendingSlots = {};
+    if (res && res.ok) {
+      pendingSlots = {};
+      currentWeekData = await res.json();
+    } else {
+      const err = res ? await res.json() : {};
+      throw new Error(err.detail || 'Failed to save slot changes');
+    }
   }
 
   const assignmentUpdates = [];
@@ -560,60 +659,78 @@ async function flushPendingChanges() {
     if (res && res.ok) {
       pendingAssignments = {};
       currentWeekData = await res.json();
+    } else {
+      const err = res ? await res.json() : {};
+      throw new Error(err.detail || 'Failed to save assignment changes');
     }
   }
+
+  renderWeek();
 }
 
 async function publishWeek() {
   if (!currentWeekData) return;
   if (!confirm(I18N.t('confirm_publish'))) return;
 
-  await flushPendingChanges();
+  try {
+    await flushPendingChanges();
 
-  const weekStart = currentWeekData.week_start_date;
-  const res = await apiFetch(`/weeks/${weekStart}/status`, {
-    method: 'PUT',
-    body: JSON.stringify({ status: 'published' })
-  });
+    const weekStart = currentWeekData.week_start_date;
+    const res = await apiFetch(`/weeks/${weekStart}/status`, {
+      method: 'PUT',
+      body: JSON.stringify({ status: 'published' })
+    });
 
-  if (res && res.ok) {
-    currentWeekData = await res.json();
-    updateStatusBadge(currentWeekData.status);
-    showToast(I18N.t('success_published'));
-  } else {
-    showToast(I18N.t('error_generic'), 'error');
+    if (res && res.ok) {
+      currentWeekData = await res.json();
+      renderWeek();
+      updateStatusBadge(currentWeekData.status);
+      showToast(I18N.t('success_published'));
+    } else {
+      const err = res ? await res.json() : {};
+      showToast(err.detail || I18N.t('error_generic'), 'error');
+    }
+  } catch (err) {
+    showToast(err.message || I18N.t('error_generic'), 'error');
   }
 }
 
 async function publishDay(dayDate) {
   if (!currentWeekData) return;
 
-  await flushPendingChanges();
+  try {
+    await flushPendingChanges();
 
-  const weekStart = currentWeekData.week_start_date;
+    const weekStart = currentWeekData.week_start_date;
+    const res = await apiFetch(
+      `/weeks/${weekStart}/publish-day?day_date=${dayDate}`,
+      { method: 'PUT' }
+    );
 
-  const res = await apiFetch(
-    `/weeks/${weekStart}/publish-day?day_date=${dayDate}`,
-    { method: 'PUT' }
-  );
-
-  if (res && res.ok) {
-    currentWeekData = await res.json();
-    renderWeek();
-    showToast('Day published');
-  } else {
-    showToast(I18N.t('error_generic'), 'error');
+    if (res && res.ok) {
+      currentWeekData = await res.json();
+      renderWeek();
+      showToast('Day published');
+    } else {
+      const err = res ? await res.json() : {};
+      showToast(err.detail || I18N.t('error_generic'), 'error');
+    }
+  } catch (err) {
+    showToast(err.message || I18N.t('error_generic'), 'error');
   }
 }
 
 async function createWeek() {
-  const weekStart = byId('weekStartInput')?.value;
-  if (!weekStart) return;
+  const selected = byId('weekStartInput')?.value;
+  if (!selected) return;
+
+  const weekStart = getWeekStartFromDate(selected);
 
   const res = await apiFetch(`/weeks/${weekStart}/create`, { method: 'POST' });
 
   if (res && res.ok) {
     currentWeekData = await res.json();
+    selectedDate = selected;
     renderWeek();
     showToast(I18N.t('success_saved'));
   } else {
@@ -623,13 +740,16 @@ async function createWeek() {
 }
 
 async function cloneWeek() {
-  const weekStart = byId('weekStartInput')?.value;
-  if (!weekStart) return;
+  const selected = byId('weekStartInput')?.value;
+  if (!selected) return;
+
+  const weekStart = getWeekStartFromDate(selected);
 
   const res = await apiFetch(`/weeks/${weekStart}/clone`, { method: 'POST' });
 
   if (res && res.ok) {
     currentWeekData = await res.json();
+    selectedDate = selected;
     renderWeek();
     showToast(I18N.t('success_cloned'));
   } else {
