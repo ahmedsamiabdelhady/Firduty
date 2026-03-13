@@ -19,6 +19,7 @@ from services.week_service import (
     publish_week,
     publish_day,
     is_day_editable,
+    ensure_week_fully_populated,
 )
 
 router = APIRouter(prefix="/weeks", tags=["weeks"])
@@ -102,6 +103,8 @@ def get_current_week(db: Session = Depends(get_db)):
             "status": None,
             "message": "No plan for current week",
         }
+
+    week = ensure_week_fully_populated(db, week)
     return _serialize_week(week)
 
 
@@ -110,6 +113,8 @@ def get_week(week_start: date, db: Session = Depends(get_db)):
     week = db.query(WeekPlan).filter(WeekPlan.week_start_date == week_start).first()
     if not week:
         raise HTTPException(404, f"No plan found for week starting {week_start}")
+
+    week = ensure_week_fully_populated(db, week)
     return _serialize_week(week)
 
 
@@ -121,6 +126,7 @@ def create_week(
 ):
     try:
         week = create_week_plan(db, week_start, actor=admin)
+        week = ensure_week_fully_populated(db, week)
         return _serialize_week(week)
     except ValueError as e:
         raise HTTPException(409, str(e))
@@ -150,6 +156,8 @@ def clone_week_endpoint(
             400,
             f"Week {week_start} already exists or source {source_week} not found",
         )
+
+    result = ensure_week_fully_populated(db, result)
     return _serialize_week(result)
 
 
@@ -164,6 +172,8 @@ def update_week_status(
     if not week:
         raise HTTPException(404, "Week not found")
 
+    week = ensure_week_fully_populated(db, week)
+
     if data.status == "published":
         publish_week(db, week, actor=admin)
     else:
@@ -171,6 +181,7 @@ def update_week_status(
         db.commit()
         db.refresh(week)
 
+    week = ensure_week_fully_populated(db, week)
     return _serialize_week(week)
 
 
@@ -185,12 +196,15 @@ def publish_single_day(
     if not week:
         raise HTTPException(404, "Week not found")
 
+    week = ensure_week_fully_populated(db, week)
+
     try:
         publish_day(db, week, day_date, actor=admin)
     except ValueError as e:
         raise HTTPException(400, str(e))
 
     db.refresh(week)
+    week = ensure_week_fully_populated(db, week)
     return _serialize_week(week)
 
 
@@ -204,6 +218,8 @@ def update_shift_locations(
     week = db.query(WeekPlan).filter(WeekPlan.week_start_date == week_start).first()
     if not week:
         raise HTTPException(404, "Week not found")
+
+    week = ensure_week_fully_populated(db, week)
 
     for upd in updates:
         try:
@@ -220,6 +236,7 @@ def update_shift_locations(
             raise HTTPException(400, str(e))
 
     db.refresh(week)
+    week = ensure_week_fully_populated(db, week)
     return _serialize_week(week)
 
 
@@ -233,6 +250,8 @@ def update_assignments(
     week = db.query(WeekPlan).filter(WeekPlan.week_start_date == week_start).first()
     if not week:
         raise HTTPException(404, "Week not found")
+
+    week = ensure_week_fully_populated(db, week)
 
     for upd in updates:
         try:
@@ -249,6 +268,7 @@ def update_assignments(
             raise HTTPException(400, str(e))
 
     db.refresh(week)
+    week = ensure_week_fully_populated(db, week)
 
     # Optional backward-compatibility:
     # if the whole week is marked as published, keep old notification behavior

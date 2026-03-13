@@ -313,7 +313,7 @@ function renderDayPanel(dayPlan, isEditable) {
   const shifts = Object.values(shiftMap).sort((a, b) => a.shift.order - b.shift.order);
 
   if (!shifts.length) {
-    return `<p style="color:#999;margin-top:20px;text-align:center">No shifts configured for this day.</p>`;
+    return `<p style="color:#999;margin-top:20px;text-align:center">Loading day slots...</p>`;
   }
 
   const dayBadge = isEditable

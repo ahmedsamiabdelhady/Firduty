@@ -5,6 +5,7 @@ Public API consumed by routers/weeks.py and jobs/auto_clone.py:
   get_current_week_start()          → date (Sunday, Asia/Muscat)
   create_week_plan(...)             → WeekPlan
   clone_week(...)                   → WeekPlan | None
+  ensure_week_fully_populated(...)  → WeekPlan
   update_shift_location_slots(...)
   update_assignment(...)
   publish_week(...)
@@ -358,6 +359,68 @@ def _populate_day_if_empty(
         order_counter += 1
 
 
+def ensure_week_fully_populated(db: Session, week: WeekPlan) -> WeekPlan:
+    """
+    Ensure an existing week has all 5 DayPlans populated with shift locations + assignments.
+    Safe to call before returning a week to the frontend.
+    """
+    morning_shift = _get_shift_by_alias(db, "morning")
+    break_1_shift = _get_shift_by_alias(db, "break_1")
+    break_2_shift = _get_shift_by_alias(db, "break_2")
+    end_of_day_shift = _get_shift_by_alias(db, "end_of_day")
+
+    changed = False
+
+    for i in range(WEEK_DAYS):
+        day_date = week.week_start_date + timedelta(days=i)
+
+        day = db.query(DayPlan).filter(
+            DayPlan.week_plan_id == week.id,
+            DayPlan.date == day_date,
+        ).first()
+
+        if not day:
+            day = DayPlan(
+                week_plan_id=week.id,
+                date=day_date,
+                is_published=False,
+            )
+            db.add(day)
+            db.flush()
+            changed = True
+
+        if not _day_has_any_shift_locations(day):
+            _populate_day_if_empty(
+                db=db,
+                day=day,
+                morning_shift=morning_shift,
+                break_1_shift=break_1_shift,
+                break_2_shift=break_2_shift,
+                end_of_day_shift=end_of_day_shift,
+            )
+            changed = True
+
+    if changed:
+        db.commit()
+        db.refresh(week)
+
+    return week
+
+
+def _is_week_fully_populated(db: Session, week: WeekPlan) -> bool:
+    for i in range(WEEK_DAYS):
+        day_date = week.week_start_date + timedelta(days=i)
+        day = db.query(DayPlan).filter(
+            DayPlan.week_plan_id == week.id,
+            DayPlan.date == day_date,
+        ).first()
+
+        if not day or not _day_has_any_shift_locations(day):
+            return False
+
+    return True
+
+
 # ── Week creation ─────────────────────────────────────────────────────────────
 
 def create_week_plan(db: Session, week_start: date, actor: str = "admin") -> WeekPlan:
@@ -370,13 +433,20 @@ def create_week_plan(db: Session, week_start: date, actor: str = "admin") -> Wee
       - Second Break block (grade_class-based)
       - End of Day Duty locations
 
-    Important behavior:
-      - If the week already exists, raise ValueError to prevent duplicate creation.
+    Behavior:
+      - If the week already exists and is fully populated, raise ValueError.
+      - If the week already exists but is empty / partially empty, backfill it.
       - Creation does NOT mean publishing.
     """
     existing = db.query(WeekPlan).filter(WeekPlan.week_start_date == week_start).first()
+
     if existing:
-        raise ValueError(f"Week {week_start} already exists. Cannot create it again.")
+        week = ensure_week_fully_populated(db, existing)
+
+        if _is_week_fully_populated(db, week):
+            raise ValueError(f"Week {week_start} already exists. Cannot create it again.")
+
+        return week
 
     morning_shift = _get_shift_by_alias(db, "morning")
     break_1_shift = _get_shift_by_alias(db, "break_1")
@@ -436,6 +506,8 @@ def clone_week(
     if not source:
         logger.error(f"clone_week: source {source_week_start} not found.")
         return None
+
+    source = ensure_week_fully_populated(db, source)
 
     day_offset = target_week_start - source_week_start
 
@@ -715,7 +787,6 @@ def publish_day(
 
     logger.info(f"Published day {day_date} in week {week.week_start_date}")
 
-    # notify only teachers assigned in this day
     try:
         from services.notification_service import notify_teacher_updated
     except Exception:
