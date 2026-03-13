@@ -19,7 +19,7 @@ const API_BASE = window.API_BASE || localStorage.getItem('firduty_api') || 'http
   if (!token) return;
 
   try {
-    const res = await fetch(`${window.API_BASE}auth/validate`, {
+    const res = await fetch(`${window.API_BASE}/auth/validate`, {
       headers: { 'Authorization': `Bearer ${token}` },
     });
     if (res.ok) {

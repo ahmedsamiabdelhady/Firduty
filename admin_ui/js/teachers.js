@@ -10,17 +10,26 @@
 
 // Auth is handled by auth.js — use apiFetch() for all API calls.
 
+let currentTab = 'pending';
+
+function byId(id) {
+  return document.getElementById(id);
+}
 
 // ─── Tab management ───────────────────────────────────────────────────────────
 
-let currentTab = 'pending';
-
 function showTab(tab) {
   currentTab = tab;
-  document.getElementById('pendingSection').style.display = tab === 'pending' ? '' : 'none';
-  document.getElementById('allSection').style.display     = tab === 'all'     ? '' : 'none';
-  document.getElementById('tabPending').classList.toggle('active', tab === 'pending');
-  document.getElementById('tabAll').classList.toggle('active',     tab === 'all');
+
+  const pendingSection = byId('pendingSection');
+  const allSection = byId('allSection');
+  const tabPending = byId('tabPending');
+  const tabAll = byId('tabAll');
+
+  if (pendingSection) pendingSection.style.display = tab === 'pending' ? '' : 'none';
+  if (allSection) allSection.style.display = tab === 'all' ? '' : 'none';
+  if (tabPending) tabPending.classList.toggle('active', tab === 'pending');
+  if (tabAll) tabAll.classList.toggle('active', tab === 'all');
 }
 
 // ─── Data loading ─────────────────────────────────────────────────────────────
@@ -31,11 +40,18 @@ async function loadAll() {
 }
 
 async function loadPending() {
-  document.getElementById('pendingLoading').style.display = '';
-  document.getElementById('pendingTableWrap').innerHTML = '';
+  const pendingLoading = byId('pendingLoading');
+  const pendingTableWrap = byId('pendingTableWrap');
+  const pendingCount = byId('pendingCount');
+  const approveAllBtn = byId('approveAllBtn');
+
+  if (pendingLoading) pendingLoading.style.display = '';
+  if (pendingTableWrap) pendingTableWrap.innerHTML = '';
 
   const res = await apiFetch('/teachers/pending');
-  document.getElementById('pendingLoading').style.display = 'none';
+
+  if (pendingLoading) pendingLoading.style.display = 'none';
+
   if (!res.ok) {
     showAlert(I18N.t('error_generic'), 'danger');
     return;
@@ -43,48 +59,66 @@ async function loadPending() {
 
   const teachers = await res.json();
 
-  // Update pending badge
-  const badge = document.getElementById('pendingCount');
-  if (teachers.length > 0) {
-    badge.textContent = teachers.length;
-    badge.style.display = '';
-  } else {
-    badge.style.display = 'none';
+  if (pendingCount) {
+    if (teachers.length > 0) {
+      pendingCount.textContent = teachers.length;
+      pendingCount.style.display = '';
+    } else {
+      pendingCount.style.display = 'none';
+    }
   }
 
-  // Disable "Approve All" if nothing pending
-  document.getElementById('approveAllBtn').disabled = teachers.length === 0;
+  if (approveAllBtn) {
+    approveAllBtn.disabled = teachers.length === 0;
+  }
 
-  document.getElementById('pendingTableWrap').innerHTML =
-    teachers.length === 0 ? emptyState('no_pending_teachers') : buildTable(teachers, true);
+  if (pendingTableWrap) {
+    pendingTableWrap.innerHTML =
+      teachers.length === 0 ? emptyState('no_pending_teachers') : buildTable(teachers, true);
+  }
 }
 
 async function loadAllTeachers() {
-  document.getElementById('allLoading').style.display = '';
-  document.getElementById('allTableWrap').innerHTML = '';
+  const allLoading = byId('allLoading');
+  const allTableWrap = byId('allTableWrap');
+
+  if (allLoading) allLoading.style.display = '';
+  if (allTableWrap) allTableWrap.innerHTML = '';
 
   const res = await apiFetch('/teachers/all');
-  document.getElementById('allLoading').style.display = 'none';
+
+  if (allLoading) allLoading.style.display = 'none';
+
   if (!res.ok) {
     showAlert(I18N.t('error_generic'), 'danger');
     return;
   }
 
   const teachers = await res.json();
-  document.getElementById('allTableWrap').innerHTML =
-    teachers.length === 0 ? emptyState('no_teachers_yet') : buildTable(teachers, false);
+
+  if (allTableWrap) {
+    allTableWrap.innerHTML =
+      teachers.length === 0 ? emptyState('no_teachers_yet') : buildTable(teachers, false);
+  }
 }
 
 // ─── Approve actions ──────────────────────────────────────────────────────────
 
 async function approveTeacher(id) {
-  const btn = document.getElementById(`btn-approve-${id}`);
-  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+  const btn = byId(`btn-approve-${id}`);
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '...';
+  }
 
-  const res = await apiFetch('/teachers/${id}/approve', { method: 'POST' });
+  const res = await apiFetch(`/teachers/${id}/approve`, { method: 'POST' });
+
   if (!res.ok) {
     showAlert(I18N.t('error_generic'), 'danger');
-    if (btn) { btn.disabled = false; btn.textContent = I18N.t('approve'); }
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = I18N.t('approve');
+    }
     return;
   }
 
@@ -93,24 +127,27 @@ async function approveTeacher(id) {
 }
 
 async function approveAll() {
-  const btn = document.getElementById('approveAllBtn');
-  btn.disabled = true;
+  const btn = byId('approveAllBtn');
+  if (btn) btn.disabled = true;
 
   const res = await apiFetch('/teachers/approve-all', { method: 'POST' });
+
   if (!res.ok) {
     showAlert(I18N.t('error_generic'), 'danger');
-    btn.disabled = false;
+    if (btn) btn.disabled = false;
     return;
   }
 
   const data = await res.json();
   const count = data.approved_count ?? 0;
+
   showAlert(
     count > 0
       ? `${I18N.t('all_approved_ok')} (${count})`
       : I18N.t('no_pending_teachers'),
-    'success',
+    'success'
   );
+
   await loadAll();
 }
 
@@ -135,7 +172,9 @@ function buildTable(teachers, showApproveBtn) {
       : `<span class="badge badge-approved">${I18N.t('status_approved')}</span>`;
 
     const lang = t.preferred_language === 'ar' ? I18N.t('arabic') : I18N.t('english');
-    const createdAt = t.created_at ? new Date(t.created_at).toLocaleDateString(isAr ? 'ar-OM' : 'en-GB') : '—';
+    const createdAt = t.created_at
+      ? new Date(t.created_at).toLocaleDateString(isAr ? 'ar-OM' : 'en-GB')
+      : '—';
     const email = t.email || '—';
 
     const approveCell = showApproveBtn
@@ -168,15 +207,21 @@ function emptyState(key) {
 }
 
 function showAlert(msg, type) {
-  const el = document.getElementById('alertMsg');
+  const el = byId('alertMsg');
+  if (!el) return;
+
   el.className = `alert alert-${type}`;
   el.textContent = msg;
   el.style.display = '';
-  setTimeout(() => { el.style.display = 'none'; }, 4000);
+
+  setTimeout(() => {
+    el.style.display = 'none';
+  }, 4000);
 }
 
 function clearAlert() {
-  document.getElementById('alertMsg').style.display = 'none';
+  const el = byId('alertMsg');
+  if (el) el.style.display = 'none';
 }
 
 function escHtml(str) {
