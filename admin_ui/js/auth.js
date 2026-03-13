@@ -13,7 +13,7 @@
  */
 
 
-window.API_BASE = localStorage.getItem('firduty_api') || 'https://naval-donnamarie-firduty-6e288803.koyeb.app/';
+window.API_BASE = localStorage.getItem('firduty_api') || 'https://naval-donnamarie-firduty-6e288803.koyeb.app';
 
 /** Return headers object with Authorization and Content-Type set. */
 function authHeaders() {
@@ -46,7 +46,7 @@ async function guardPage(validate = false) {
   if (!validate) return;
 
   try {
-    const res = await fetch(`${window.API_BASE}auth/validate`, {
+    const res = await fetch(`${window.API_BASE}/auth/validate`, {
       headers: { 'Authorization': `Bearer ${token}` },
     });
     if (!res.ok) logout();

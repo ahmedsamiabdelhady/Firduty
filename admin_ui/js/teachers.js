@@ -34,7 +34,7 @@ async function loadPending() {
   document.getElementById('pendingLoading').style.display = '';
   document.getElementById('pendingTableWrap').innerHTML = '';
 
-  const res = await apiFetch('teachers/pending');
+  const res = await apiFetch('/teachers/pending');
   document.getElementById('pendingLoading').style.display = 'none';
   if (!res.ok) {
     showAlert(I18N.t('error_generic'), 'danger');
@@ -63,7 +63,7 @@ async function loadAllTeachers() {
   document.getElementById('allLoading').style.display = '';
   document.getElementById('allTableWrap').innerHTML = '';
 
-  const res = await apiFetch('teachers/all');
+  const res = await apiFetch('/teachers/all');
   document.getElementById('allLoading').style.display = 'none';
   if (!res.ok) {
     showAlert(I18N.t('error_generic'), 'danger');
@@ -81,7 +81,7 @@ async function approveTeacher(id) {
   const btn = document.getElementById(`btn-approve-${id}`);
   if (btn) { btn.disabled = true; btn.textContent = '...'; }
 
-  const res = await apiFetch('teachers/${id}/approve', { method: 'POST' });
+  const res = await apiFetch('/teachers/${id}/approve', { method: 'POST' });
   if (!res.ok) {
     showAlert(I18N.t('error_generic'), 'danger');
     if (btn) { btn.disabled = false; btn.textContent = I18N.t('approve'); }
@@ -96,7 +96,7 @@ async function approveAll() {
   const btn = document.getElementById('approveAllBtn');
   btn.disabled = true;
 
-  const res = await apiFetch('teachers/approve-all', { method: 'POST' });
+  const res = await apiFetch('/teachers/approve-all', { method: 'POST' });
   if (!res.ok) {
     showAlert(I18N.t('error_generic'), 'danger');
     btn.disabled = false;

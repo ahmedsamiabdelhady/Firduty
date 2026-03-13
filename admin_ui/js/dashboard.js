@@ -9,7 +9,7 @@
 const lang = () => I18N.getLang();
 
 async function loadDashboard() {
-  const res = await apiFetch('admin/dashboard');
+  const res = await apiFetch('/admin/dashboard');
   if (!res.ok) {
     document.getElementById('dashContent').innerHTML =
       `<p style="color:red;text-align:center">Error loading dashboard (${res.status})</p>`;
