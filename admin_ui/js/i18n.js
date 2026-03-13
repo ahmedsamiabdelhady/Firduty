@@ -14,10 +14,6 @@
  *   data-i18n="key"             → element.textContent = I18N.t(key)
  *   data-i18n-placeholder="key" → element.placeholder  = I18N.t(key)
  *   data-i18n-title="key"       → element.title        = I18N.t(key)
- */
-
-javascript
-/**
  * i18n.js — Bilingual (Arabic / English) runtime language switching.
  */
 
