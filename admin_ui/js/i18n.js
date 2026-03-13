@@ -16,75 +16,80 @@
  *   data-i18n-title="key"       → element.title        = I18N.t(key)
  */
 
-const I18N = (() => {
-  let _strings = {};
-  let _lang = 'ar';
+javascript
+/**
+ * i18n.js — Bilingual (Arabic / English) runtime language switching.
+ */
 
-  /**
-   * Load a language pack and apply translations to the page.
-   * Persists the selection to localStorage as 'firduty_lang'.
-   * @param {string} lang — 'ar' or 'en'
-   */
-  async function load(lang) {
-    _lang = (lang === 'en') ? 'en' : 'ar';
-    localStorage.setItem('firduty_lang', _lang);
+const I18N = {
+  translations: {},
+  currentLang: 'en',
+
+  /** Load language file and apply translations */
+  async load(lang = 'ar') {
+    this.currentLang = lang;
+    localStorage.setItem('firduty_lang', lang);
 
     try {
-      const res = await fetch(`i18n/${_lang}.json?v=${Date.now()}`);
-      if (!res.ok) throw new Error(`Failed to load i18n/${_lang}.json`);
-      _strings = await res.json();
+      const res = await fetch(`i18n/${lang}.json?v=${Date.now()}`);
+      this.translations = await res.json();
     } catch (err) {
-      console.warn('[i18n] Could not load language pack:', err);
-      _strings = {};
+      console.error('Failed to load translations:', err);
+      this.translations = {};
     }
 
-    _apply();
-  }
+    this.applyTranslations(document);
+    this.applyDirection();
+  },
 
-  /**
-   * Return the current language code.
-   * @returns {'ar'|'en'}
-   */
-  function getLang() {
-    return _lang;
-  }
+  /** Get current language */
+  getLang() {
+    return this.currentLang;
+  },
 
-  /**
-   * Translate a key. Returns the key itself if not found.
-   * @param {string} key
-   * @returns {string}
-   */
-  function t(key) {
-    return _strings[key] || key;
-  }
+  /** Translate a key */
+  t(key) {
+    return this.translations[key] || key;
+  },
 
-  /**
-   * Apply translations to the entire document.
-   * Also sets <html lang> and <html dir> for correct RTL/LTR rendering.
-   */
-  function _apply() {
-    // Set document direction and language
-    document.documentElement.lang = _lang;
-    document.documentElement.dir  = (_lang === 'ar') ? 'rtl' : 'ltr';
+  /** Apply translations to DOM */
+  applyTranslations(root = document) {
 
-    // Translate text content
-    document.querySelectorAll('[data-i18n]').forEach(el => {
+    // textContent
+    root.querySelectorAll('[data-i18n]').forEach(el => {
       const key = el.getAttribute('data-i18n');
-      if (key) el.textContent = t(key);
+      const value = this.t(key);
+      if (value) el.textContent = value;
     });
 
-    // Translate placeholder attributes
-    document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+    // placeholder
+    root.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
       const key = el.getAttribute('data-i18n-placeholder');
-      if (key) el.placeholder = t(key);
+      const value = this.t(key);
+      if (value) el.placeholder = value;
     });
 
-    // Translate title attributes (tooltips)
-    document.querySelectorAll('[data-i18n-title]').forEach(el => {
+    // title
+    root.querySelectorAll('[data-i18n-title]').forEach(el => {
       const key = el.getAttribute('data-i18n-title');
-      if (key) el.title = t(key);
+      const value = this.t(key);
+      if (value) el.title = value;
     });
-  }
+  },
 
-  return { load, getLang, t };
-})();
+  /** Toggle language */
+  async toggle() {
+    const next = this.currentLang === 'ar' ? 'en' : 'ar';
+    await this.load(next);
+  },
+
+  /** Apply page direction (RTL / LTR) */
+  applyDirection() {
+    const dir = this.currentLang === 'ar' ? 'rtl' : 'ltr';
+    document.documentElement.dir = dir;
+    document.documentElement.lang = this.currentLang;
+  }
+};
+
+// expose globally
+window.I18N = I18N;
