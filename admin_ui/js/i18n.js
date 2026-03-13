@@ -1,91 +1,121 @@
 /**
  * i18n.js — Bilingual (Arabic / English) runtime language switching.
  *
- * Usage:
- *   I18N.load('ar')          — load a language and apply translations to the DOM
- *   I18N.getLang()           — returns current language code ('ar' | 'en')
- *   I18N.t('key')            — return a translated string
- *
- * Translations are loaded from:
- *   i18n/ar.json  (Arabic)
- *   i18n/en.json  (English)
- *
- * HTML elements opt-in to translation via data attributes:
- *   data-i18n="key"             → element.textContent = I18N.t(key)
- *   data-i18n-placeholder="key" → element.placeholder  = I18N.t(key)
- *   data-i18n-title="key"       → element.title        = I18N.t(key)
- * i18n.js — Bilingual (Arabic / English) runtime language switching.
+ * Features:
+ * - Default language = English
+ * - Saves selected language in localStorage
+ * - Applies text / placeholder / title translations
+ * - Sets document direction correctly (ar = rtl, en = ltr)
+ * - Exposes a global I18N object
+ * - Can re-apply translations after dynamic rendering
  */
 
 const I18N = {
+  supportedLangs: ['en', 'ar'],
+  fallbackLang: 'en',
+  storageKey: 'firduty_lang',
+
   translations: {},
   currentLang: 'en',
 
-  /** Load language file and apply translations */
+  init() {
+    const saved = localStorage.getItem(this.storageKey);
+    this.currentLang = this.supportedLangs.includes(saved) ? saved : this.fallbackLang;
+    return this.load(this.currentLang);
+  },
+
   async load(lang = 'en') {
-    this.currentLang = lang;
-    localStorage.setItem('firduty_lang', lang);
+    const safeLang = this.supportedLangs.includes(lang) ? lang : this.fallbackLang;
+    this.currentLang = safeLang;
+    localStorage.setItem(this.storageKey, safeLang);
 
     try {
-      const res = await fetch(`i18n/${lang}.json?v=${Date.now()}`);
+      const res = await fetch(`i18n/${safeLang}.json?v=${Date.now()}`, {
+        cache: 'no-store'
+      });
+
+      if (!res.ok) {
+        throw new Error(`Failed to load i18n file: ${res.status}`);
+      }
+
       this.translations = await res.json();
     } catch (err) {
       console.error('Failed to load translations:', err);
       this.translations = {};
     }
 
-    this.applyTranslations(document);
     this.applyDirection();
+    this.applyTranslations(document);
+    this.updateLanguageButtons();
+
+    return this.currentLang;
   },
 
-  /** Get current language */
   getLang() {
     return this.currentLang;
   },
 
-  /** Translate a key */
-  t(key) {
-    return this.translations[key] || key;
+  t(key, fallback = null) {
+    if (!key) return '';
+    return this.translations[key] ?? fallback ?? key;
   },
 
-  /** Apply translations to DOM */
   applyTranslations(root = document) {
+    if (!root || !root.querySelectorAll) return;
 
-    // textContent
-    root.querySelectorAll('[data-i18n]').forEach(el => {
+    root.querySelectorAll('[data-i18n]').forEach((el) => {
       const key = el.getAttribute('data-i18n');
       const value = this.t(key);
-      if (value) el.textContent = value;
+      el.textContent = value;
     });
 
-    // placeholder
-    root.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+    root.querySelectorAll('[data-i18n-placeholder]').forEach((el) => {
       const key = el.getAttribute('data-i18n-placeholder');
       const value = this.t(key);
-      if (value) el.placeholder = value;
+      el.setAttribute('placeholder', value);
     });
 
-    // title
-    root.querySelectorAll('[data-i18n-title]').forEach(el => {
+    root.querySelectorAll('[data-i18n-title]').forEach((el) => {
       const key = el.getAttribute('data-i18n-title');
       const value = this.t(key);
-      if (value) el.title = value;
+      el.setAttribute('title', value);
+    });
+
+    root.querySelectorAll('[data-i18n-value]').forEach((el) => {
+      const key = el.getAttribute('data-i18n-value');
+      const value = this.t(key);
+      el.value = value;
     });
   },
 
-  /** Toggle language */
-  async toggle() {
-    const next = this.currentLang === 'en' ? 'ar' : 'en';
-    await this.load(next);
+  applyDirection() {
+    const isArabic = this.currentLang === 'ar';
+    document.documentElement.lang = this.currentLang;
+    document.documentElement.dir = isArabic ? 'rtl' : 'ltr';
+    document.body?.setAttribute('dir', isArabic ? 'rtl' : 'ltr');
   },
 
-  /** Apply page direction (RTL / LTR) */
-  applyDirection() {
-    const dir = this.currentLang === 'en' ? 'rtl' : 'ltr';
-    document.documentElement.dir = dir;
-    document.documentElement.lang = this.currentLang;
+  async toggle() {
+    const nextLang = this.currentLang === 'en' ? 'ar' : 'en';
+    await this.load(nextLang);
+  },
+
+  updateLanguageButtons() {
+    const toggleEls = document.querySelectorAll('[data-lang-toggle]');
+    toggleEls.forEach((el) => {
+      el.textContent = this.currentLang === 'en' ? 'عربي | EN' : 'EN | عربي';
+    });
   }
 };
 
-// expose globally
 window.I18N = I18N;
+
+document.addEventListener('DOMContentLoaded', async () => {
+  await I18N.init();
+
+  document.querySelectorAll('[data-lang-toggle]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      await I18N.toggle();
+    });
+  });
+});
