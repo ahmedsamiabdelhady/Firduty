@@ -38,7 +38,6 @@ WEEK_DAYS = 5  # Sun–Thu (Oman working week)
 
 # ── Templates / constants ────────────────────────────────────────────────────
 
-# Match shifts using English / Arabic names from DB.
 SHIFT_NAME_ALIASES = {
     "morning": {
         "en": {"morning duty", "morning"},
@@ -112,7 +111,7 @@ BREAK_GRADE_CLASSES = [
     "6/B",
     "7/A",
     "7/B",
-    "8/AB",
+    "8/A/B",
     "9",
 ]
 
@@ -272,6 +271,75 @@ def _create_break_shift_block(
     return sl
 
 
+def _week_has_any_shift_locations(week: WeekPlan) -> bool:
+    for day in week.day_plans:
+        if day.shift_locations:
+            return True
+    return False
+
+
+def _day_has_any_shift_locations(day: DayPlan) -> bool:
+    return bool(day.shift_locations)
+
+
+def _populate_day_if_empty(
+    db: Session,
+    day: DayPlan,
+    morning_shift: Shift,
+    break_1_shift: Shift,
+    break_2_shift: Shift,
+    end_of_day_shift: Shift,
+) -> None:
+    if _day_has_any_shift_locations(day):
+        return
+
+    order_counter = 0
+
+    # Morning Duty locations
+    for spec in MORNING_LOCATION_SPECS:
+        loc = _get_location_by_name_en(db, spec["name_en"])
+        _create_shift_location_block(
+            db=db,
+            day=day,
+            shift_id=morning_shift.id,
+            location_id=loc.id,
+            slots_count=int(spec["slots_count"]),
+            order=order_counter,
+        )
+        order_counter += 1
+
+    # First Break block
+    _create_break_shift_block(
+        db=db,
+        day=day,
+        shift_id=break_1_shift.id,
+        order=order_counter,
+    )
+    order_counter += 1
+
+    # Second Break block
+    _create_break_shift_block(
+        db=db,
+        day=day,
+        shift_id=break_2_shift.id,
+        order=order_counter,
+    )
+    order_counter += 1
+
+    # End of Day Duty locations
+    for spec in END_OF_DAY_LOCATION_SPECS:
+        loc = _get_location_by_name_en(db, spec["name_en"])
+        _create_shift_location_block(
+            db=db,
+            day=day,
+            shift_id=end_of_day_shift.id,
+            location_id=loc.id,
+            slots_count=int(spec["slots_count"]),
+            order=order_counter,
+        )
+        order_counter += 1
+
+
 # ── Week creation ─────────────────────────────────────────────────────────────
 
 def create_week_plan(db: Session, week_start: date, actor: str = "admin") -> WeekPlan:
@@ -284,77 +352,56 @@ def create_week_plan(db: Session, week_start: date, actor: str = "admin") -> Wee
       - First Break block (grade_class-based)
       - Second Break block (grade_class-based)
       - End of Day Duty locations
-    """
-    existing = db.query(WeekPlan).filter(WeekPlan.week_start_date == week_start).first()
-    if existing:
-        logger.info(f"Week plan already exists for {week_start} (id={existing.id})")
-        return existing
 
+    If the week already exists but is empty (legacy/older creation), it will be backfilled.
+    """
     morning_shift = _get_shift_by_alias(db, "morning")
     break_1_shift = _get_shift_by_alias(db, "break_1")
     break_2_shift = _get_shift_by_alias(db, "break_2")
     end_of_day_shift = _get_shift_by_alias(db, "end_of_day")
 
-    week = WeekPlan(week_start_date=week_start, status="draft", version=1)
-    db.add(week)
-    db.flush()
+    existing = db.query(WeekPlan).filter(WeekPlan.week_start_date == week_start).first()
+
+    if existing:
+        week = existing
+        if _week_has_any_shift_locations(week):
+            logger.info(f"Week plan already exists for {week_start} (id={week.id})")
+            return week
+
+        logger.warning(
+            f"Week plan {week_start} exists but has no shift locations. Backfilling it now."
+        )
+    else:
+        week = WeekPlan(week_start_date=week_start, status="draft", version=1)
+        db.add(week)
+        db.flush()
 
     for i in range(WEEK_DAYS):
         day_date = week_start + timedelta(days=i)
-        day = DayPlan(week_plan_id=week.id, date=day_date)
-        db.add(day)
-        db.flush()
 
-        order_counter = 0
+        day = db.query(DayPlan).filter(
+            DayPlan.week_plan_id == week.id,
+            DayPlan.date == day_date,
+        ).first()
 
-        # Morning Duty locations
-        for spec in MORNING_LOCATION_SPECS:
-            loc = _get_location_by_name_en(db, spec["name_en"])
-            _create_shift_location_block(
-                db=db,
-                day=day,
-                shift_id=morning_shift.id,
-                location_id=loc.id,
-                slots_count=int(spec["slots_count"]),
-                order=order_counter,
-            )
-            order_counter += 1
+        if not day:
+            day = DayPlan(week_plan_id=week.id, date=day_date)
+            db.add(day)
+            db.flush()
 
-        # First Break block
-        _create_break_shift_block(
+        _populate_day_if_empty(
             db=db,
             day=day,
-            shift_id=break_1_shift.id,
-            order=order_counter,
+            morning_shift=morning_shift,
+            break_1_shift=break_1_shift,
+            break_2_shift=break_2_shift,
+            end_of_day_shift=end_of_day_shift,
         )
-        order_counter += 1
-
-        # Second Break block
-        _create_break_shift_block(
-            db=db,
-            day=day,
-            shift_id=break_2_shift.id,
-            order=order_counter,
-        )
-        order_counter += 1
-
-        # End of Day Duty locations
-        for spec in END_OF_DAY_LOCATION_SPECS:
-            loc = _get_location_by_name_en(db, spec["name_en"])
-            _create_shift_location_block(
-                db=db,
-                day=day,
-                shift_id=end_of_day_shift.id,
-                location_id=loc.id,
-                slots_count=int(spec["slots_count"]),
-                order=order_counter,
-            )
-            order_counter += 1
 
     _log_change(db, week, actor, "create_week", {"week_start": str(week_start)})
     db.commit()
     db.refresh(week)
-    logger.info(f"Created prefilled week plan for {week_start} (id={week.id})")
+    logger.info(f"Created/backfilled week plan for {week_start} (id={week.id})")
     return week
 
 
@@ -547,8 +594,6 @@ def update_assignment(
         assignment = Assignment(shift_location_id=shift_location_id, slot_index=slot_index)
         db.add(assignment)
 
-    # Guard:
-    # A teacher may not occupy more than one slot inside the same ShiftLocation block.
     if teacher_id is not None:
         conflict = db.query(Assignment).filter(
             Assignment.shift_location_id == shift_location_id,
