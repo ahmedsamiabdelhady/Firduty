@@ -22,7 +22,7 @@ const I18N = {
   currentLang: 'en',
 
   /** Load language file and apply translations */
-  async load(lang = 'ar') {
+  async load(lang = 'en') {
     this.currentLang = lang;
     localStorage.setItem('firduty_lang', lang);
 
@@ -75,13 +75,13 @@ const I18N = {
 
   /** Toggle language */
   async toggle() {
-    const next = this.currentLang === 'ar' ? 'en' : 'ar';
+    const next = this.currentLang === 'en' ? 'ar' : 'en';
     await this.load(next);
   },
 
   /** Apply page direction (RTL / LTR) */
   applyDirection() {
-    const dir = this.currentLang === 'ar' ? 'rtl' : 'ltr';
+    const dir = this.currentLang === 'en' ? 'rtl' : 'ltr';
     document.documentElement.dir = dir;
     document.documentElement.lang = this.currentLang;
   }
