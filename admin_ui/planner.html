@@ -22,8 +22,8 @@
   <!-- Navigation -->
   <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
     <a href="dashboard.html" class="btn btn-secondary btn-sm" data-i18n="dashboard">Dashboard</a>
-    <a href="planner.html"   class="btn btn-primary btn-sm"   data-i18n="week_planner">Week Planner</a>
-    <a href="reports.html"   class="btn btn-secondary btn-sm" data-i18n="monthly_report">Report</a>
+    <a href="planner.html" class="btn btn-primary btn-sm" data-i18n="week_planner">Week Planner</a>
+    <a href="reports.html" class="btn btn-secondary btn-sm" data-i18n="monthly_report">Report</a>
   </div>
 
   <!-- Week Controls -->
@@ -31,8 +31,10 @@
     <label data-i18n="select_week">Select Week:</label>
     <input type="date" id="weekStartInput" onchange="onWeekSelected()">
     <button class="btn btn-primary btn-sm" onclick="loadWeek()" data-i18n="load_week">Load</button>
+
     <span id="weekStatusBadge" class="week-status-badge" style="display:none"></span>
     <span id="weekVersionBadge" style="font-size:0.8rem;color:#6c757d"></span>
+
     <div style="margin-inline-start:auto;display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn btn-secondary btn-sm" onclick="createWeek()" data-i18n="create_week">Create Week</button>
       <button class="btn btn-secondary btn-sm" onclick="cloneWeek()" data-i18n="clone_last_week">Clone</button>
@@ -43,23 +45,42 @@
 
   <!-- Planner Layout -->
   <div class="planner-layout">
+
     <aside class="sidebar">
       <h3 data-i18n="teachers">Teachers</h3>
-      <div class="teacher-list" id="teacherList"><div class="spinner"></div></div>
+
+      <div id="teachersLoading" style="text-align:center;padding:24px">
+        <div class="spinner"></div>
+      </div>
+
+      <div class="teacher-list" id="teacherList"></div>
     </aside>
+
     <div class="planner-main">
+      <div id="plannerLoading" style="text-align:center;padding:32px">
+        <div class="spinner"></div>
+      </div>
+
       <div class="tabs" id="dayTabs"></div>
+
       <div id="dayPanels">
-        <p style="color:#6c757d;text-align:center;margin-top:40px" id="noPlanMsg" data-i18n="no_week">No plan found for this week.</p>
+        <p
+          style="color:#6c757d;text-align:center;margin-top:40px;display:none"
+          id="noPlanMsg"
+          data-i18n="no_week"
+        >
+          No plan found for this week.
+        </p>
       </div>
     </div>
+
   </div>
 </main>
 
 <div class="toast-container" id="toastContainer"></div>
 
-<script src="js/i18n.js"></script>
-<script src="js/auth.js"></script>
-<script src="js/planner.js"></script>
+<script src="js/i18n.js?v=4"></script>
+<script src="js/auth.js?v=4"></script>
+<script src="js/planner.js?v=4"></script>
 </body>
 </html>
