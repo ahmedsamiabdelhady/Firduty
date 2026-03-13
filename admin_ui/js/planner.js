@@ -222,13 +222,13 @@ function renderWeek() {
 
     const tab = document.createElement('button');
     tab.className = 'tab-btn' + (idx === 0 ? ' active' : '');
-    tab.textContent = dayLabel;
+    tab.textContent = dayLabel + (dayPlan.is_published ? " ✔" : "");
     tab.onclick = () => switchDayTab(idx);
     tabsEl.appendChild(tab);
 
     const panel = document.createElement('div');
     panel.className = 'tab-panel' + (idx === 0 ? ' active' : '');
-    panel.innerHTML = renderDayPanel(dayPlan);
+    panel.innerHTML = renderDayPanel(dayPlan, dayPlan.is_editable);
     panelsEl.appendChild(panel);
   });
 
@@ -238,9 +238,14 @@ function renderWeek() {
 function switchDayTab(idx) {
   document.querySelectorAll('.tab-btn').forEach((b, i) => b.classList.toggle('active', i === idx));
   document.querySelectorAll('.tab-panel').forEach((p, i) => p.classList.toggle('active', i === idx));
+
+  const day = currentWeekData.day_plans[idx];
+  if (day) {
+    showToast(`Loaded ${day.date}`, 'info');
+  }
 }
 
-function renderDayPanel(dayPlan) {
+function renderDayPanel(dayPlan, isEditable) {
   const shiftMap = {};
 
   dayPlan.shift_locations.forEach(sl => {
@@ -278,7 +283,7 @@ function renderDayPanel(dayPlan) {
          id="shift-panel-${dayPlan.date}-${s.shift.id}"
          style="${i === 0 ? '' : 'display:none'}">
       <div class="locations-grid">
-        ${s.locations.map(sl => renderLocationColumn(dayPlan.date, sl)).join('')}
+        ${s.locations.map(sl => renderLocationColumn(dayPlan.date, sl, isEditable)).join('')}
       </div>
     </div>
   `).join('');
@@ -302,7 +307,7 @@ function switchShiftTab(dayDate, shiftId) {
   });
 }
 
-function renderLocationColumn(dayDate, sl) {
+function renderLocationColumn(dayDate, sl, isEditable) {
   const isBreak = sl.duty_type === 'break' || sl.shift.duty_type === 'break';
 
   let colTitle;
@@ -330,9 +335,11 @@ function renderLocationColumn(dayDate, sl) {
       <div class="location-header">
         <span class="location-name">${colTitle}</span>
         <div class="slot-controls">
-          <button class="btn-slot btn-slot-sub" onclick="changeSlots('${dayDate}', ${sl.shift_id}, ${sl.location_id || 'null'}, -1)">−</button>
+          <button class="btn-slot btn-slot-sub"
+        ${!isEditable ? 'disabled style="opacity:0.4;pointer-events:none"' : ''} onclick="changeSlots('${dayDate}', ${sl.shift_id}, ${sl.location_id || 'null'}, -1)">−</button>
           <span class="slot-count" id="slot-count-${sl.id}">${sl.slots_count}</span>
-          <button class="btn-slot btn-slot-add" onclick="changeSlots('${dayDate}', ${sl.shift_id}, ${sl.location_id || 'null'}, +1)">+</button>
+          <button class="btn-slot btn-slot-add"
+        ${!isEditable ? 'disabled style="opacity:0.4;pointer-events:none"' : ''} onclick="changeSlots('${dayDate}', ${sl.shift_id}, ${sl.location_id || 'null'}, +1)">+</button>
         </div>
       </div>
       <div class="slots-list"
@@ -404,6 +411,14 @@ function initDragAndDrop() {
       group: { name: 'teachers', pull: false, put: true },
       animation: 150,
       onAdd: function(evt) {
+        const dayDate = list.closest('.location-column').dataset.day;
+        const day = currentWeekData.day_plans.find(d => d.date === dayDate);
+
+        if (!day || !day.is_editable) {
+          showToast(I18N.t('day_locked') || 'Past days cannot be edited', 'error');
+          evt.item.parentNode && evt.item.parentNode.removeChild(evt.item);
+          return;
+        }
         const slId = parseInt(list.dataset.slId, 10);
         const teacherId = parseInt(evt.item.dataset.teacherId, 10);
         const teacherName = evt.item.dataset.teacherName;
@@ -451,6 +466,11 @@ function removeTeacher(slId, slotIdx) {
 /* ─── Slot Count Control ──────────────────────────────────────────────────── */
 
 function changeSlots(dayDate, shiftId, locationId, delta) {
+  const day = currentWeekData.day_plans.find(d => d.date === dayDate);
+  if (!day || !day.is_editable) {
+    showToast(I18N.t('day_locked') || 'Past days cannot be edited', 'error');
+    return;
+  }
   const locId = locationId === 'null' ? null : locationId;
   const key = `${dayDate}:${shiftId}:${locId}`;
 
@@ -560,6 +580,27 @@ async function publishWeek() {
     currentWeekData = await res.json();
     updateStatusBadge(currentWeekData.status);
     showToast(I18N.t('success_published'));
+  } else {
+    showToast(I18N.t('error_generic'), 'error');
+  }
+}
+
+async function publishDay(dayDate) {
+  if (!currentWeekData) return;
+
+  await flushPendingChanges();
+
+  const weekStart = currentWeekData.week_start_date;
+
+  const res = await apiFetch(
+    `/weeks/${weekStart}/publish-day?day_date=${dayDate}`,
+    { method: 'PUT' }
+  );
+
+  if (res && res.ok) {
+    currentWeekData = await res.json();
+    renderWeek();
+    showToast('Day published');
   } else {
     showToast(I18N.t('error_generic'), 'error');
   }

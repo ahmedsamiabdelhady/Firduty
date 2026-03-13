@@ -162,8 +162,18 @@ class WeekPlan(Base):
     cloned_from_week_start = Column(Date, nullable=True)
     created_at             = Column(DateTime, default=_utcnow)
     updated_at             = Column(DateTime, default=_utcnow, onupdate=_utcnow)
-    day_plans   = relationship("DayPlan",   back_populates="week_plan", cascade="all, delete-orphan", order_by="DayPlan.date")
-    change_logs = relationship("ChangeLog", back_populates="week_plan", cascade="all, delete-orphan")
+
+    day_plans   = relationship(
+        "DayPlan",
+        back_populates="week_plan",
+        cascade="all, delete-orphan",
+        order_by="DayPlan.date"
+    )
+    change_logs = relationship(
+        "ChangeLog",
+        back_populates="week_plan",
+        cascade="all, delete-orphan"
+    )
 
 
 class DayPlan(Base):
@@ -171,9 +181,14 @@ class DayPlan(Base):
     id           = Column(Integer, primary_key=True, index=True)
     week_plan_id = Column(Integer, ForeignKey("week_plans.id"), nullable=False)
     date         = Column(Date, nullable=False)
-    week_plan       = relationship("WeekPlan",      back_populates="day_plans")
-    shift_locations = relationship("ShiftLocation", back_populates="day_plan", cascade="all, delete-orphan")
+    is_published = Column(Boolean, default=False, nullable=False, server_default="false")
 
+    week_plan       = relationship("WeekPlan",      back_populates="day_plans")
+    shift_locations = relationship(
+        "ShiftLocation",
+        back_populates="day_plan",
+        cascade="all, delete-orphan"
+    )
 
 class ShiftLocation(Base):
     __tablename__ = "shift_locations"

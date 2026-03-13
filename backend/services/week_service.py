@@ -8,6 +8,7 @@ Public API consumed by routers/weeks.py and jobs/auto_clone.py:
   update_shift_location_slots(...)
   update_assignment(...)
   publish_week(...)
+  publish_day(...)
   _notify_assigned_teachers(...)    (internal, called from weeks.py inline)
 """
 
@@ -126,6 +127,23 @@ def get_current_week_start() -> date:
     now = datetime.now(MUSCAT_TZ).date()
     days_since_sunday = now.isoweekday() % 7
     return now - timedelta(days=days_since_sunday)
+
+
+def get_today_muscat() -> date:
+    return datetime.now(MUSCAT_TZ).date()
+
+
+def is_day_editable(day_date: date) -> bool:
+    """
+    Past days are locked.
+    Today and future days are editable.
+    """
+    return day_date >= get_today_muscat()
+
+
+def _ensure_day_not_past(day_date: date) -> None:
+    if day_date < get_today_muscat():
+        raise ValueError("Cannot modify past days")
 
 
 def _log_change(
@@ -347,47 +365,38 @@ def create_week_plan(db: Session, week_start: date, actor: str = "admin") -> Wee
     Create a new draft WeekPlan for the given Sunday start date,
     pre-populated with:
       - 5 DayPlans (Sun → Thu)
-      - 4 shifts per day
       - Morning Duty locations
       - First Break block (grade_class-based)
       - Second Break block (grade_class-based)
       - End of Day Duty locations
 
-    If the week already exists but is empty (legacy/older creation), it will be backfilled.
+    Important behavior:
+      - If the week already exists, raise ValueError to prevent duplicate creation.
+      - Creation does NOT mean publishing.
     """
+    existing = db.query(WeekPlan).filter(WeekPlan.week_start_date == week_start).first()
+    if existing:
+        raise ValueError(f"Week {week_start} already exists. Cannot create it again.")
+
     morning_shift = _get_shift_by_alias(db, "morning")
     break_1_shift = _get_shift_by_alias(db, "break_1")
     break_2_shift = _get_shift_by_alias(db, "break_2")
     end_of_day_shift = _get_shift_by_alias(db, "end_of_day")
 
-    existing = db.query(WeekPlan).filter(WeekPlan.week_start_date == week_start).first()
-
-    if existing:
-        week = existing
-        if _week_has_any_shift_locations(week):
-            logger.info(f"Week plan already exists for {week_start} (id={week.id})")
-            return week
-
-        logger.warning(
-            f"Week plan {week_start} exists but has no shift locations. Backfilling it now."
-        )
-    else:
-        week = WeekPlan(week_start_date=week_start, status="draft", version=1)
-        db.add(week)
-        db.flush()
+    week = WeekPlan(week_start_date=week_start, status="draft", version=1)
+    db.add(week)
+    db.flush()
 
     for i in range(WEEK_DAYS):
         day_date = week_start + timedelta(days=i)
 
-        day = db.query(DayPlan).filter(
-            DayPlan.week_plan_id == week.id,
-            DayPlan.date == day_date,
-        ).first()
-
-        if not day:
-            day = DayPlan(week_plan_id=week.id, date=day_date)
-            db.add(day)
-            db.flush()
+        day = DayPlan(
+            week_plan_id=week.id,
+            date=day_date,
+            is_published=False,
+        )
+        db.add(day)
+        db.flush()
 
         _populate_day_if_empty(
             db=db,
@@ -401,7 +410,7 @@ def create_week_plan(db: Session, week_start: date, actor: str = "admin") -> Wee
     _log_change(db, week, actor, "create_week", {"week_start": str(week_start)})
     db.commit()
     db.refresh(week)
-    logger.info(f"Created/backfilled week plan for {week_start} (id={week.id})")
+    logger.info(f"Created week plan for {week_start} (id={week.id})")
     return week
 
 
@@ -416,6 +425,7 @@ def clone_week(
     """
     Clone source week → new draft week at target_week_start.
     Copies DayPlans, ShiftLocations, and Assignments (including grade_class).
+    Does NOT auto-publish the new week or its days.
     Returns None if target already exists or source not found.
     """
     if db.query(WeekPlan).filter(WeekPlan.week_start_date == target_week_start).first():
@@ -439,7 +449,11 @@ def clone_week(
     db.flush()
 
     for src_day in source.day_plans:
-        new_day = DayPlan(week_plan_id=new_week.id, date=src_day.date + day_offset)
+        new_day = DayPlan(
+            week_plan_id=new_week.id,
+            date=src_day.date + day_offset,
+            is_published=False,
+        )
         db.add(new_day)
         db.flush()
 
@@ -494,12 +508,18 @@ def update_shift_location_slots(
     Matching is done by (day_plan_id + shift_id + location_id), not only shift_id.
     This is required because a single shift can have many locations on the same day.
     """
+    _ensure_day_not_past(day_date)
+
     day = db.query(DayPlan).filter(
         DayPlan.week_plan_id == week.id,
         DayPlan.date == day_date,
     ).first()
     if not day:
-        day = DayPlan(week_plan_id=week.id, date=day_date)
+        day = DayPlan(
+            week_plan_id=week.id,
+            date=day_date,
+            is_published=False,
+        )
         db.add(day)
         db.flush()
 
@@ -574,7 +594,14 @@ def update_assignment(
 ) -> Assignment:
     """
     Assign or clear a teacher for a slot. Stores grade_class for break duties.
-    Raises ValueError if the ShiftLocation does not belong to this week.
+
+    Rules:
+      - The shift location must belong to the given week.
+      - Past days are locked and cannot be modified.
+      - A teacher cannot appear twice in the same duty (same shift) on the same day.
+        Example:
+          * NOT allowed: same teacher in Morning Duty / Area A and Morning Duty / Area B on same day
+          * Allowed: same teacher in Morning Duty and First Break on same day
     """
     sl = db.query(ShiftLocation).filter(ShiftLocation.id == shift_location_id).first()
     if not sl:
@@ -586,25 +613,38 @@ def update_assignment(
             f"ShiftLocation {shift_location_id} does not belong to week {week.week_start_date}"
         )
 
+    _ensure_day_not_past(day.date)
+
     assignment = db.query(Assignment).filter(
         Assignment.shift_location_id == shift_location_id,
         Assignment.slot_index == slot_index,
     ).first()
     if not assignment:
-        assignment = Assignment(shift_location_id=shift_location_id, slot_index=slot_index)
+        assignment = Assignment(
+            shift_location_id=shift_location_id,
+            slot_index=slot_index,
+        )
         db.add(assignment)
+        db.flush()
 
     if teacher_id is not None:
+        same_shift_location_ids = db.query(ShiftLocation.id).filter(
+            ShiftLocation.day_plan_id == day.id,
+            ShiftLocation.shift_id == sl.shift_id,
+        ).subquery()
+
         conflict = db.query(Assignment).filter(
-            Assignment.shift_location_id == shift_location_id,
             Assignment.teacher_id == teacher_id,
-            Assignment.slot_index != slot_index,
+            Assignment.shift_location_id.in_(same_shift_location_ids),
+            ~(
+                (Assignment.shift_location_id == shift_location_id) &
+                (Assignment.slot_index == slot_index)
+            ),
         ).first()
+
         if conflict:
             raise ValueError(
-                f"Teacher {teacher_id} is already assigned to another slot "
-                f"in the same shift block (shift_location_id={shift_location_id}). "
-                f"A teacher can only cover one slot per shift block."
+                "This teacher is already assigned in the same duty for this day"
             )
 
     assignment.teacher_id = teacher_id
@@ -624,15 +664,83 @@ def update_assignment(
 # ── Publishing ────────────────────────────────────────────────────────────────
 
 def publish_week(db: Session, week: WeekPlan, actor: str = "admin") -> WeekPlan:
-    """Publish a draft week and notify all assigned teachers."""
+    """
+    Publish a full draft week and notify all assigned teachers.
+
+    Kept for backward compatibility.
+    If you want day-by-day publishing in UI/API, use publish_day().
+    """
     week.status = "published"
     week.version = (week.version or 0) + 1
+
+    for day in week.day_plans:
+        if hasattr(day, "is_published"):
+            day.is_published = True
+
     _log_change(db, week, actor, "publish", {"version": week.version})
     db.commit()
     db.refresh(week)
     logger.info(f"Week {week.week_start_date} published (v{week.version})")
     _notify_assigned_teachers(db, week)
     return week
+
+
+def publish_day(
+    db: Session,
+    week: WeekPlan,
+    day_date: date,
+    actor: str = "admin",
+) -> DayPlan:
+    """
+    Publish one day only.
+    """
+    day = db.query(DayPlan).filter(
+        DayPlan.week_plan_id == week.id,
+        DayPlan.date == day_date,
+    ).first()
+
+    if not day:
+        raise ValueError(f"Day {day_date} not found in week {week.week_start_date}")
+
+    if not hasattr(day, "is_published"):
+        raise ValueError(
+            "DayPlan.is_published field is missing. Add it to the model/database first."
+        )
+
+    day.is_published = True
+
+    _log_change(db, week, actor, "publish_day", {"day": str(day_date)})
+    db.commit()
+    db.refresh(day)
+
+    logger.info(f"Published day {day_date} in week {week.week_start_date}")
+
+    # notify only teachers assigned in this day
+    try:
+        from services.notification_service import notify_teacher_updated
+    except Exception:
+        return day
+
+    teacher_ids: set[int] = set()
+    for sl in day.shift_locations:
+        for a in sl.assignments:
+            if a.teacher_id is not None:
+                teacher_ids.add(int(a.teacher_id))
+
+    for tid in teacher_ids:
+        teacher = db.query(Teacher).filter(Teacher.id == tid).first()
+        if not teacher:
+            continue
+
+        tokens = [
+            str(dt.token)
+            for dt in db.query(DeviceToken).filter(DeviceToken.teacher_id == tid).all()
+        ]
+        if tokens:
+            lang = str(teacher.preferred_language) if teacher.preferred_language else "ar"
+            notify_teacher_updated(tokens, lang)
+
+    return day
 
 
 # ── Notifications ─────────────────────────────────────────────────────────────
