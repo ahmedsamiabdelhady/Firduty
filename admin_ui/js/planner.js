@@ -478,25 +478,36 @@ function updateGradeClass(slId, slotIdx, value) {
 function initDragAndDrop() {
   const sidebar = byId('teacherList');
 
-  if (sidebar && typeof Sortable !== 'undefined') {
+  if (sidebar && typeof Sortable !== 'undefined' && !sidebar.dataset.sortableInit) {
     new Sortable(sidebar, {
       group: { name: 'teachers', pull: 'clone', put: false },
       sort: false,
       animation: 150,
     });
+    sidebar.dataset.sortableInit = 'true';
   }
 
   if (typeof Sortable === 'undefined') return;
 
   document.querySelectorAll('.slots-list').forEach(list => {
+    if (list.dataset.sortableInit === 'true') return;
+
     const isBreak = list.dataset.dutyType === 'break';
 
     new Sortable(list, {
       group: { name: 'teachers', pull: false, put: true },
       animation: 150,
+
+      onMove: function() {
+        const col = list.closest('.location-column');
+        if (!col || col.dataset.editable !== 'true') return false;
+        return true;
+      },
+
       onAdd: function(evt) {
-        const dayDate = list.closest('.location-column').dataset.day;
-        const day = currentWeekData.day_plans.find(d => d.date === dayDate);
+        const col = list.closest('.location-column');
+        const dayDate = col?.dataset.day;
+        const day = currentWeekData?.day_plans?.find(d => d.date === dayDate);
 
         if (!day || !day.is_editable) {
           showToast(I18N.t('day_locked') || 'Past days cannot be edited', 'error');
@@ -508,9 +519,26 @@ function initDragAndDrop() {
         const teacherId = parseInt(evt.item.dataset.teacherId, 10);
         const teacherName = evt.item.dataset.teacherName;
 
+        // لو القائمة كلها مليانة، استبدل آخر/أول slot مملوءة بدل الفشل
+        const filledSlots = Array.from(list.querySelectorAll('.slot-item.filled'));
         const emptySlot = list.querySelector('.slot-item:not(.filled)');
+
+        if (!emptySlot && filledSlots.length > 0) {
+          const targetSlot = filledSlots[filledSlots.length - 1];
+          const slotIdx = parseInt(targetSlot.dataset.slotIdx, 10);
+
+          replaceTeacherInSlot(slId, slotIdx, teacherId, teacherName, isBreak);
+
+          evt.item.parentNode && evt.item.parentNode.removeChild(evt.item);
+          showToast(I18N.t('teacher_replaced') || 'Teacher replaced');
+          return;
+        }
+
         if (!emptySlot) {
-          showToast(I18N.t('no_empty_slot'), 'error');
+          showToast(
+            I18N.t('no_empty_slot') || 'No empty slot available',
+            'error'
+          );
           evt.item.parentNode && evt.item.parentNode.removeChild(evt.item);
           return;
         }
@@ -528,12 +556,31 @@ function initDragAndDrop() {
         evt.item.parentNode && evt.item.parentNode.removeChild(evt.item);
       }
     });
+
+    list.dataset.sortableInit = 'true';
   });
 }
 
 function recordAssignment(slId, slotIdx, teacherId, gradeClass) {
   if (!pendingAssignments[slId]) pendingAssignments[slId] = {};
   pendingAssignments[slId][slotIdx] = { teacher_id: teacherId, grade_class: gradeClass };
+}
+
+function replaceTeacherInSlot(slId, slotIdx, teacherId, teacherName, isBreak) {
+  recordAssignment(slId, slotIdx, teacherId, null);
+
+  const list = byId(`slots-${slId}`);
+  if (!list) return;
+
+  const slotEl = list.querySelector(`[data-slot-idx="${slotIdx}"]`);
+  if (!slotEl) return;
+
+  slotEl.outerHTML = renderSlot(slId, slotIdx, {
+    teacher_id: teacherId,
+    teacher_name: teacherName,
+    slot_index: slotIdx,
+    grade_class: null,
+  }, isBreak, true);
 }
 
 function removeTeacher(slId, slotIdx) {
@@ -552,6 +599,7 @@ function removeTeacher(slId, slotIdx) {
   const slotEl = list.querySelector(`[data-slot-idx="${slotIdx}"]`);
   if (slotEl) {
     slotEl.outerHTML = renderSlot(slId, slotIdx, null, list.dataset.dutyType === 'break', true);
+    showToast(I18N.t('teacher_removed') || 'Teacher removed', 'info');
   }
 }
 

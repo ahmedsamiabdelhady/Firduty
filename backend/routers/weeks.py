@@ -4,10 +4,10 @@ from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from database import get_db
-from models.models import WeekPlan
+from models.models import WeekPlan, DayPlan, ShiftLocation, Assignment
 from schemas.schemas import WeekStatusUpdate, ShiftLocationUpdate, AssignmentUpdate
 from routers.auth import get_current_admin
 from services.week_service import (
@@ -23,6 +23,29 @@ from services.week_service import (
 )
 
 router = APIRouter(prefix="/weeks", tags=["weeks"])
+
+
+def _get_week_with_relations(db: Session, week_start: date) -> Optional[WeekPlan]:
+    """
+    Load a week with all nested relations eagerly to avoid N+1 queries during serialization.
+    """
+    return (
+        db.query(WeekPlan)
+        .options(
+            selectinload(WeekPlan.day_plans)
+            .selectinload(DayPlan.shift_locations)
+            .selectinload(ShiftLocation.shift),
+            selectinload(WeekPlan.day_plans)
+            .selectinload(DayPlan.shift_locations)
+            .selectinload(ShiftLocation.location),
+            selectinload(WeekPlan.day_plans)
+            .selectinload(DayPlan.shift_locations)
+            .selectinload(ShiftLocation.assignments)
+            .selectinload(Assignment.teacher),
+        )
+        .filter(WeekPlan.week_start_date == week_start)
+        .first()
+    )
 
 
 def _serialize_week(week: WeekPlan) -> dict:
@@ -42,7 +65,9 @@ def _serialize_week(week: WeekPlan) -> dict:
         "day_plans": [],
     }
 
-    for day in week.day_plans:
+    sorted_days = sorted(week.day_plans, key=lambda d: d.date)
+
+    for day in sorted_days:
         day_data = {
             "id": day.id,
             "date": str(day.date),
@@ -51,8 +76,19 @@ def _serialize_week(week: WeekPlan) -> dict:
             "shift_locations": [],
         }
 
-        for sl in day.shift_locations:
-            duty_type = sl.shift.duty_type
+        sorted_shift_locations = sorted(
+            day.shift_locations,
+            key=lambda sl: ((sl.order if sl.order is not None else 9999), sl.id),
+        )
+
+        for sl in sorted_shift_locations:
+            duty_type = sl.shift.duty_type if sl.shift else None
+
+            sorted_assignments = sorted(
+                sl.assignments,
+                key=lambda a: (a.slot_index if a.slot_index is not None else 9999, a.id),
+            )
+
             sl_data = {
                 "id": sl.id,
                 "shift_id": sl.shift_id,
@@ -68,13 +104,17 @@ def _serialize_week(week: WeekPlan) -> dict:
                     "end_time": str(sl.shift.end_time),
                     "order": sl.shift.order,
                     "duty_type": duty_type,
-                },
+                }
+                if sl.shift
+                else None,
                 "location": {
                     "id": sl.location.id,
                     "name_en": sl.location.name_en,
                     "name_ar": sl.location.name_ar,
                     "order": sl.location.order,
-                } if sl.location else None,
+                }
+                if sl.location
+                else None,
                 "assignments": [
                     {
                         "id": a.id,
@@ -83,7 +123,7 @@ def _serialize_week(week: WeekPlan) -> dict:
                         "teacher_name": a.teacher.name if a.teacher else None,
                         "grade_class": a.grade_class,
                     }
-                    for a in sl.assignments
+                    for a in sorted_assignments
                 ],
             }
             day_data["shift_locations"].append(sl_data)
@@ -96,7 +136,7 @@ def _serialize_week(week: WeekPlan) -> dict:
 @router.get("/current")
 def get_current_week(db: Session = Depends(get_db)):
     ws = get_current_week_start()
-    week = db.query(WeekPlan).filter(WeekPlan.week_start_date == ws).first()
+    week = _get_week_with_relations(db, ws)
     if not week:
         return {
             "week_start_date": str(ws),
@@ -104,17 +144,19 @@ def get_current_week(db: Session = Depends(get_db)):
             "message": "No plan for current week",
         }
 
-    week = ensure_week_fully_populated(db, week)
+    # IMPORTANT:
+    # Do NOT call ensure_week_fully_populated() on GET.
     return _serialize_week(week)
 
 
 @router.get("/{week_start}")
 def get_week(week_start: date, db: Session = Depends(get_db)):
-    week = db.query(WeekPlan).filter(WeekPlan.week_start_date == week_start).first()
+    week = _get_week_with_relations(db, week_start)
     if not week:
         raise HTTPException(404, f"No plan found for week starting {week_start}")
 
-    week = ensure_week_fully_populated(db, week)
+    # IMPORTANT:
+    # Do NOT call ensure_week_fully_populated() on GET.
     return _serialize_week(week)
 
 
@@ -125,8 +167,10 @@ def create_week(
     admin=Depends(get_current_admin),
 ):
     try:
-        week = create_week_plan(db, week_start, actor=admin)
-        week = ensure_week_fully_populated(db, week)
+        create_week_plan(db, week_start, actor=admin)
+        week = _get_week_with_relations(db, week_start)
+        if not week:
+            raise HTTPException(500, "Week was created but could not be reloaded")
         return _serialize_week(week)
     except ValueError as e:
         raise HTTPException(409, str(e))
@@ -140,10 +184,15 @@ def clone_week_endpoint(
     admin=Depends(get_current_admin),
 ):
     if not source_week:
-        latest = db.query(WeekPlan).filter(
-            WeekPlan.status == "published",
-            WeekPlan.week_start_date < week_start
-        ).order_by(WeekPlan.week_start_date.desc()).first()
+        latest = (
+            db.query(WeekPlan)
+            .filter(
+                WeekPlan.status == "published",
+                WeekPlan.week_start_date < week_start,
+            )
+            .order_by(WeekPlan.week_start_date.desc())
+            .first()
+        )
 
         if not latest:
             raise HTTPException(404, "No published week found to clone from")
@@ -157,8 +206,11 @@ def clone_week_endpoint(
             f"Week {week_start} already exists or source {source_week} not found",
         )
 
-    result = ensure_week_fully_populated(db, result)
-    return _serialize_week(result)
+    week = _get_week_with_relations(db, week_start)
+    if not week:
+        raise HTTPException(500, "Cloned week could not be reloaded")
+
+    return _serialize_week(week)
 
 
 @router.put("/{week_start}/status")
@@ -172,7 +224,8 @@ def update_week_status(
     if not week:
         raise HTTPException(404, "Week not found")
 
-    week = ensure_week_fully_populated(db, week)
+    # Optional safety for old/incomplete historical data only:
+    # week = ensure_week_fully_populated(db, week)
 
     if data.status == "published":
         publish_week(db, week, actor=admin)
@@ -181,8 +234,11 @@ def update_week_status(
         db.commit()
         db.refresh(week)
 
-    week = ensure_week_fully_populated(db, week)
-    return _serialize_week(week)
+    week_loaded = _get_week_with_relations(db, week_start)
+    if not week_loaded:
+        raise HTTPException(500, "Updated week could not be reloaded")
+
+    return _serialize_week(week_loaded)
 
 
 @router.put("/{week_start}/publish-day")
@@ -196,16 +252,16 @@ def publish_single_day(
     if not week:
         raise HTTPException(404, "Week not found")
 
-    week = ensure_week_fully_populated(db, week)
-
     try:
         publish_day(db, week, day_date, actor=admin)
     except ValueError as e:
         raise HTTPException(400, str(e))
 
-    db.refresh(week)
-    week = ensure_week_fully_populated(db, week)
-    return _serialize_week(week)
+    week_loaded = _get_week_with_relations(db, week_start)
+    if not week_loaded:
+        raise HTTPException(500, "Published day but failed to reload week")
+
+    return _serialize_week(week_loaded)
 
 
 @router.put("/{week_start}/shift-locations")
@@ -218,8 +274,6 @@ def update_shift_locations(
     week = db.query(WeekPlan).filter(WeekPlan.week_start_date == week_start).first()
     if not week:
         raise HTTPException(404, "Week not found")
-
-    week = ensure_week_fully_populated(db, week)
 
     for upd in updates:
         try:
@@ -235,9 +289,11 @@ def update_shift_locations(
         except ValueError as e:
             raise HTTPException(400, str(e))
 
-    db.refresh(week)
-    week = ensure_week_fully_populated(db, week)
-    return _serialize_week(week)
+    week_loaded = _get_week_with_relations(db, week_start)
+    if not week_loaded:
+        raise HTTPException(500, "Shift locations updated but failed to reload week")
+
+    return _serialize_week(week_loaded)
 
 
 @router.put("/{week_start}/assignments")
@@ -250,8 +306,6 @@ def update_assignments(
     week = db.query(WeekPlan).filter(WeekPlan.week_start_date == week_start).first()
     if not week:
         raise HTTPException(404, "Week not found")
-
-    week = ensure_week_fully_populated(db, week)
 
     for upd in updates:
         try:
@@ -267,13 +321,13 @@ def update_assignments(
         except ValueError as e:
             raise HTTPException(400, str(e))
 
-    db.refresh(week)
-    week = ensure_week_fully_populated(db, week)
+    week_loaded = _get_week_with_relations(db, week_start)
+    if not week_loaded:
+        raise HTTPException(500, "Assignments updated but failed to reload week")
 
-    # Optional backward-compatibility:
-    # if the whole week is marked as published, keep old notification behavior
-    if str(week.status) == "published":
+    if str(week_loaded.status) == "published":
         from services.week_service import _notify_assigned_teachers
-        _notify_assigned_teachers(db, week)
 
-    return _serialize_week(week)
+        _notify_assigned_teachers(db, week_loaded)
+
+    return _serialize_week(week_loaded)
