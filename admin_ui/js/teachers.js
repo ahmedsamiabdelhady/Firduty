@@ -2,13 +2,11 @@
  * teachers.js — Teacher Approval management for Firduty Admin UI
  *
  * Endpoints used:
- *   GET  /teachers/pending          — list teachers awaiting approval
- *   GET  /teachers/all              — list all teachers
- *   POST /teachers/{id}/approve     — approve a single teacher
- *   POST /teachers/approve-all      — approve all pending teachers
+ *   GET  /teachers/pending
+ *   GET  /teachers/all
+ *   POST /teachers/{id}/approve
+ *   POST /teachers/approve-all
  */
-
-// Auth is handled by auth.js — use apiFetch() for all API calls.
 
 let currentTab = 'pending';
 
@@ -16,7 +14,7 @@ function byId(id) {
   return document.getElementById(id);
 }
 
-// ─── Tab management ───────────────────────────────────────────────────────────
+/* ───────────────── Tab management ───────────────── */
 
 function showTab(tab) {
   currentTab = tab;
@@ -28,11 +26,12 @@ function showTab(tab) {
 
   if (pendingSection) pendingSection.style.display = tab === 'pending' ? '' : 'none';
   if (allSection) allSection.style.display = tab === 'all' ? '' : 'none';
+
   if (tabPending) tabPending.classList.toggle('active', tab === 'pending');
   if (tabAll) tabAll.classList.toggle('active', tab === 'all');
 }
 
-// ─── Data loading ─────────────────────────────────────────────────────────────
+/* ───────────────── Data loading ───────────────── */
 
 async function loadAll() {
   clearAlert();
@@ -40,6 +39,7 @@ async function loadAll() {
 }
 
 async function loadPending() {
+
   const pendingLoading = byId('pendingLoading');
   const pendingTableWrap = byId('pendingTableWrap');
   const pendingCount = byId('pendingCount');
@@ -59,6 +59,7 @@ async function loadPending() {
 
   const teachers = await res.json();
 
+  /* update pending badge */
   if (pendingCount) {
     if (teachers.length > 0) {
       pendingCount.textContent = teachers.length;
@@ -68,17 +69,19 @@ async function loadPending() {
     }
   }
 
-  if (approveAllBtn) {
-    approveAllBtn.disabled = teachers.length === 0;
-  }
+  /* disable approve all if empty */
+  if (approveAllBtn) approveAllBtn.disabled = teachers.length === 0;
 
   if (pendingTableWrap) {
     pendingTableWrap.innerHTML =
-      teachers.length === 0 ? emptyState('no_pending_teachers') : buildTable(teachers, true);
+      teachers.length === 0
+        ? emptyState('no_pending_teachers')
+        : buildTable(teachers, true);
   }
 }
 
 async function loadAllTeachers() {
+
   const allLoading = byId('allLoading');
   const allTableWrap = byId('allTableWrap');
 
@@ -98,14 +101,18 @@ async function loadAllTeachers() {
 
   if (allTableWrap) {
     allTableWrap.innerHTML =
-      teachers.length === 0 ? emptyState('no_teachers_yet') : buildTable(teachers, false);
+      teachers.length === 0
+        ? emptyState('no_teachers_yet')
+        : buildTable(teachers, false);
   }
 }
 
-// ─── Approve actions ──────────────────────────────────────────────────────────
+/* ───────────────── Approve actions ───────────────── */
 
 async function approveTeacher(id) {
+
   const btn = byId(`btn-approve-${id}`);
+
   if (btn) {
     btn.disabled = true;
     btn.textContent = '...';
@@ -115,18 +122,22 @@ async function approveTeacher(id) {
 
   if (!res.ok) {
     showAlert(I18N.t('error_generic'), 'danger');
+
     if (btn) {
       btn.disabled = false;
       btn.textContent = I18N.t('approve');
     }
+
     return;
   }
 
   showAlert(I18N.t('teacher_approved_ok'), 'success');
+
   await loadAll();
 }
 
 async function approveAll() {
+
   const btn = byId('approveAllBtn');
   if (btn) btn.disabled = true;
 
@@ -151,9 +162,10 @@ async function approveAll() {
   await loadAll();
 }
 
-// ─── Render helpers ───────────────────────────────────────────────────────────
+/* ───────────────── Table builder ───────────────── */
 
 function buildTable(teachers, showApproveBtn) {
+
   const isAr = I18N.getLang() === 'ar';
 
   const headers = [
@@ -163,50 +175,73 @@ function buildTable(teachers, showApproveBtn) {
     `<th data-i18n="status">${I18N.t('status')}</th>`,
     `<th data-i18n="language">${I18N.t('language')}</th>`,
     `<th data-i18n="date">${I18N.t('date')}</th>`,
-    showApproveBtn ? `<th data-i18n="actions">${I18N.t('actions')}</th>` : '',
+    showApproveBtn ? `<th data-i18n="actions">${I18N.t('actions')}</th>` : ''
   ].join('');
 
   const rows = teachers.map((t, i) => {
+
     const statusBadge = t.status === 'pending'
       ? `<span class="badge badge-pending">${I18N.t('status_pending')}</span>`
       : `<span class="badge badge-approved">${I18N.t('status_approved')}</span>`;
 
-    const lang = t.preferred_language === 'ar' ? I18N.t('arabic') : I18N.t('english');
+    const lang =
+      t.preferred_language === 'ar'
+        ? I18N.t('arabic')
+        : I18N.t('english');
+
     const createdAt = t.created_at
       ? new Date(t.created_at).toLocaleDateString(isAr ? 'ar-OM' : 'en-GB')
       : '—';
+
     const email = t.email || '—';
 
     const approveCell = showApproveBtn
-      ? `<td><button class="btn btn-success btn-sm" id="btn-approve-${t.id}"
-             onclick="approveTeacher(${t.id})">${I18N.t('approve')}</button></td>`
+      ? `<td>
+          <button class="btn btn-success btn-sm"
+            id="btn-approve-${t.id}"
+            onclick="approveTeacher(${t.id})">
+            ${I18N.t('approve')}
+          </button>
+        </td>`
       : '';
 
-    return `<tr>
-      <td>${i + 1}</td>
-      <td><strong>${escHtml(t.name)}</strong></td>
-      <td>${escHtml(email)}</td>
-      <td>${statusBadge}</td>
-      <td>${lang}</td>
-      <td>${createdAt}</td>
-      ${approveCell}
-    </tr>`;
+    return `
+      <tr>
+        <td>${i + 1}</td>
+        <td><strong>${escHtml(t.name)}</strong></td>
+        <td>${escHtml(email)}</td>
+        <td>${statusBadge}</td>
+        <td>${lang}</td>
+        <td>${createdAt}</td>
+        ${approveCell}
+      </tr>
+    `;
+
   }).join('');
 
-  return `<table class="teacher-table">
-    <thead><tr>${headers}</tr></thead>
-    <tbody>${rows}</tbody>
-  </table>`;
+  return `
+    <table class="teacher-table">
+      <thead>
+        <tr>${headers}</tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
 }
 
+/* ───────────────── Helpers ───────────────── */
+
 function emptyState(key) {
-  return `<div class="empty-state">
-    <div class="empty-icon">👥</div>
-    <p>${I18N.t(key)}</p>
-  </div>`;
+  return `
+    <div class="empty-state">
+      <div class="empty-icon">👥</div>
+      <p>${I18N.t(key)}</p>
+    </div>
+  `;
 }
 
 function showAlert(msg, type) {
+
   const el = byId('alertMsg');
   if (!el) return;
 

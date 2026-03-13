@@ -50,13 +50,16 @@
       vertical-align: middle;
     }
     .teacher-table tr:last-child td { border-bottom: none; }
-    .teacher-table tr:hover td     { background: #f8f9fa; }
+    .teacher-table tr:hover td { background: #f8f9fa; }
     .empty-state {
       text-align: center;
       padding: 48px 24px;
       color: var(--text-muted);
     }
-    .empty-state .empty-icon { font-size: 3rem; margin-bottom: 12px; }
+    .empty-state .empty-icon {
+      font-size: 3rem;
+      margin-bottom: 12px;
+    }
     .tabs {
       display: flex;
       gap: 4px;
@@ -73,6 +76,8 @@
       border-bottom: 3px solid transparent;
       margin-bottom: -2px;
       transition: color .15s, border-color .15s;
+      display: inline-flex;
+      align-items: center;
     }
     .tab-btn.active {
       color: var(--primary);
@@ -88,7 +93,6 @@
       margin-inline-start: 6px;
     }
 
-    /* ── Nav bar (same as dashboard.html; not in global style.css) ── */
     .nav-bar {
       display: flex;
       gap: 8px;
@@ -105,7 +109,12 @@
       border: 1px solid var(--border);
       cursor: pointer;
     }
-    .nav-btn.active, .nav-btn:hover { background: var(--primary); color: #fff; border-color: var(--primary); }
+    .nav-btn.active,
+    .nav-btn:hover {
+      background: var(--primary);
+      color: #fff;
+      border-color: var(--primary);
+    }
   </style>
 </head>
 <body>
@@ -120,7 +129,6 @@
 
 <main class="main-content">
 
-  <!-- Navigation -->
   <div class="nav-bar">
     <a class="nav-btn" href="dashboard.html" data-i18n="dashboard">Dashboard</a>
     <a class="nav-btn" href="planner.html" data-i18n="week_planner">Week Planner</a>
@@ -128,7 +136,6 @@
     <a class="nav-btn active" href="teachers.html" data-i18n="teacher_approval">Teachers</a>
   </div>
 
-  <!-- Toolbar -->
   <div class="teachers-toolbar">
     <h2 data-i18n="teacher_approval">Teacher Approval</h2>
     <button class="btn btn-success btn-sm" id="approveAllBtn" onclick="approveAll()" data-i18n="approve_all">
@@ -137,18 +144,19 @@
     <button class="btn btn-secondary btn-sm" onclick="loadAll()" data-i18n="refresh">Refresh</button>
   </div>
 
-  <!-- Tabs -->
   <div class="tabs">
-    <button class="tab-btn active" id="tabPending" onclick="showTab('pending')" data-i18n="tab_pending">
-      Pending<span id="pendingCount" style="display:none"></span>
+    <button class="tab-btn active" id="tabPending" onclick="showTab('pending')">
+      <span data-i18n="tab_pending">Pending Approval</span>
+      <span id="pendingCount" style="display:none"></span>
     </button>
-    <button class="tab-btn" id="tabAll" onclick="showTab('all')" data-i18n="tab_all_teachers">All Teachers</button>
+
+    <button class="tab-btn" id="tabAll" onclick="showTab('all')">
+      <span data-i18n="tab_all_teachers">All Teachers</span>
+    </button>
   </div>
 
-  <!-- Alert -->
   <div id="alertMsg" class="alert" style="display:none;margin-bottom:16px"></div>
 
-  <!-- Tables -->
   <div id="pendingSection">
     <div id="pendingLoading" style="text-align:center;padding:32px">
       <div class="spinner"></div>
@@ -165,8 +173,14 @@
 
 </main>
 
-<script src="js/i18n.js"></script>
-<script src="js/auth.js"></script>
-<script src="js/teachers.js"></script>
+<script src="js/i18n.js?v=2"></script>
+<script src="js/auth.js?v=2"></script>
+<script src="js/teachers.js?v=2"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', async () => {
+    showTab('pending');
+    await loadAll();
+  });
+</script>
 </body>
 </html>
