@@ -403,8 +403,8 @@ function renderDayPanel(dayPlan, isEditable) {
     : `<span style="font-size:0.8rem;color:#991b1b;background:#fee2e2;padding:4px 10px;border-radius:999px">${I18N.t('locked') || 'Locked'}</span>`;
 
   const publishBtn = dayPlan.is_published
-    ? `<span style="font-size:0.8rem;color:#166534;background:#dcfce7;padding:6px 10px;border-radius:999px">Published</span>`
-    : `<button class="btn btn-success btn-sm" onclick="publishDay('${dayPlan.date}')">Publish Day</button>`;
+    ? `<span style="font-size:0.8rem;color:#166534;background:#dcfce7;padding:6px 10px;border-radius:999px">✅ Published</span>`
+    : `<button class="btn btn-success btn-sm" id="publish-day-btn-${dayPlan.date}" onclick="publishDay('${dayPlan.date}')">Publish Day</button>`;
 
   const shiftTabsHtml = shifts.map((s, i) => {
     const dutyBadge = s.shift.duty_type === 'break'
@@ -905,6 +905,14 @@ async function publishWeek() {
 async function publishDay(dayDate) {
   if (!currentWeekData) return;
 
+  const publishBtn = byId(`publish-day-btn-${dayDate}`);
+  const originalBtnHtml = publishBtn ? publishBtn.outerHTML : null;
+
+  if (publishBtn) {
+    publishBtn.disabled = true;
+    publishBtn.textContent = 'Publishing...';
+  }
+
   try {
     await flushPendingChanges();
 
@@ -915,15 +923,41 @@ async function publishDay(dayDate) {
     );
 
     if (res && res.ok) {
-      currentWeekData = await res.json();
+      let data = null;
+      try {
+        data = await res.json();
+      } catch (_) {
+        data = null;
+      }
+
+      if (data && data.day_plans) {
+        currentWeekData = data;
+      } else if (currentWeekData?.day_plans) {
+        currentWeekData.day_plans = currentWeekData.day_plans.map(day =>
+          day.date === dayDate ? { ...day, is_published: true } : day
+        );
+      }
+
       renderWeek();
-      showToast('Day published');
-    } else {
-      const err = res ? await res.json() : {};
-      showToast(err.detail || I18N.t('error_generic'), 'error');
+      showToast('Day published successfully', 'success');
+      return;
     }
+
+    const message = await getApiErrorMessage(res, I18N.t('error_generic'));
+    showToast(message, 'error');
   } catch (err) {
     showToast(err.message || I18N.t('error_generic'), 'error');
+  } finally {
+    const currentBtn = byId(`publish-day-btn-${dayDate}`);
+    if (currentBtn) {
+      currentBtn.disabled = false;
+      currentBtn.textContent = 'Publish Day';
+    } else if (originalBtnHtml) {
+      const activePanelHeader = document.querySelector('.tab-panel.active .day-header-actions, .tab-panel.active [data-day-header-actions]');
+      if (activePanelHeader && !activePanelHeader.querySelector(`#publish-day-btn-${dayDate}`)) {
+        activePanelHeader.insertAdjacentHTML('beforeend', originalBtnHtml);
+      }
+    }
   }
 }
 
@@ -946,6 +980,16 @@ async function createWeek() {
       data = await res.json();
     } catch (_) {
       data = null;
+    }
+
+    if (res.status === 409) {
+      selectedDate = weekStart;
+      syncWeekInputWithSelectedDate();
+      pendingAssignments = {};
+      pendingSlots = {};
+      await loadWeek();
+      showToast(data?.detail || data?.message || 'Week already exists, loaded successfully', 'info');
+      return;
     }
 
     if (!res.ok) {
@@ -986,6 +1030,16 @@ async function cloneWeek() {
       data = await res.json();
     } catch (_) {
       data = null;
+    }
+
+    if (res.status === 409) {
+      selectedDate = weekStart;
+      syncWeekInputWithSelectedDate();
+      pendingAssignments = {};
+      pendingSlots = {};
+      await loadWeek();
+      showToast(data?.detail || data?.message || 'Week already exists, loaded successfully', 'info');
+      return;
     }
 
     if (!res.ok) {
