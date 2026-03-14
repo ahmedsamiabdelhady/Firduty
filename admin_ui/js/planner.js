@@ -115,16 +115,33 @@ function setPlannerBusy(isBusy, message = '') {
   }
 }
 
-async function tryReloadCreatedWeek(weekStart) {
-  try {
-    selectedDate = weekStart;
-    syncWeekInputWithSelectedDate();
-    await loadWeek();
-    return !!currentWeekData;
-  } catch (err) {
-    console.warn('tryReloadCreatedWeek failed:', err);
-    return false;
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function pollUntilWeekVisible(weekStart, attempts = 6, delayMs = 1200) {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await apiFetch(`/weeks/${weekStart}`);
+      if (res && res.ok) {
+        currentWeekData = await res.json();
+        selectedDate = weekStart;
+        syncWeekInputWithSelectedDate();
+        pendingAssignments = {};
+        pendingSlots = {};
+        renderWeek();
+        return true;
+      }
+    } catch (err) {
+      console.warn('pollUntilWeekVisible attempt failed:', err);
+    }
+
+    if (i < attempts - 1) {
+      await sleep(delayMs);
+    }
   }
+
+  return false;
 }
 
 /* ─── Init ────────────────────────────────────────────────────────────────── */
@@ -919,10 +936,10 @@ async function createWeek() {
   setPlannerBusy(true, 'Creating week...');
 
   try {
-    const res = await apiFetch(`/weeks/${weekStart}/create`, {
-      method: 'POST',
-      timeoutMs: 45000,
-    });
+    const res = await apiFetch(`/weeks/${weekStart}/create`, { method: 'POST' });
+    if (!res) {
+      throw new Error('Failed to reach server');
+    }
 
     let data = null;
     try {
@@ -935,24 +952,15 @@ async function createWeek() {
       throw new Error(data?.detail || data?.message || 'Failed to create week');
     }
 
+    selectedDate = weekStart;
+    syncWeekInputWithSelectedDate();
     pendingAssignments = {};
     pendingSlots = {};
 
-    const loaded = await tryReloadCreatedWeek(weekStart);
-    if (!loaded) {
-      throw new Error('Week was created but could not be loaded');
-    }
-
+    await loadWeek();
     showToast(data?.message || 'Week created successfully', 'success');
   } catch (err) {
     console.error('createWeek failed:', err);
-
-    const loaded = await tryReloadCreatedWeek(weekStart);
-    if (loaded) {
-      showToast('Week created successfully', 'success');
-      return;
-    }
-
     showToast(err.message || 'Failed to create week', 'error');
   } finally {
     setPlannerBusy(false);
@@ -968,10 +976,10 @@ async function cloneWeek() {
   setPlannerBusy(true, 'Cloning week...');
 
   try {
-    const res = await apiFetch(`/weeks/${weekStart}/clone`, {
-      method: 'POST',
-      timeoutMs: 45000,
-    });
+    const res = await apiFetch(`/weeks/${weekStart}/clone`, { method: 'POST' });
+    if (!res) {
+      throw new Error('Failed to reach server');
+    }
 
     let data = null;
     try {
@@ -984,24 +992,15 @@ async function cloneWeek() {
       throw new Error(data?.detail || data?.message || 'Clone failed');
     }
 
+    selectedDate = weekStart;
+    syncWeekInputWithSelectedDate();
     pendingAssignments = {};
     pendingSlots = {};
 
-    const loaded = await tryReloadCreatedWeek(weekStart);
-    if (!loaded) {
-      throw new Error('Week was cloned but could not be loaded');
-    }
-
+    await loadWeek();
     showToast(data?.message || I18N.t('success_cloned') || 'Week cloned successfully', 'success');
   } catch (err) {
     console.error('cloneWeek failed:', err);
-
-    const loaded = await tryReloadCreatedWeek(weekStart);
-    if (loaded) {
-      showToast(I18N.t('success_cloned') || 'Week cloned successfully', 'success');
-      return;
-    }
-
     showToast(err.message || 'Clone failed', 'error');
   } finally {
     setPlannerBusy(false);
