@@ -1,7 +1,7 @@
 /**
  * planner.js — Firduty Admin Week Planner
  * Handles: week loading, day/shift tabs, drag-and-drop, slot management.
- * Duty-type aware: break duties show grade/class input instead of location.
+ * Duty-type aware: break duties render as a class grid instead of a single long column.
  *
  * Auth is handled by auth.js (loaded before this script in planner.html).
  * Use apiFetch() for all API calls — it attaches the token and handles 401.
@@ -24,6 +24,15 @@ function showEl(el, display = '') {
 
 function hideEl(el) {
   if (el) el.style.display = 'none';
+}
+
+function escHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function showToast(message, type = 'success') {
@@ -62,6 +71,54 @@ function getCurrentSunday() {
   return getWeekStartFromDate(getCurrentLocalDate());
 }
 
+function getPreviousSunday() {
+  const d = parseLocalDate(getCurrentSunday());
+  d.setDate(d.getDate() - 7);
+  return formatDateLocal(d);
+}
+
+function applyWeekInputLimits() {
+  const weekInput = byId('weekStartInput');
+  if (!weekInput) return;
+
+  const minDate = getPreviousSunday();
+  weekInput.min = minDate;
+
+  if (!weekInput.value || weekInput.value < minDate) {
+    weekInput.value = minDate;
+  }
+}
+
+function setPlannerBusy(isBusy, message = 'Loading...') {
+  const overlay = byId('plannerBusyOverlay');
+  const textEl = byId('plannerBusyText');
+  const controls = document.querySelectorAll('.week-controls button, .week-controls input');
+
+  controls.forEach(el => {
+    el.disabled = isBusy;
+  });
+
+  if (textEl) {
+    textEl.textContent = message;
+  }
+
+  if (overlay) {
+    overlay.style.display = isBusy ? 'flex' : 'none';
+  }
+}
+
+function normalizeTimeValue(value) {
+  if (!value) return '';
+  return String(value).slice(0, 5);
+}
+
+function syncWeekInputWithSelectedDate() {
+  const weekInput = byId('weekStartInput');
+  if (weekInput && selectedDate) {
+    weekInput.value = selectedDate;
+  }
+}
+
 /* ─── Init ────────────────────────────────────────────────────────────────── */
 
 async function initPlanner() {
@@ -69,8 +126,14 @@ async function initPlanner() {
     const weekInput = byId('weekStartInput');
     const today = getCurrentLocalDate();
 
+    applyWeekInputLimits();
+
     if (weekInput && !weekInput.value) {
       weekInput.value = today;
+    }
+
+    if (weekInput?.min && weekInput.value < weekInput.min) {
+      weekInput.value = weekInput.min;
     }
 
     selectedDate = weekInput?.value || today;
@@ -88,6 +151,11 @@ async function initPlanner() {
 async function onWeekSelected() {
   const weekInput = byId('weekStartInput');
   if (!weekInput || !weekInput.value) return;
+
+  if (weekInput.min && weekInput.value < weekInput.min) {
+    weekInput.value = weekInput.min;
+    showToast('You can only view the previous week and newer weeks', 'info');
+  }
 
   selectedDate = weekInput.value;
   await loadWeek();
@@ -295,8 +363,7 @@ function switchDayTab(idx) {
   const day = currentWeekData.day_plans[idx];
   if (day) {
     selectedDate = day.date;
-    const weekInput = byId('weekStartInput');
-    if (weekInput) weekInput.value = day.date;
+    syncWeekInputWithSelectedDate();
     showToast(`Loaded ${day.date}`, 'info');
   }
 }
@@ -330,27 +397,36 @@ function renderDayPanel(dayPlan, isEditable) {
       ? `<span style="font-size:0.7rem;background:#ede9fe;color:#5b21b6;border-radius:8px;padding:1px 7px;margin-inline-start:6px">${I18N.t('break')}</span>`
       : '';
 
+    const editBtn = isEditable
+      ? `<button class="shift-time-edit-btn" type="button" onclick="event.stopPropagation(); openShiftTimeEditor(${s.shift.id}, '${escHtml(normalizeTimeValue(s.shift.start_time))}', '${escHtml(normalizeTimeValue(s.shift.end_time))}', '${escHtml(lang() === 'ar' ? s.shift.name_ar : s.shift.name_en)}')">✏</button>`
+      : '';
+
     return `
       <button class="shift-tab-btn${i === 0 ? ' active' : ''}"
               onclick="switchShiftTab('${dayPlan.date}', ${s.shift.id})"
               data-shift-id="${s.shift.id}"
               data-day-date="${dayPlan.date}">
-        ${lang() === 'ar' ? s.shift.name_ar : s.shift.name_en}
+        <span>${lang() === 'ar' ? s.shift.name_ar : s.shift.name_en}</span>
         ${dutyBadge}
-        <small style="opacity:0.7">${s.shift.start_time.slice(0, 5)}</small>
+        <small style="opacity:0.7">${normalizeTimeValue(s.shift.start_time)} - ${normalizeTimeValue(s.shift.end_time)}</small>
+        ${editBtn}
       </button>
     `;
   }).join('');
 
-  const shiftPanelsHtml = shifts.map((s, i) => `
-    <div class="shift-panel${i === 0 ? ' active' : ''}"
-         id="shift-panel-${dayPlan.date}-${s.shift.id}"
-         style="${i === 0 ? 'display:block' : 'display:none'}">
-      <div class="locations-grid">
-        ${s.locations.map(sl => renderLocationColumn(dayPlan.date, sl, isEditable)).join('')}
+  const shiftPanelsHtml = shifts.map((s, i) => {
+    const isBreak = s.shift.duty_type === 'break';
+
+    return `
+      <div class="shift-panel${i === 0 ? ' active' : ''}"
+           id="shift-panel-${dayPlan.date}-${s.shift.id}"
+           style="${i === 0 ? 'display:block' : 'display:none'}">
+        ${isBreak
+          ? renderBreakGrid(dayPlan.date, s, isEditable)
+          : `<div class="locations-grid">${s.locations.map(sl => renderLocationColumn(dayPlan.date, sl, isEditable)).join('')}</div>`}
       </div>
-    </div>
-  `).join('');
+    `;
+  }).join('');
 
   return `
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
@@ -364,6 +440,32 @@ function renderDayPanel(dayPlan, isEditable) {
     </div>
     <div class="shift-tabs" id="shift-tabs-${dayPlan.date}">${shiftTabsHtml}</div>
     ${shiftPanelsHtml}
+  `;
+}
+
+function renderBreakGrid(dayDate, shiftGroup, isEditable) {
+  const sl = shiftGroup.locations[0];
+  if (!sl) {
+    return '<p style="color:#999">No break slots found</p>';
+  }
+
+  const cards = [];
+  const assignments = [...(sl.assignments || [])].sort((a, b) => a.slot_index - b.slot_index);
+
+  for (const assignment of assignments) {
+    cards.push(renderSlot(sl.id, assignment.slot_index, assignment, true, isEditable, 'break-grid-item'));
+  }
+
+  return `
+    <div class="break-grid-wrapper">
+      <div class="break-grid-header">
+        <strong>${lang() === 'ar' ? shiftGroup.shift.name_ar : shiftGroup.shift.name_en}</strong>
+        <span>${assignments.length} classes</span>
+      </div>
+      <div class="slots-list break-grid" id="slots-${sl.id}" data-sl-id="${sl.id}" data-duty-type="break" data-editable="${isEditable ? 'true' : 'false'}">
+        ${cards.join('')}
+      </div>
+    </div>
   `;
 }
 
@@ -398,6 +500,18 @@ function renderLocationColumn(dayDate, sl, isEditable) {
     slots.push(renderSlot(sl.id, i, assignment, isBreak, isEditable));
   }
 
+  const controlsHtml = isBreak ? '' : `
+    <div class="slot-controls">
+      <button class="btn-slot btn-slot-sub"
+              ${!isEditable ? 'disabled style="opacity:0.4;pointer-events:none"' : ''}
+              onclick="changeSlots('${dayDate}', ${sl.shift_id}, ${sl.location_id || 'null'}, -1)">−</button>
+      <span class="slot-count" id="slot-count-${sl.id}">${sl.slots_count}</span>
+      <button class="btn-slot btn-slot-add"
+              ${!isEditable ? 'disabled style="opacity:0.4;pointer-events:none"' : ''}
+              onclick="changeSlots('${dayDate}', ${sl.shift_id}, ${sl.location_id || 'null'}, +1)">+</button>
+    </div>
+  `;
+
   return `
     <div class="location-column"
          data-sl-id="${sl.id}"
@@ -408,70 +522,47 @@ function renderLocationColumn(dayDate, sl, isEditable) {
          data-editable="${isEditable ? 'true' : 'false'}">
       <div class="location-header">
         <span class="location-name">${colTitle}</span>
-        <div class="slot-controls">
-          <button class="btn-slot btn-slot-sub"
-                  ${!isEditable ? 'disabled style="opacity:0.4;pointer-events:none"' : ''}
-                  onclick="changeSlots('${dayDate}', ${sl.shift_id}, ${sl.location_id || 'null'}, -1)">−</button>
-          <span class="slot-count" id="slot-count-${sl.id}">${sl.slots_count}</span>
-          <button class="btn-slot btn-slot-add"
-                  ${!isEditable ? 'disabled style="opacity:0.4;pointer-events:none"' : ''}
-                  onclick="changeSlots('${dayDate}', ${sl.shift_id}, ${sl.location_id || 'null'}, +1)">+</button>
-        </div>
+        ${controlsHtml}
       </div>
       <div class="slots-list"
            id="slots-${sl.id}"
            data-sl-id="${sl.id}"
-           data-duty-type="${isBreak ? 'break' : 'morning_endofday'}">
+           data-duty-type="${isBreak ? 'break' : 'morning_endofday'}"
+           data-editable="${isEditable ? 'true' : 'false'}">
         ${slots.join('')}
       </div>
     </div>
   `;
 }
 
-function renderSlot(slId, slotIdx, assignment, isBreak, isEditable = true) {
-  if (assignment && assignment.teacher_id) {
-    const gradeHtml = isBreak
-      ? `<input class="grade-input" type="text"
-                placeholder="${I18N.t('grade_class_placeholder')}"
-                value="${assignment.grade_class || ''}"
-                onchange="updateGradeClass(${slId}, ${slotIdx}, this.value)"
-                onclick="event.stopPropagation()"
-                ${!isEditable ? 'disabled' : ''}
-                style="margin-top:4px;width:100%;font-size:0.8rem;padding:3px 6px;border:1px solid #c4b5fd;border-radius:4px;${!isEditable ? 'opacity:0.6;background:#f3f4f6' : ''}">`
-      : '';
+function renderSlot(slId, slotIdx, assignment, isBreak, isEditable = true, extraClass = '') {
+  const slotClasses = ['slot-item'];
+  if (assignment && assignment.teacher_id) slotClasses.push('filled');
+  if (extraClass) slotClasses.push(extraClass);
+  if (isBreak) slotClasses.push('break-slot-item');
 
+  const gradeLabel = isBreak
+    ? `<div class="grade-pill">${escHtml(assignment?.grade_class || '')}</div>`
+    : '';
+
+  if (assignment && assignment.teacher_id) {
     return `
-      <div class="slot-item filled" data-sl-id="${slId}" data-slot-idx="${slotIdx}" data-teacher-id="${assignment.teacher_id}">
+      <div class="${slotClasses.join(' ')}" data-sl-id="${slId}" data-slot-idx="${slotIdx}" data-teacher-id="${assignment.teacher_id}">
+        ${gradeLabel}
         <div class="teacher-card" data-teacher-id="${assignment.teacher_id}" data-teacher-name="${escHtml(assignment.teacher_name)}">
           <span>${escHtml(assignment.teacher_name)}</span>
           ${isEditable ? `<span class="remove-btn" onclick="removeTeacher(${slId}, ${slotIdx})">✕</span>` : ''}
         </div>
-        ${gradeHtml}
       </div>
     `;
   }
 
   return `
-    <div class="slot-item" data-sl-id="${slId}" data-slot-idx="${slotIdx}" data-teacher-id="">
-      <span style="color:#bbb;font-size:0.8rem">${I18N.t('no_teacher')}</span>
+    <div class="${slotClasses.join(' ')}" data-sl-id="${slId}" data-slot-idx="${slotIdx}" data-teacher-id="">
+      ${gradeLabel}
+      <span style="color:#bbb;font-size:0.8rem">${isBreak ? (I18N.t('no_teacher') || 'No teacher') : (I18N.t('no_teacher') || 'No teacher')}</span>
     </div>
   `;
-}
-
-/* ─── Grade/Class update ──────────────────────────────────────────────────── */
-
-function updateGradeClass(slId, slotIdx, value) {
-  const list = byId(`slots-${slId}`);
-  const col = list?.closest('.location-column');
-
-  if (col?.dataset.editable !== 'true') {
-    showToast(I18N.t('day_locked') || 'Past days cannot be edited', 'error');
-    return;
-  }
-
-  if (!pendingAssignments[slId]) pendingAssignments[slId] = {};
-  if (!pendingAssignments[slId][slotIdx]) pendingAssignments[slId][slotIdx] = {};
-  pendingAssignments[slId][slotIdx].grade_class = value;
 }
 
 /* ─── Drag & Drop ─────────────────────────────────────────────────────────── */
@@ -562,17 +653,13 @@ function initDragAndDrop() {
       animation: 150,
 
       onMove: function() {
-        const col = list.closest('.location-column');
-        if (!col || col.dataset.editable !== 'true') return false;
-        return true;
+        const editable = list.dataset.editable === 'true';
+        return editable;
       },
 
       onAdd: function(evt) {
-        const col = list.closest('.location-column');
-        const dayDate = col?.dataset.day;
-        const day = currentWeekData?.day_plans?.find(d => d.date === dayDate);
-
-        if (!day || !day.is_editable) {
+        const editable = list.dataset.editable === 'true';
+        if (!editable) {
           showToast(I18N.t('day_locked') || 'Past days cannot be edited', 'error');
           evt.item.parentNode && evt.item.parentNode.removeChild(evt.item);
           return;
@@ -583,20 +670,20 @@ function initDragAndDrop() {
         const teacherName = evt.item.dataset.teacherName;
 
         if (isTeacherAssignedInSameShift(slId, teacherId)) {
-          showToast('Teacher already assigned in this duty', 'error');
+          showToast('This teacher is already assigned in the same duty for this day', 'error');
           evt.item.parentNode && evt.item.parentNode.removeChild(evt.item);
           return;
         }
 
-        // لو القائمة كلها مليانة، استبدل آخر/أول slot مملوءة بدل الفشل
         const filledSlots = Array.from(list.querySelectorAll('.slot-item.filled'));
         const emptySlot = list.querySelector('.slot-item:not(.filled)');
 
         if (!emptySlot && filledSlots.length > 0) {
           const targetSlot = filledSlots[filledSlots.length - 1];
           const slotIdx = parseInt(targetSlot.dataset.slotIdx, 10);
+          const currentGrade = targetSlot.querySelector('.grade-pill')?.textContent?.trim() || null;
 
-          replaceTeacherInSlot(slId, slotIdx, teacherId, teacherName, isBreak);
+          replaceTeacherInSlot(slId, slotIdx, teacherId, teacherName, isBreak, currentGrade);
 
           evt.item.parentNode && evt.item.parentNode.removeChild(evt.item);
           showToast(I18N.t('teacher_replaced') || 'Teacher replaced');
@@ -604,23 +691,21 @@ function initDragAndDrop() {
         }
 
         if (!emptySlot) {
-          showToast(
-            I18N.t('no_empty_slot') || 'No empty slot available',
-            'error'
-          );
+          showToast(I18N.t('no_empty_slot') || 'No empty slot available', 'error');
           evt.item.parentNode && evt.item.parentNode.removeChild(evt.item);
           return;
         }
 
         const slotIdx = parseInt(emptySlot.dataset.slotIdx, 10);
-        recordAssignment(slId, slotIdx, teacherId, null);
+        const gradeClass = emptySlot.querySelector('.grade-pill')?.textContent?.trim() || null;
+        recordAssignment(slId, slotIdx, teacherId, gradeClass);
 
         emptySlot.outerHTML = renderSlot(slId, slotIdx, {
           teacher_id: teacherId,
           teacher_name: teacherName,
           slot_index: slotIdx,
-          grade_class: null,
-        }, isBreak, true);
+          grade_class: gradeClass,
+        }, isBreak, true, isBreak ? 'break-grid-item' : '');
 
         evt.item.parentNode && evt.item.parentNode.removeChild(evt.item);
       }
@@ -635,8 +720,8 @@ function recordAssignment(slId, slotIdx, teacherId, gradeClass) {
   pendingAssignments[slId][slotIdx] = { teacher_id: teacherId, grade_class: gradeClass };
 }
 
-function replaceTeacherInSlot(slId, slotIdx, teacherId, teacherName, isBreak) {
-  recordAssignment(slId, slotIdx, teacherId, null);
+function replaceTeacherInSlot(slId, slotIdx, teacherId, teacherName, isBreak, gradeClass = null) {
+  recordAssignment(slId, slotIdx, teacherId, gradeClass);
 
   const list = byId(`slots-${slId}`);
   if (!list) return;
@@ -648,28 +733,28 @@ function replaceTeacherInSlot(slId, slotIdx, teacherId, teacherName, isBreak) {
     teacher_id: teacherId,
     teacher_name: teacherName,
     slot_index: slotIdx,
-    grade_class: null,
-  }, isBreak, true);
+    grade_class: gradeClass,
+  }, isBreak, true, isBreak ? 'break-grid-item' : '');
 }
 
 function removeTeacher(slId, slotIdx) {
   const list = byId(`slots-${slId}`);
-  const col = list?.closest('.location-column');
+  const editable = list?.dataset.editable === 'true';
 
-  if (col?.dataset.editable !== 'true') {
+  if (!editable) {
     showToast(I18N.t('day_locked') || 'Past days cannot be edited', 'error');
     return;
   }
 
-  recordAssignment(slId, slotIdx, null, null);
+  const slotEl = list?.querySelector(`[data-slot-idx="${slotIdx}"]`);
+  const gradeClass = slotEl?.querySelector('.grade-pill')?.textContent?.trim() || null;
+  recordAssignment(slId, slotIdx, null, gradeClass);
 
-  if (!list) return;
+  if (!list || !slotEl) return;
 
-  const slotEl = list.querySelector(`[data-slot-idx="${slotIdx}"]`);
-  if (slotEl) {
-    slotEl.outerHTML = renderSlot(slId, slotIdx, null, list.dataset.dutyType === 'break', true);
-    showToast(I18N.t('teacher_removed') || 'Teacher removed', 'info');
-  }
+  const isBreak = list.dataset.dutyType === 'break';
+  slotEl.outerHTML = renderSlot(slId, slotIdx, { grade_class: gradeClass }, isBreak, true, isBreak ? 'break-grid-item' : '');
+  showToast(I18N.t('teacher_removed') || 'Teacher removed', 'info');
 }
 
 /* ─── Slot Count Control ──────────────────────────────────────────────────── */
@@ -727,13 +812,15 @@ function changeSlots(dayDate, shiftId, locationId, delta) {
 async function saveDraft() {
   if (!currentWeekData) return;
 
-  showToast('Saving...', 'info');
-
+  setPlannerBusy(true, 'Saving draft...');
   try {
     await flushPendingChanges();
     showToast(I18N.t('success_saved') || 'Saved successfully');
   } catch (err) {
     console.error('saveDraft failed:', err);
+    showToast(err.message || I18N.t('error_generic'), 'error');
+  } finally {
+    setPlannerBusy(false);
   }
 }
 
@@ -798,6 +885,7 @@ async function publishWeek() {
   if (!currentWeekData) return;
   if (!confirm(I18N.t('confirm_publish'))) return;
 
+  setPlannerBusy(true, 'Publishing week...');
   try {
     await flushPendingChanges();
 
@@ -813,17 +901,20 @@ async function publishWeek() {
       updateStatusBadge(currentWeekData.status);
       showToast(I18N.t('success_published'));
     } else {
-      const err = res ? await res.json() : {};
-      showToast(err.detail || I18N.t('error_generic'), 'error');
+      const message = await getApiErrorMessage(res, I18N.t('error_generic'));
+      showToast(message, 'error');
     }
   } catch (err) {
     showToast(err.message || I18N.t('error_generic'), 'error');
+  } finally {
+    setPlannerBusy(false);
   }
 }
 
 async function publishDay(dayDate) {
   if (!currentWeekData) return;
 
+  setPlannerBusy(true, 'Publishing day...');
   try {
     await flushPendingChanges();
 
@@ -838,11 +929,13 @@ async function publishDay(dayDate) {
       renderWeek();
       showToast('Day published');
     } else {
-      const err = res ? await res.json() : {};
-      showToast(err.detail || I18N.t('error_generic'), 'error');
+      const message = await getApiErrorMessage(res, I18N.t('error_generic'));
+      showToast(message, 'error');
     }
   } catch (err) {
     showToast(err.message || I18N.t('error_generic'), 'error');
+  } finally {
+    setPlannerBusy(false);
   }
 }
 
@@ -851,21 +944,31 @@ async function createWeek() {
   if (!selected) return;
 
   const weekStart = getWeekStartFromDate(selected);
-  showToast('Creating week...', 'info');
+  setPlannerBusy(true, 'Creating week...');
 
-  const res = await apiFetch(`/weeks/${weekStart}/create`, { method: 'POST' });
-  if (!res) return;
+  try {
+    const res = await apiFetch(`/weeks/${weekStart}/create`, { method: 'POST' });
+    if (!res) throw new Error('Failed to reach server');
 
-  const data = await res.json();
+    const data = await res.json();
 
-  if (!res.ok) {
-    showToast(data.detail || data.message || 'Failed to create week', 'error');
-    return;
+    if (!res.ok) {
+      throw new Error(data.detail || data.message || 'Failed to create week');
+    }
+
+    selectedDate = selected;
+    currentWeekData = data;
+    pendingAssignments = {};
+    pendingSlots = {};
+    syncWeekInputWithSelectedDate();
+    renderWeek();
+    updateStatusBadge(currentWeekData.status);
+    showToast(data.message || 'Week created successfully', 'success');
+  } catch (err) {
+    showToast(err.message || 'Failed to create week', 'error');
+  } finally {
+    setPlannerBusy(false);
   }
-
-  selectedDate = selected;
-  showToast(data.message || 'Week created successfully', 'success');
-  await loadWeek();
 }
 
 async function cloneWeek() {
@@ -873,21 +976,73 @@ async function cloneWeek() {
   if (!selected) return;
 
   const weekStart = getWeekStartFromDate(selected);
-  showToast('Cloning week...', 'info');
+  setPlannerBusy(true, 'Cloning week...');
 
-  const res = await apiFetch(`/weeks/${weekStart}/clone`, { method: 'POST' });
-  if (!res) return;
+  try {
+    const res = await apiFetch(`/weeks/${weekStart}/clone`, { method: 'POST' });
+    if (!res) throw new Error('Failed to reach server');
 
-  const data = await res.json();
+    const data = await res.json();
 
-  if (!res.ok) {
-    showToast(data.detail || data.message || 'Clone failed', 'error');
+    if (!res.ok) {
+      throw new Error(data.detail || data.message || 'Clone failed');
+    }
+
+    selectedDate = selected;
+    currentWeekData = data;
+    pendingAssignments = {};
+    pendingSlots = {};
+    syncWeekInputWithSelectedDate();
+    renderWeek();
+    updateStatusBadge(currentWeekData.status);
+    showToast(data.message || I18N.t('success_cloned') || 'Week cloned successfully', 'success');
+  } catch (err) {
+    showToast(err.message || 'Clone failed', 'error');
+  } finally {
+    setPlannerBusy(false);
+  }
+}
+
+async function openShiftTimeEditor(shiftId, startTime, endTime, shiftName) {
+  const newStart = prompt(`Start time for ${shiftName} (HH:MM)`, startTime || '07:00');
+  if (newStart === null) return;
+
+  const newEnd = prompt(`End time for ${shiftName} (HH:MM)`, endTime || '07:40');
+  if (newEnd === null) return;
+
+  if (!/^\d{2}:\d{2}$/.test(newStart) || !/^\d{2}:\d{2}$/.test(newEnd)) {
+    showToast('Please enter time in HH:MM format', 'error');
     return;
   }
 
-  selectedDate = selected;
-  showToast(data.message || I18N.t('success_cloned') || 'Week cloned successfully', 'success');
-  await loadWeek();
+  if (!currentWeekData?.week_start_date) return;
+
+  setPlannerBusy(true, `Updating ${shiftName} time...`);
+  try {
+    const res = await apiFetch(`/weeks/${currentWeekData.week_start_date}/shift-times`, {
+      method: 'PUT',
+      body: JSON.stringify([{
+        shift_id: shiftId,
+        start_time: `${newStart}:00`,
+        end_time: `${newEnd}:00`,
+      }])
+    });
+
+    if (!res) throw new Error('Failed to reach server');
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.detail || data.message || 'Failed to update shift time');
+    }
+
+    currentWeekData = data;
+    renderWeek();
+    showToast(data.message || 'Shift time updated successfully');
+  } catch (err) {
+    showToast(err.message || 'Failed to update shift time', 'error');
+  } finally {
+    setPlannerBusy(false);
+  }
 }
 
 /* ─── Auto Init ───────────────────────────────────────────────────────────── */
@@ -896,15 +1051,4 @@ if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initPlanner);
 } else {
   initPlanner();
-}
-
-/* ─── Helpers ─────────────────────────────────────────────────────────────── */
-
-function escHtml(str) {
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
 }

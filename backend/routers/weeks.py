@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from database import get_db
 from models.models import WeekPlan, DayPlan, ShiftLocation, Assignment
-from schemas.schemas import WeekStatusUpdate, ShiftLocationUpdate, AssignmentUpdate
+from schemas.schemas import WeekStatusUpdate, ShiftLocationUpdate, AssignmentUpdate, ShiftTimeUpdate
 from routers.auth import get_current_admin
 from services.week_service import (
     get_current_week_start,
@@ -16,9 +16,11 @@ from services.week_service import (
     clone_week,
     update_shift_location_slots,
     update_assignment,
+    update_shift_time,
     publish_week,
     publish_day,
     is_day_editable,
+    purge_old_weeks,
 )
 
 router = APIRouter(prefix="/weeks", tags=["weeks"])
@@ -74,6 +76,12 @@ def _raise_service_error(exc: ValueError) -> None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=message)
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=message)
 
+
+def _cleanup_old_weeks(db: Session, actor: str) -> None:
+    try:
+        purge_old_weeks(db, actor=actor)
+    except Exception:
+        db.rollback()
 
 
 def _serialize_week(week: WeekPlan) -> dict:
@@ -163,6 +171,7 @@ def _serialize_week(week: WeekPlan) -> dict:
 
 @router.get("/current")
 def get_current_week(db: Session = Depends(get_db)):
+    _cleanup_old_weeks(db, actor="system:get_current_week")
     ws = get_current_week_start()
     week = _get_week_with_relations(db, ws)
     if not week:
@@ -179,6 +188,7 @@ def get_current_week(db: Session = Depends(get_db)):
 
 @router.get("/{week_start}")
 def get_week(week_start: date, db: Session = Depends(get_db)):
+    _cleanup_old_weeks(db, actor="system:get_week")
     week = _get_week_with_relations(db, week_start)
     if not week:
         raise HTTPException(
@@ -197,6 +207,7 @@ def create_week(
     db: Session = Depends(get_db),
     admin=Depends(get_current_admin),
 ):
+    _cleanup_old_weeks(db, actor=str(admin))
     try:
         create_week_plan(db, week_start, actor=admin)
         week = _get_week_with_relations(db, week_start)
@@ -219,6 +230,7 @@ def clone_week_endpoint(
     db: Session = Depends(get_db),
     admin=Depends(get_current_admin),
 ):
+    _cleanup_old_weeks(db, actor=str(admin))
     if not source_week:
         latest = (
             db.query(WeekPlan)
@@ -267,6 +279,7 @@ def update_week_status(
     db: Session = Depends(get_db),
     admin=Depends(get_current_admin),
 ):
+    _cleanup_old_weeks(db, actor=str(admin))
     week = _get_week_or_404(db, week_start)
 
     try:
@@ -300,6 +313,7 @@ def publish_single_day(
     db: Session = Depends(get_db),
     admin=Depends(get_current_admin),
 ):
+    _cleanup_old_weeks(db, actor=str(admin))
     week = _get_week_or_404(db, week_start)
 
     try:
@@ -326,6 +340,7 @@ def update_shift_locations(
     db: Session = Depends(get_db),
     admin=Depends(get_current_admin),
 ):
+    _cleanup_old_weeks(db, actor=str(admin))
     if not updates:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -367,6 +382,7 @@ def update_assignments(
     db: Session = Depends(get_db),
     admin=Depends(get_current_admin),
 ):
+    _cleanup_old_weeks(db, actor=str(admin))
     if not updates:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -403,4 +419,45 @@ def update_assignments(
 
     payload = _serialize_week(week_loaded)
     payload["message"] = "Assignments updated successfully"
+    return payload
+
+
+@router.put("/{week_start}/shift-times")
+def update_shift_times(
+    week_start: date,
+    updates: list[ShiftTimeUpdate],
+    db: Session = Depends(get_db),
+    admin=Depends(get_current_admin),
+):
+    _cleanup_old_weeks(db, actor=str(admin))
+    if not updates:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No shift-time updates were provided",
+        )
+
+    week = _get_week_or_404(db, week_start)
+
+    for upd in updates:
+        try:
+            update_shift_time(
+                db=db,
+                week=week,
+                shift_id=upd.shift_id,
+                start_time=upd.start_time,
+                end_time=upd.end_time,
+                actor=admin,
+            )
+        except ValueError as exc:
+            _raise_service_error(exc)
+
+    week_loaded = _get_week_with_relations(db, week_start)
+    if not week_loaded:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Shift times were updated but the week could not be reloaded",
+        )
+
+    payload = _serialize_week(week_loaded)
+    payload["message"] = "Shift times updated successfully"
     return payload

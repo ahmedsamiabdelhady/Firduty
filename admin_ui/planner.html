@@ -11,6 +11,101 @@
   <link rel="apple-touch-icon" sizes="192x192" href="favicon-192x192.png">
   <link rel="stylesheet" href="css/style.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
+  <style>
+    .planner-busy-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.38);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      backdrop-filter: blur(2px);
+    }
+    .planner-busy-card {
+      width: min(420px, calc(100vw - 32px));
+      background: #fff;
+      border-radius: 18px;
+      padding: 24px;
+      box-shadow: 0 24px 60px rgba(15, 23, 42, 0.2);
+      text-align: center;
+    }
+    .planner-progress-track {
+      height: 10px;
+      background: #e5e7eb;
+      border-radius: 999px;
+      overflow: hidden;
+      margin-top: 14px;
+    }
+    .planner-progress-bar {
+      width: 42%;
+      height: 100%;
+      background: linear-gradient(90deg, #0ea5e9, #22c55e);
+      border-radius: 999px;
+      animation: planner-indeterminate 1.2s ease-in-out infinite;
+    }
+    @keyframes planner-indeterminate {
+      0% { transform: translateX(-120%); }
+      100% { transform: translateX(320%); }
+    }
+    .shift-time-edit-btn {
+      border: none;
+      background: #ffffff;
+      color: #2563eb;
+      border-radius: 999px;
+      width: 24px;
+      height: 24px;
+      cursor: pointer;
+      margin-inline-start: 6px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+      flex: 0 0 auto;
+    }
+    .break-grid-wrapper {
+      background: #fff;
+      border-radius: 14px;
+      padding: 14px;
+      box-shadow: 0 1px 8px rgba(0,0,0,0.06);
+    }
+    .break-grid-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 14px;
+      color: #5b21b6;
+      font-size: 0.95rem;
+      flex-wrap: wrap;
+    }
+    .break-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 12px;
+    }
+    .break-grid-item {
+      min-height: 96px;
+      border: 1px dashed #c4b5fd;
+      border-radius: 12px;
+      padding: 10px;
+      background: #faf5ff;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      justify-content: flex-start;
+    }
+    .grade-pill {
+      display: inline-flex;
+      align-self: flex-start;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: #ede9fe;
+      color: #6d28d9;
+      font-size: 0.78rem;
+      font-weight: 600;
+    }
+    .break-slot-item .teacher-card {
+      margin-top: 0;
+    }
+  </style>
 </head>
 <body>
 
@@ -34,7 +129,7 @@
   <!-- Week Controls -->
   <div class="week-controls">
     <label data-i18n="select_week">Select Week:</label>
-    <input type="date" id="weekStartInput" onchange="onWeekSelected()">
+    <input type="date" id="weekStartInput" onchange="onWeekSelected()" aria-label="Week start date">
     <button class="btn btn-primary btn-sm" onclick="loadWeek()" data-i18n="load_week">Load</button>
 
     <span id="weekStatusBadge" class="week-status-badge" style="display:none"></span>
@@ -81,6 +176,16 @@
 
   </div>
 </main>
+
+<div class="planner-busy-overlay" id="plannerBusyOverlay">
+  <div class="planner-busy-card">
+    <div class="spinner" style="margin:0 auto 14px"></div>
+    <div id="plannerBusyText">Working...</div>
+    <div class="planner-progress-track">
+      <div class="planner-progress-bar"></div>
+    </div>
+  </div>
+</div>
 
 <div class="toast-container" id="toastContainer"></div>
 

@@ -226,6 +226,12 @@ class WeekStatusUpdate(BaseModel):
     status: str   # 'draft' | 'published'
 
 
+class ShiftTimeUpdate(BaseModel):
+    shift_id: int
+    start_time: time
+    end_time: time
+
+
 # ─── Teacher Schedule ─────────────────────────────────────────────────────────
 
 class TeacherDutySlot(BaseModel):

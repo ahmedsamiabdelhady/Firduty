@@ -161,6 +161,61 @@ def get_current_week_start() -> date:
     return now - timedelta(days=days_since_sunday)
 
 
+def get_previous_week_start() -> date:
+    return get_current_week_start() - timedelta(days=7)
+
+
+def purge_old_weeks(db: Session, actor: str = "system") -> int:
+    """
+    Delete all week-plan data older than the previous week.
+    Keeps: previous week, current week, and any future weeks.
+    """
+    cutoff = get_previous_week_start()
+    old_weeks = (
+        db.query(WeekPlan)
+        .filter(WeekPlan.week_start_date < cutoff)
+        .order_by(WeekPlan.week_start_date.asc())
+        .all()
+    )
+    if not old_weeks:
+        return 0
+
+    week_ids = [w.id for w in old_weeks]
+    day_ids = [row[0] for row in db.query(DayPlan.id).filter(DayPlan.week_plan_id.in_(week_ids)).all()]
+    shift_location_ids = []
+    if day_ids:
+        shift_location_ids = [
+            row[0]
+            for row in db.query(ShiftLocation.id).filter(ShiftLocation.day_plan_id.in_(day_ids)).all()
+        ]
+
+    if shift_location_ids:
+        db.query(Assignment).filter(Assignment.shift_location_id.in_(shift_location_ids)).delete(
+            synchronize_session=False
+        )
+
+    if day_ids:
+        db.query(ShiftLocation).filter(ShiftLocation.day_plan_id.in_(day_ids)).delete(
+            synchronize_session=False
+        )
+
+    db.query(ChangeLog).filter(ChangeLog.week_plan_id.in_(week_ids)).delete(synchronize_session=False)
+
+    if day_ids:
+        db.query(DayPlan).filter(DayPlan.id.in_(day_ids)).delete(synchronize_session=False)
+
+    db.query(WeekPlan).filter(WeekPlan.id.in_(week_ids)).delete(synchronize_session=False)
+    db.commit()
+
+    logger.info(
+        "Purged %s old week(s) older than previous week cutoff %s by %s",
+        len(week_ids),
+        cutoff,
+        actor,
+    )
+    return len(week_ids)
+
+
 def get_today_muscat() -> date:
     return datetime.now(MUSCAT_TZ).date()
 
@@ -777,6 +832,37 @@ def update_shift_location_slots(
 
 
 # ── Assignment management ─────────────────────────────────────────────────────
+
+def update_shift_time(
+    db: Session,
+    week: WeekPlan,
+    shift_id: int,
+    start_time,
+    end_time,
+    actor: str = "admin",
+) -> Shift:
+    shift = db.query(Shift).filter(Shift.id == shift_id).first()
+    if not shift:
+        raise ValueError(f"Shift {shift_id} not found")
+
+    shift.start_time = start_time
+    shift.end_time = end_time
+
+    _log_change(
+        db,
+        week,
+        actor,
+        "update_shift_time",
+        {
+            "shift_id": shift_id,
+            "start_time": str(start_time),
+            "end_time": str(end_time),
+        },
+    )
+    db.commit()
+    db.refresh(shift)
+    return shift
+
 
 def update_assignment(
     db: Session,
