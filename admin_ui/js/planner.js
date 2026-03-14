@@ -499,7 +499,7 @@ function renderLocationColumn(dayDate, sl, isEditable) {
   }
 
   return `
-    <div class="location-column ${colStatus}"
+    <div class="location-column ${colStatus}${isBreak ? ' location-column-break' : ''}"
          data-sl-id="${sl.id}"
          data-day="${dayDate}"
          data-shift="${sl.shift_id}"
@@ -509,6 +509,7 @@ function renderLocationColumn(dayDate, sl, isEditable) {
 
       <div class="location-header">
         <span class="location-name" title="${colTitle}">${colTitle}</span>
+        ${!isBreak ? `
         <div class="slot-controls">
           <button class="btn-slot btn-slot-sub"
                   ${!isEditable ? 'disabled' : ''}
@@ -517,17 +518,17 @@ function renderLocationColumn(dayDate, sl, isEditable) {
           <button class="btn-slot btn-slot-add"
                   ${!isEditable ? 'disabled' : ''}
                   onclick="changeSlots('${dayDate}', ${sl.shift_id}, ${sl.location_id || 'null'}, +1)">+</button>
-        </div>
+        </div>` : `<span class="col-fill-label" id="col-fill-label-${sl.id}" style="font-size:0.78rem;font-weight:600;color:var(--text-muted)">${filled}/${total}</span>`}
       </div>
 
       <div class="col-fill-bar">
         <div class="col-fill-bar-track">
           <div class="col-fill-bar-fill" style="width:${pct}%"></div>
         </div>
-        <span class="col-fill-label" id="col-fill-label-${sl.id}">${filled}/${total}</span>
+        ${!isBreak ? `<span class="col-fill-label" id="col-fill-label-${sl.id}">${filled}/${total}</span>` : ''}
       </div>
 
-      <div class="slots-list"
+      <div class="slots-list${isBreak ? ' slots-list-break' : ''}"
            id="slots-${sl.id}"
            data-sl-id="${sl.id}"
            data-duty-type="${isBreak ? 'break' : 'morning_endofday'}">
@@ -559,16 +560,49 @@ function renderSlot(slId, slotIdx, assignment, isBreak, isEditable = true) {
   const slotNum = slotIdx + 1;
   const slotNumBadge = `<span class="slot-num">${slotNum}</span>`;
 
+  // ── BREAK duty slot — compact grid card ─────────────────────────────────
+  // The grade_class is the identity. Shown large at top; teacher name below.
+  if (isBreak) {
+    const gradeClass = assignment?.grade_class ?? null;
+    const gradeLabel = gradeClass ? escHtml(gradeClass) : `#${slotNum}`;
+
+    if (assignment && assignment.teacher_id) {
+      const name    = assignment.teacher_name || '';
+      const initial = _initials(name);
+      const hue     = (assignment.teacher_id * 47) % 360;
+      const removeBtn = isEditable
+        ? `<button class="slot-remove-btn" onclick="removeTeacher(${slId}, ${slotIdx})" title="Remove">✕</button>`
+        : '';
+
+      return `
+        <div class="slot-item slot-filled slot-break-card" data-sl-id="${slId}" data-slot-idx="${slotIdx}" data-teacher-id="${assignment.teacher_id}">
+          <div class="break-card-class">${gradeLabel}</div>
+          <div class="break-card-teacher">
+            <span class="teacher-avatar" style="--avatar-hue:${hue}deg">${escHtml(initial)}</span>
+            <span class="teacher-name" title="${escHtml(name)}">${escHtml(name)}</span>
+            ${removeBtn}
+          </div>
+        </div>
+      `;
+    }
+
+    // Empty break slot
+    return `
+      <div class="slot-item slot-empty slot-break-card slot-break-empty" data-sl-id="${slId}" data-slot-idx="${slotIdx}" data-teacher-id="">
+        <div class="break-card-class">${gradeLabel}</div>
+        ${isEditable
+          ? `<div class="slot-drop-zone"><span class="slot-drop-icon">↓</span><span class="slot-drop-text">${I18N.t('no_teacher') || 'Drop'}</span></div>`
+          : `<span class="slot-locked-text">—</span>`
+        }
+      </div>
+    `;
+  }
+
+  // ── NON-BREAK slot — original full-width card ────────────────────────────
   if (assignment && assignment.teacher_id) {
     const name    = assignment.teacher_name || '';
     const initial = _initials(name);
-    // Deterministic hue from teacher_id for avatar colour variety
     const hue     = (assignment.teacher_id * 47) % 360;
-
-    const gradeHtml = isBreak && assignment.grade_class
-      ? `<span class="grade-class-badge"><span class="grade-class-badge-label">${I18N.t('class_label') || 'Class'}:</span>${escHtml(assignment.grade_class)}</span>`
-      : '';
-
     const removeBtn = isEditable
       ? `<button class="slot-remove-btn" onclick="removeTeacher(${slId}, ${slotIdx})" title="Remove">✕</button>`
       : '';
@@ -582,23 +616,6 @@ function renderSlot(slId, slotIdx, assignment, isBreak, isEditable = true) {
             <span class="teacher-name" title="${escHtml(name)}">${escHtml(name)}</span>
             ${removeBtn}
           </div>
-          ${gradeHtml}
-        </div>
-      </div>
-    `;
-  }
-
-  // Empty slot
-  const gradeClass = assignment?.grade_class ?? null;
-
-  if (isBreak && gradeClass) {
-    // Break: class is the slot's identity — show it large, drop-zone underneath
-    return `
-      <div class="slot-item slot-empty slot-break-empty" data-sl-id="${slId}" data-slot-idx="${slotIdx}" data-teacher-id="">
-        ${slotNumBadge}
-        <div class="slot-inner">
-          <span class="break-class-identity">${escHtml(gradeClass)}</span>
-          ${isEditable ? `<span class="slot-drop-hint">↓ ${I18N.t('no_teacher') || 'Drop teacher'}</span>` : ''}
         </div>
       </div>
     `;
@@ -640,7 +657,11 @@ function _refreshFillBar(slId) {
   const countEl = byId(`slot-count-${slId}`);
   if (!list || !col) return;
 
-  const total  = parseInt(countEl?.textContent || '0', 10);
+  const isBreak = list.dataset.dutyType === 'break';
+  // For break cols, total comes from slot count in DOM; for non-break from the counter span
+  const total  = isBreak
+    ? list.querySelectorAll('.slot-item').length
+    : parseInt(countEl?.textContent || '0', 10);
   const filled = list.querySelectorAll('.slot-filled').length;
   const pct    = total > 0 ? Math.round((filled / total) * 100) : 0;
 
@@ -994,6 +1015,8 @@ async function publishDay(dayDate) {
     if (res && res.ok) {
       let data = null;
       try { data = await res.json(); } catch (_) {}
+
+      // Update local data model
       if (data?.day_plans) {
         currentWeekData = data;
       } else if (currentWeekData?.day_plans) {
@@ -1001,7 +1024,21 @@ async function publishDay(dayDate) {
           d.date === dayDate ? { ...d, is_published: true } : d
         );
       }
-      renderWeek();
+
+      // ── Surgical DOM update — no full re-render needed ──────────────────
+      // 1. Find the tab button for this day and stamp the tick instantly
+      _markDayTabPublished(dayDate);
+
+      // 2. Replace the "Publish Day" button with the "Published" badge in-place
+      const btn = byId(`publish-day-btn-${dayDate}`);
+      if (btn) {
+        const badge = document.createElement('span');
+        badge.style.cssText = 'font-size:0.8rem;color:#166534;background:#dcfce7;padding:6px 10px;border-radius:999px';
+        badge.textContent = `✅ ${I18N.t('published') || 'Published'}`;
+        btn.replaceWith(badge);
+      }
+      // ────────────────────────────────────────────────────────────────────
+
       showToast(I18N.t('success_day_published') || 'Day published successfully');
       return;
     }
@@ -1011,12 +1048,34 @@ async function publishDay(dayDate) {
   } catch (err) {
     showToast(err.message || I18N.t('error_generic'), 'error');
   } finally {
+    // Only restore button if it still exists (wasn't replaced on success)
     const currentBtn = byId(`publish-day-btn-${dayDate}`);
     if (currentBtn) {
       currentBtn.disabled = false;
       currentBtn.textContent = originalText || I18N.t('publish_day') || 'Publish Day';
     }
   }
+}
+
+/**
+ * Finds the tab button for a given dayDate and appends the ✔ tick mark
+ * without rebuilding the tab bar. Works by matching the tab's position
+ * against currentWeekData.day_plans order.
+ */
+function _markDayTabPublished(dayDate) {
+  const tabs = document.querySelectorAll('#dayTabs .tab-btn');
+  const idx  = currentWeekData?.day_plans?.findIndex(d => d.date === dayDate) ?? -1;
+  if (idx < 0 || !tabs[idx]) return;
+
+  const tab = tabs[idx];
+  // Stamp the tick mark
+  if (!tab.textContent.includes('✔')) {
+    tab.textContent = tab.textContent.trimEnd() + ' ✔';
+  }
+  // Brief scale-pop animation to draw the eye
+  tab.classList.remove('just-published'); // reset if already applied
+  void tab.offsetWidth;                   // force reflow so animation replays
+  tab.classList.add('just-published');
 }
 
 async function createWeek() {

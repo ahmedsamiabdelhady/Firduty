@@ -826,10 +826,93 @@ input:focus, select:focus, textarea:focus {
   margin-inline-start: 6px;
 }
 
-/* ─── Responsive ─────────────────────────────────────────────────────────── */
+/* ─── Break duty column — full-width grid container ─────────────────────── */
+/*
+ * Break columns hold all the class slots for one break shift.
+ * They stretch to fill the available row width instead of being capped
+ * like regular location columns, since the grid inside needs more room.
+ */
+.location-column-break {
+  min-width: 100%;
+  max-width: 100%;
+  flex-basis: 100%;
+}
+
+/* ─── Break duty slot grid ───────────────────────────────────────────────── */
+.slots-list-break {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+  min-height: 44px;
+}
+
+/* ─── Break slot compact card ────────────────────────────────────────────── */
+.slot-break-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 8px;
+  min-height: unset;  /* override the 44px min so empty cards stay compact */
+}
+
+/* Class name — the slot's identity, shown prominently at the top */
+.break-card-class {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #5b21b6;
+  text-align: center;
+  margin-bottom: 6px;
+  letter-spacing: 0.02em;
+}
+
+/* Empty break card keeps the class label as the only content */
+.slot-break-empty .break-card-class {
+  color: #7c3aed;
+  margin-bottom: 4px;
+}
+
+/* Teacher row inside a filled break card */
+.break-card-teacher {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.break-card-teacher .teacher-avatar {
+  width: 22px;
+  height: 22px;
+  font-size: 0.68rem;
+  flex-shrink: 0;
+}
+.break-card-teacher .teacher-name {
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+/* Remove button on break card: always visible (small card, no room to hover) */
+.slot-break-card .slot-remove-btn {
+  display: flex;
+  align-items: center;
+  margin-inline-start: auto;
+}
+
+/* ─── Day tab tick mark — animated stamp ────────────────────────────────── */
+/*
+ * When _markDayTabPublished() appends " ✔" to a tab, the tick is already
+ * in the text. The animation class is added via JS to give a brief pop.
+ */
+.tab-btn.just-published {
+  animation: tabTickPop 0.4s ease forwards;
+}
+@keyframes tabTickPop {
+  0%   { transform: scale(1); }
+  50%  { transform: scale(1.18); color: #166534; }
+  100% { transform: scale(1); }
+}
+
+/* Responsive ─────────────────────────────────────────────────────────────── */
 @media (max-width: 768px) {
   .planner-layout   { flex-direction: column; }
   .sidebar          { width: 100%; position: static; }
   .locations-grid   { flex-direction: column; }
   .location-column  { max-width: 100%; flex-basis: 100%; }
+  .slots-list-break { grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); }
 }
