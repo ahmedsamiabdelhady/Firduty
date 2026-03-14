@@ -1,41 +1,40 @@
 /**
  * auth.js — Shared authentication utilities for all Admin UI pages.
- *
- * Include this script on every admin page that requires authentication
- * (dashboard.html, planner.html, reports.html, teachers.html).
- *
- * Features:
- *  - authHeaders()         Returns Authorization + Content-Type headers
- *  - logout()              Clears token and redirects to login
- *  - guardPage()           Redirects to login if no token stored (call on page load)
- *  - apiFetch(url, opts)   fetch() wrapper that auto-attaches auth header
- *                          and redirects to login on 401
+ * Uses the hosted Koyeb backend by default.
  */
 
+const DEFAULT_API_BASE = 'https://naval-donnamarie-firduty-6e288803.koyeb.app';
 
-window.API_BASE = localStorage.getItem('firduty_api') || 'https://naval-donnamarie-firduty-6e288803.koyeb.app';
-
-/** Return headers object with Authorization and Content-Type set. */
-function authHeaders() {
-  return {
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${localStorage.getItem('firduty_token') || ''}`,
-  };
+function normalizeBase(base) {
+  return String(base || '').trim().replace(/\/+$/, '');
 }
 
-/** Clear token and redirect to login page. */
+function getPreferredApiBase() {
+  const stored = normalizeBase(localStorage.getItem('firduty_api'));
+  return stored || DEFAULT_API_BASE;
+}
+
+window.API_BASE = getPreferredApiBase();
+
+function authHeaders(opts = {}) {
+  const headers = {
+    'Authorization': `Bearer ${localStorage.getItem('firduty_token') || ''}`,
+    ...(opts.headers || {}),
+  };
+
+  const isFormData = typeof FormData !== 'undefined' && opts.body instanceof FormData;
+  if (!isFormData && !headers['Content-Type']) {
+    headers['Content-Type'] = 'application/json';
+  }
+
+  return headers;
+}
+
 function logout() {
   localStorage.removeItem('firduty_token');
   window.location.href = 'login.html';
 }
 
-/**
- * Call on every protected page's load.
- * Redirects immediately to login if no token is present.
- * Optionally validates the token against GET /auth/validate.
- *
- * @param {boolean} [validate=false] - Set true to make a network call to validate the token.
- */
 async function guardPage(validate = false) {
   const token = localStorage.getItem('firduty_token');
   if (!token) {
@@ -46,37 +45,93 @@ async function guardPage(validate = false) {
   if (!validate) return;
 
   try {
-    const res = await fetch(`${window.API_BASE}/auth/validate`, {
+    const res = await apiFetch('/auth/validate', {
       headers: { 'Authorization': `Bearer ${token}` },
+      timeoutMs: 15000,
     });
     if (!res.ok) logout();
   } catch (_) {
-    // Network error — let the page load; individual API calls will catch 401
+    // Ignore transient network issues here.
   }
 }
 
-/**
- * fetch() wrapper with automatic auth header and 401 redirect.
- *
- * Usage (replaces raw fetch calls in dashboard.js, planner.js, etc.):
- *   const res = await apiFetch('admin/dashboard');
- *   const res = await apiFetch('teachers/', { method: 'POST', body: JSON.stringify(data) });
- *
- * @param {string} path   - URL path relative to API_BASE (no leading slash needed)
- * @param {object} [opts] - Standard fetch options (method, body, etc.)
- * @returns {Response}
- */
+function buildApiUrl(base, path) {
+  if (path.startsWith('http')) return path;
+  const normalizedBase = normalizeBase(base);
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  return `${normalizedBase}${normalizedPath}`;
+}
+
+function getApiBaseCandidates() {
+  const candidates = [];
+  const add = (value) => {
+    const normalized = normalizeBase(value);
+    if (normalized && !candidates.includes(normalized)) {
+      candidates.push(normalized);
+    }
+  };
+
+  add(localStorage.getItem('firduty_api'));
+  add(DEFAULT_API_BASE);
+
+  return candidates;
+}
+
 async function apiFetch(path, opts = {}) {
-  const url = path.startsWith('http') ? path : `${window.API_BASE}${path}`;
-  const res = await fetch(url, {
-    ...opts,
-    headers: {
-      ...authHeaders(),
-      ...(opts.headers || {}),
-    },
-  });
-  if (res.status === 401) {
-    logout();
+  if (path.startsWith('http')) {
+    const directRes = await fetch(path, {
+      ...opts,
+      headers: authHeaders(opts),
+    });
+    if (directRes.status === 401) logout();
+    return directRes;
   }
-  return res;
+
+  const { timeoutMs = 30000, ...fetchOpts } = opts;
+  const method = String(fetchOpts.method || 'GET').toUpperCase();
+  const candidates = getApiBaseCandidates();
+  let lastError = null;
+
+  for (let i = 0; i < candidates.length; i++) {
+    const base = candidates[i];
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timer = controller
+      ? setTimeout(() => controller.abort(), timeoutMs)
+      : null;
+
+    try {
+      const res = await fetch(buildApiUrl(base, path), {
+        ...fetchOpts,
+        headers: authHeaders(fetchOpts),
+        signal: controller ? controller.signal : undefined,
+      });
+
+      if (timer) clearTimeout(timer);
+
+      if (res.status === 401) {
+        logout();
+        return res;
+      }
+
+      window.API_BASE = base;
+      localStorage.setItem('firduty_api', base);
+      return res;
+    } catch (err) {
+      if (timer) clearTimeout(timer);
+      lastError = err;
+
+      const isRetryable = (err?.name === 'AbortError' || err instanceof TypeError) && i < candidates.length - 1;
+
+      // Never retry mutating requests against another backend candidate.
+      if (method !== 'GET' && method !== 'HEAD') {
+        break;
+      }
+
+      if (!isRetryable) {
+        break;
+      }
+    }
+  }
+
+  throw lastError || new Error('Failed to fetch');
 }
