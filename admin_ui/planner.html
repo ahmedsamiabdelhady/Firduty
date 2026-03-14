@@ -4,16 +4,22 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Firduty — Week Planner</title>
-  <link rel="stylesheet" href="css/style.css">
+
+  <!-- Favicons -->
   <link rel="icon" type="image/x-icon" href="favicon.ico">
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">
   <link rel="apple-touch-icon" sizes="192x192" href="favicon-192x192.png">
+
   <link rel="stylesheet" href="css/style.css">
+
+  <!-- SortableJS for drag-and-drop -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
 
   <style>
+    /* ── Planner busy overlay ─────────────────────────────────────────── */
     .planner-main { position: relative; }
+
     .planner-busy-overlay {
       position: absolute;
       inset: 0;
@@ -31,7 +37,7 @@
       width: min(90%, 420px);
       background: #fff;
       border-radius: 16px;
-      box-shadow: 0 12px 30px rgba(15, 23, 42, 0.14);
+      box-shadow: 0 12px 30px rgba(15,23,42,0.14);
       padding: 20px 22px;
       text-align: center;
     }
@@ -60,11 +66,10 @@
       animation: plannerBusySlide 1.1s ease-in-out infinite;
     }
     @keyframes plannerBusySlide {
-      0% { transform: translateX(-120%); }
+      0%   { transform: translateX(-120%); }
       100% { transform: translateX(320%); }
     }
   </style>
-
 </head>
 <body>
 
@@ -81,24 +86,25 @@
   <!-- Navigation -->
   <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
     <a href="dashboard.html" class="btn btn-secondary btn-sm" data-i18n="dashboard">Dashboard</a>
-    <a href="planner.html" class="btn btn-primary btn-sm" data-i18n="week_planner">Week Planner</a>
-    <a href="reports.html" class="btn btn-secondary btn-sm" data-i18n="monthly_report">Report</a>
+    <a href="planner.html"   class="btn btn-primary   btn-sm" data-i18n="week_planner">Week Planner</a>
+    <a href="reports.html"   class="btn btn-secondary btn-sm" data-i18n="monthly_report">Report</a>
+    <a href="teachers.html"  class="btn btn-secondary btn-sm" data-i18n="teacher_approval">Teachers</a>
   </div>
 
   <!-- Week Controls -->
   <div class="week-controls">
     <label data-i18n="select_week">Select Week:</label>
-    <input type="date" id="weekStartInput" onchange="onWeekSelected()">
+    <input type="date" id="weekStartInput" onchange="onWeekSelected ? onWeekSelected() : loadWeek()">
     <button class="btn btn-primary btn-sm" onclick="loadWeek()" data-i18n="load_week">Load</button>
 
     <span id="weekStatusBadge" class="week-status-badge" style="display:none"></span>
     <span id="weekVersionBadge" style="font-size:0.8rem;color:#6c757d"></span>
 
     <div style="margin-inline-start:auto;display:flex;gap:8px;flex-wrap:wrap">
-      <button class="btn btn-secondary btn-sm" onclick="createWeek()" data-i18n="create_week">Create Week</button>
-      <button class="btn btn-secondary btn-sm" onclick="cloneWeek()" data-i18n="clone_last_week">Clone</button>
-      <button class="btn btn-warning btn-sm" onclick="saveDraft()" data-i18n="save_draft">Save Draft</button>
-      <button class="btn btn-success btn-sm" onclick="publishWeek()" data-i18n="publish_week">Publish</button>
+      <button class="btn btn-secondary btn-sm" onclick="createWeek()"  data-i18n="create_week">Create Week</button>
+      <button class="btn btn-secondary btn-sm" onclick="cloneWeek()"   data-i18n="clone_last_week">Clone</button>
+      <button class="btn btn-warning   btn-sm" onclick="saveDraft()"   data-i18n="save_draft">Save Draft</button>
+      <button class="btn btn-success   btn-sm" onclick="publishWeek()" data-i18n="publish_week">Publish</button>
     </div>
   </div>
 
@@ -107,11 +113,9 @@
 
     <aside class="sidebar">
       <h3 data-i18n="teachers">Teachers</h3>
-
       <div id="teachersLoading" style="text-align:center;padding:24px">
         <div class="spinner"></div>
       </div>
-
       <div class="teacher-list" id="teacherList"></div>
     </aside>
 
@@ -132,11 +136,9 @@
       <div class="tabs" id="dayTabs"></div>
 
       <div id="dayPanels">
-        <p
-          style="color:#6c757d;text-align:center;margin-top:40px;display:none"
-          id="noPlanMsg"
-          data-i18n="no_week"
-        >
+        <p style="color:#6c757d;text-align:center;margin-top:40px;display:none"
+           id="noPlanMsg"
+           data-i18n="no_week">
           No plan found for this week.
         </p>
       </div>
@@ -147,8 +149,8 @@
 
 <div class="toast-container" id="toastContainer"></div>
 
-<script src="js/i18n.js?v=99"></script>
-<script src="js/auth.js?v=99"></script>
-<script src="js/planner.js?v=99"></script>
+<script src="js/i18n.js?v=100"></script>
+<script src="js/auth.js?v=100"></script>
+<script src="js/planner.js?v=100"></script>
 </body>
 </html>

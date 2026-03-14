@@ -1,305 +1,333 @@
-/* ═══════════════════════════════════════════════════════════════════════════
-   Slot UX Redesign — replaces / overrides the slot section in style.css
-   ═══════════════════════════════════════════════════════════════════════════ */
+/* ─── Firduty Brand Palette v2.3.0 ─────────────────────────────────────────
+   Primary Green  : #7FB33F   → buttons, primary actions, active states
+   Secondary Blue : #2E7DA7   → navigation, headers, links
+   Accent Green   : #9ED05A   → success states, hover on green elements
+   Accent Blue    : #4FA1CC   → hover on blue elements, focus rings
+   Background     : #F5F7FA   → page background
+   Text Dark      : #1F2D3A   → body text, headings
+   ──────────────────────────────────────────────────────────────────────── */
 
-/* ─── Location Column ────────────────────────────────────────────────────────
-   Removed max-width: 260px — columns now flex naturally.
-   A coloured left border signals fill status at a glance.                   */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-.location-column {
-  background: var(--white);
-  border: 1.5px solid var(--border);
-  border-left-width: 4px;              /* status stripe */
-  border-left-color: var(--border);
-  border-radius: var(--radius);
-  padding: 12px;
-  min-width: 200px;
-  flex: 1 1 200px;
-  max-width: 320px;
-  box-shadow: var(--shadow);
-  transition: border-left-color 0.3s;
+:root {
+  --primary:       #7FB33F;
+  --primary-dark:  #6A9A33;
+  --primary-light: #9ED05A;
+  --nav:           #2E7DA7;
+  --nav-dark:      #25678D;
+  --nav-light:     #4FA1CC;
+  --bg:            #F5F7FA;
+  --surface:       #FFFFFF;
+  --border:        #D6DDE8;
+  --text:          #1F2D3A;
+  --text-muted:    #5A6A7E;
+  --success:       #9ED05A;
+  --success-dark:  #6A9A33;
+  --warning:       #F5A623;
+  --danger:        #E05252;
+  --white:         #FFFFFF;
+  --radius:        8px;
+  --radius-lg:     12px;
+  --shadow:        0 2px 8px rgba(31,45,58,0.08);
+  --shadow-md:     0 4px 16px rgba(31,45,58,0.12);
+  /* --slot-bg / --slot-filled / --slot-border kept for any legacy references */
+  --slot-bg:       #EDF4FB;
+  --slot-filled:   #EEF7E0;
+  --slot-border:   #A8C9E0;
 }
 
-/* Fill status colours */
-.location-column.col-empty   { border-left-color: var(--border); }
-.location-column.col-partial { border-left-color: var(--warning); }
-.location-column.col-full    { border-left-color: var(--primary); }
+html { font-size: 15px; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Tahoma, Arial, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+  min-height: 100vh;
+}
 
-/* Locked day: muted overall */
-.location-column[data-editable="false"] { opacity: 0.72; }
+[dir="rtl"] body {
+  font-family: 'Segoe UI', Tahoma, 'Arabic Typesetting', Arial, sans-serif;
+}
 
-/* ─── Column header ──────────────────────────────────────────────────────── */
-.location-header {
+/* ─── Layout ─────────────────────────────────────────────────────────────── */
+.app-header {
+  background: var(--nav);
+  color: var(--white);
+  padding: 0 24px;
+  height: 56px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 8px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  box-shadow: 0 2px 12px rgba(46,125,167,0.25);
 }
 
-.location-name {
+.app-header h1 {
+  font-size: 1.2rem;
   font-weight: 600;
-  font-size: 0.88rem;
-  color: var(--nav);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-  min-width: 0;
-}
-
-.col-title-break { color: #6d28d9; }
-
-/* ─── Fill progress bar ──────────────────────────────────────────────────── */
-.col-fill-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
+  gap: 10px;
 }
 
-.col-fill-bar-track {
-  flex: 1;
-  height: 5px;
-  background: var(--border);
-  border-radius: 999px;
-  overflow: hidden;
+.app-header h1 img {
+  height: 32px;
+  width: 32px;
+  object-fit: contain;
+  border-radius: 6px;
 }
 
-.col-fill-bar-fill {
-  height: 100%;
-  background: var(--primary);
-  border-radius: 999px;
-  transition: width 0.3s ease, background 0.3s;
-}
+.header-actions { display: flex; align-items: center; gap: 12px; }
 
-/* Colour shifts as fill increases */
-.col-empty   .col-fill-bar-fill { background: var(--border); }
-.col-partial .col-fill-bar-fill { background: var(--warning); }
-.col-full    .col-fill-bar-fill { background: var(--primary); }
+.main-content { max-width: 1400px; margin: 0 auto; padding: 24px 16px; }
 
-.col-fill-label {
-  font-size: 0.72rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  white-space: nowrap;
-  min-width: 28px;
-  text-align: end;
-}
-
-/* ─── Slot ± controls ────────────────────────────────────────────────────── */
-.slot-controls { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
-.slot-count { font-weight: 600; min-width: 18px; text-align: center; font-size: 0.85rem; }
-
-.btn-slot {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
+/* ─── Navigation bar ─────────────────────────────────────────────────────── */
+.nav-bar {
+  background: var(--nav);
   display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.95rem;
-  font-weight: 700;
-  cursor: pointer;
-  border: none;
-  transition: filter 0.15s, transform 0.1s;
-}
-.btn-slot:active { transform: scale(0.9); }
-.btn-slot:disabled { opacity: 0.35; cursor: not-allowed; }
-.btn-slot-add { background: #EEF7E0; color: var(--success-dark); }
-.btn-slot-sub { background: #FDE8E8; color: var(--danger); }
-.btn-slot:not(:disabled):hover { filter: brightness(0.88); }
-
-/* ─── Slots list ─────────────────────────────────────────────────────────── */
-.slots-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-height: 44px;
+  gap: 2px;
+  padding: 0 24px;
 }
 
-/* ─── Slot item — shared base ────────────────────────────────────────────── */
-.slot-item {
-  position: relative;
-  border-radius: 8px;
-  padding: 8px 10px;
-  font-size: 0.84rem;
-  transition: box-shadow 0.15s, border-color 0.15s;
-  min-height: 44px;
-}
-
-/* Slot number badge — top-left corner */
-.slot-num {
-  position: absolute;
-  top: 5px;
-  inset-inline-start: 6px;
-  font-size: 0.68rem;
-  font-weight: 700;
-  color: var(--text-muted);
-  line-height: 1;
-  opacity: 0.55;
-  user-select: none;
-}
-
-.slot-inner {
-  padding-inline-start: 18px;
-}
-
-/* ─── FILLED slot ─────────────────────────────────────────────────────────── */
-.slot-filled {
-  background: #f0fdf4;
-  border: 1.5px solid #86efac;
-}
-
-.slot-filled:hover {
-  box-shadow: 0 2px 8px rgba(34, 197, 94, 0.15);
-  border-color: #4ade80;
-}
-
-.slot-row {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
-
-/* Initials avatar */
-.teacher-avatar {
-  --avatar-hue: 210deg;
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  background: hsl(var(--avatar-hue), 55%, 88%);
-  color:       hsl(var(--avatar-hue), 55%, 32%);
-  font-size: 0.75rem;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  user-select: none;
-}
-
-.teacher-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: 600;
-  font-size: 0.84rem;
-  color: var(--text);
-}
-
-/* Remove button — hidden by default, shown on hover */
-.slot-remove-btn {
-  display: none;
+.nav-btn {
+  padding: 10px 20px;
+  color: rgba(255,255,255,0.8);
   background: none;
   border: none;
   cursor: pointer;
-  font-size: 0.75rem;
-  color: var(--danger);
-  padding: 2px 5px;
-  border-radius: 4px;
-  flex-shrink: 0;
-  line-height: 1;
-  transition: background 0.15s;
-}
-.slot-remove-btn:hover { background: #fde8e8; }
-.slot-filled:hover .slot-remove-btn { display: flex; align-items: center; }
-
-/* ─── Grade class badge (break duties, filled) ───────────────────────────── */
-.grade-class-badge {
+  font-size: 0.9rem;
+  font-weight: 500;
+  border-bottom: 3px solid transparent;
+  transition: color 0.2s, border-color 0.2s, background 0.2s;
+  text-decoration: none;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  margin-top: 5px;
-  background: #ede9fe;
-  color: #5b21b6;
-  border: 1px solid #c4b5fd;
-  border-radius: 20px;
-  padding: 2px 9px;
-  font-size: 0.76rem;
-  font-weight: 600;
+  gap: 6px;
 }
+.nav-btn:hover  { color: var(--white); background: rgba(255,255,255,0.1); }
+.nav-btn.active { color: var(--white); border-bottom-color: var(--primary-light); }
 
-.grade-class-badge-label {
-  opacity: 0.65;
-  font-weight: 500;
-}
-
-/* ─── EMPTY slot — non-break (drop zone) ─────────────────────────────────── */
-.slot-empty {
-  background: var(--bg);
-  border: 1.5px dashed var(--border);
-  cursor: default;
-}
-
-.slot-drop-zone {
+/* ─── Login Page ─────────────────────────────────────────────────────────── */
+.login-wrapper {
+  min-height: 100vh;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 3px;
-  padding: 6px 0 4px;
-  opacity: 0.45;
-  pointer-events: none;
+  background: linear-gradient(135deg, var(--nav) 0%, var(--nav-dark) 60%, #1A4F6E 100%);
 }
 
-.slot-drop-icon {
-  font-size: 1rem;
-  line-height: 1;
+.login-card {
+  background: var(--white);
+  border-radius: 20px;
+  padding: 40px 36px;
+  width: 100%;
+  max-width: 400px;
+  box-shadow: 0 12px 40px rgba(31,45,58,0.25);
 }
 
-.slot-drop-text {
-  font-size: 0.75rem;
-  color: var(--text-muted);
-}
-
-/* Highlight drop zone when something is being dragged over this list */
-.slots-list.sortable-drag-over .slot-empty {
-  background: #eff6ff;
-  border-color: var(--nav-light);
-}
-.slots-list.sortable-drag-over .slot-empty .slot-drop-zone {
-  opacity: 0.85;
-}
-
-/* Sortable ghost */
-.slot-item.sortable-ghost { opacity: 0.35; }
-
-/* ─── EMPTY break slot — class identity is prominent ────────────────────── */
-.slot-break-empty {
-  background: #faf5ff;
-  border-color: #ddd6fe;
-  text-align: center;
-}
-
-.break-class-identity {
+.login-logo {
   display: block;
-  font-size: 1rem;
+  width: 88px;
+  height: 88px;
+  object-fit: contain;
+  margin: 0 auto 20px;
+}
+
+.login-card h2 {
+  text-align: center;
+  margin-bottom: 28px;
+  color: var(--nav);
+  font-size: 1.4rem;
   font-weight: 700;
-  color: #6d28d9;
-  letter-spacing: 0.02em;
-  margin-bottom: 3px;
 }
 
-.slot-drop-hint {
+/* ─── Form Elements ─────────────────────────────────────────────────────── */
+.form-group { margin-bottom: 16px; }
+.form-group label {
   display: block;
-  font-size: 0.72rem;
-  color: #a78bfa;
-  opacity: 0.7;
-}
-
-/* ─── Locked empty slot ──────────────────────────────────────────────────── */
-.slot-locked-text {
+  margin-bottom: 6px;
+  font-weight: 500;
   color: var(--text-muted);
-  opacity: 0.4;
   font-size: 0.85rem;
-  display: block;
-  text-align: center;
 }
 
-/* ─── Shift time editor ──────────────────────────────────────────────────── */
+input[type="text"], input[type="password"], input[type="date"],
+input[type="time"], select, textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 0.95rem;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  background: var(--white);
+  color: var(--text);
+}
+[dir="rtl"] input, [dir="rtl"] select, [dir="rtl"] textarea {
+  text-align: right;
+}
+
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--nav-light);
+  box-shadow: 0 0 0 3px rgba(79,161,204,0.18);
+}
+
+/* ─── Buttons ────────────────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 18px;
+  border-radius: var(--radius);
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  transition: background 0.2s, transform 0.1s, box-shadow 0.2s;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.btn:active { transform: scale(0.97); }
+
+.btn-primary   { background: var(--primary); color: var(--white); }
+.btn-primary:hover { background: var(--primary-dark); box-shadow: 0 2px 8px rgba(127,179,63,0.3); }
+
+.btn-nav       { background: var(--nav); color: var(--white); }
+.btn-nav:hover { background: var(--nav-dark); box-shadow: 0 2px 8px rgba(46,125,167,0.3); }
+
+.btn-success   { background: var(--success); color: var(--white); }
+.btn-success:hover { background: var(--success-dark); }
+
+.btn-warning { background: var(--warning); color: #fff; }
+.btn-danger  { background: var(--danger);  color: var(--white); }
+.btn-secondary {
+  background: var(--white);
+  color: var(--text);
+  border: 1.5px solid var(--border);
+}
+.btn-secondary:hover { background: var(--bg); }
+
+.btn-sm   { padding: 5px 11px; font-size: 0.8rem; }
+.btn-lang {
+  background: rgba(255,255,255,0.18);
+  color: var(--white);
+  border: 1px solid rgba(255,255,255,0.4);
+}
+.btn-lang:hover { background: rgba(255,255,255,0.3); }
+.btn-icon { padding: 6px 8px; background: none; border: none; cursor: pointer; font-size: 1rem; }
+
+/* ─── Alert / Toast ─────────────────────────────────────────────────────── */
+.alert {
+  padding: 12px 16px;
+  border-radius: var(--radius);
+  margin-bottom: 16px;
+  font-size: 0.9rem;
+}
+.alert-success { background: #EEF7E0; color: #3D6B1A; border: 1px solid #B8DFA0; }
+.alert-danger  { background: #FDE8E8; color: #8B1A1A; border: 1px solid #F5BCBC; }
+.alert-info    { background: #E0F0FB; color: #1A4F6E; border: 1px solid #A0D0EE; }
+
+.toast-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+[dir="rtl"] .toast-container { right: auto; left: 24px; }
+
+.toast {
+  padding: 12px 20px;
+  border-radius: var(--radius);
+  color: var(--white);
+  font-size: 0.9rem;
+  box-shadow: var(--shadow-md);
+  animation: slideIn 0.3s ease;
+  min-width: 250px;
+}
+.toast-success { background: var(--primary); }
+.toast-error   { background: var(--danger); }
+.toast-info    { background: var(--nav); }
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ─── Week Controls & Status Badges ─────────────────────────────────────── */
+.week-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  background: var(--white);
+  padding: 16px;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.week-status-badge {
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.status-draft     { background: #FFF3CD; color: #7A5000; }
+.status-published { background: #EEF7E0; color: #3D6B1A; }
+
+/* ─── Day Tabs ───────────────────────────────────────────────────────────── */
+.tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 2px solid var(--border);
+  margin-bottom: 16px;
+}
+.tab-btn {
+  padding: 9px 18px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  transition: color 0.2s, border-color 0.2s;
+}
+.tab-btn.active { color: var(--nav); border-bottom-color: var(--nav); }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
+/* ─── Shift Tabs ─────────────────────────────────────────────────────────── */
+.shift-tabs { display: flex; gap: 4px; margin-bottom: 16px; flex-wrap: wrap; }
+.shift-tab-btn {
+  padding: 7px 16px;
+  border-radius: 20px;
+  border: 1.5px solid var(--border);
+  background: var(--white);
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  transition: all 0.2s;
+}
+.shift-tab-btn.active {
+  background: var(--nav);
+  color: var(--white);
+  border-color: var(--nav);
+}
+.shift-tab-btn:hover:not(.active) {
+  background: var(--bg);
+  border-color: var(--nav-light);
+  color: var(--nav);
+}
+
+/* ─── Shift Time Header & Inline Editor ─────────────────────────────────── */
 .shift-time-header {
   display: flex;
   align-items: center;
@@ -377,20 +405,431 @@
   color: var(--nav);
 }
 
+/* Override the global input[type="time"] width:100% for the inline editor */
 .shift-time-editor-fields input[type="time"] {
+  width: auto;
   padding: 6px 10px;
   border: 1.5px solid #c7d2fe;
   border-radius: 6px;
   font-size: 0.9rem;
   outline: none;
   transition: border-color 0.15s;
-  width: auto;
 }
 .shift-time-editor-fields input[type="time"]:focus { border-color: #6366f1; }
 
 .shift-time-editor-actions { display: flex; gap: 8px; }
 
+/* ─── Planner Layout ─────────────────────────────────────────────────────── */
+.planner-layout { display: flex; gap: 20px; align-items: flex-start; }
+
+.sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  background: var(--white);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 16px;
+  position: sticky;
+  top: 72px;
+}
+.sidebar h3 {
+  font-size: 0.9rem;
+  margin-bottom: 12px;
+  color: var(--nav);
+  font-weight: 600;
+}
+.teacher-list { max-height: 500px; overflow-y: auto; }
+.teacher-list-item {
+  padding: 7px 10px;
+  border-radius: 6px;
+  margin-bottom: 4px;
+  background: var(--primary);
+  color: var(--white);
+  font-size: 0.82rem;
+  cursor: grab;
+  user-select: none;
+  transition: background 0.2s;
+}
+.teacher-list-item:hover { background: var(--primary-dark); }
+
+.planner-main { flex: 1; min-width: 0; }
+
+/* ─── Location Columns ───────────────────────────────────────────────────── */
+.locations-grid {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+/*
+ * Location column — redesigned:
+ *   • 4px left border acts as a fill-status stripe (empty/partial/full)
+ *   • min/max widths give columns breathing room without squishing names
+ */
+.location-column {
+  background: var(--white);
+  border: 1.5px solid var(--border);
+  border-left-width: 4px;
+  border-left-color: var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  min-width: 200px;
+  flex: 1 1 200px;
+  max-width: 320px;
+  box-shadow: var(--shadow);
+  transition: border-left-color 0.3s;
+}
+
+/* Fill status stripe colours */
+.location-column.col-empty   { border-left-color: var(--border); }
+.location-column.col-partial { border-left-color: var(--warning); }
+.location-column.col-full    { border-left-color: var(--primary); }
+
+/* Locked (past) day — subtle fade */
+.location-column[data-editable="false"] { opacity: 0.72; }
+
+.location-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.location-name {
+  font-weight: 600;
+  font-size: 0.88rem;
+  color: var(--nav);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.col-title-break { color: #6d28d9; }
+
+/* ─── Fill progress bar ──────────────────────────────────────────────────── */
+.col-fill-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.col-fill-bar-track {
+  flex: 1;
+  height: 5px;
+  background: var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.col-fill-bar-fill {
+  height: 100%;
+  background: var(--primary);
+  border-radius: 999px;
+  transition: width 0.3s ease, background 0.3s;
+}
+
+.col-empty   .col-fill-bar-fill { background: var(--border); }
+.col-partial .col-fill-bar-fill { background: var(--warning); }
+.col-full    .col-fill-bar-fill { background: var(--primary); }
+
+.col-fill-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+  min-width: 28px;
+  text-align: end;
+}
+
+/* ─── Slot ± controls ────────────────────────────────────────────────────── */
+.slot-controls { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.slot-count { font-weight: 600; min-width: 18px; text-align: center; font-size: 0.85rem; }
+
+.btn-slot {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  border: none;
+  transition: filter 0.15s, transform 0.1s;
+}
+.btn-slot:active { transform: scale(0.9); }
+.btn-slot:disabled { opacity: 0.35; cursor: not-allowed; }
+.btn-slot-add { background: #EEF7E0; color: var(--success-dark); }
+.btn-slot-sub { background: #FDE8E8; color: var(--danger); }
+.btn-slot:not(:disabled):hover { filter: brightness(0.88); }
+
+/* ─── Slots list ─────────────────────────────────────────────────────────── */
+.slots-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 44px;
+}
+
+/* ─── Slot item — shared base ────────────────────────────────────────────── */
+.slot-item {
+  display: block;           /* explicit reset — prevents flex bleed from other rules */
+  position: relative;
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 0;         /* spacing handled by gap on .slots-list */
+  font-size: 0.84rem;
+  transition: box-shadow 0.15s, border-color 0.15s;
+  min-height: 44px;
+}
+
+/* Slot number badge — absolute top-left (RTL-aware) */
+.slot-num {
+  position: absolute;
+  top: 5px;
+  inset-inline-start: 6px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  line-height: 1;
+  opacity: 0.55;
+  user-select: none;
+}
+
+/* Indent content past the slot-num badge */
+.slot-inner { padding-inline-start: 18px; }
+
+/* ─── Filled slot ────────────────────────────────────────────────────────── */
+.slot-filled {
+  background: #f0fdf4;
+  border: 1.5px solid #86efac;
+}
+.slot-filled:hover {
+  box-shadow: 0 2px 8px rgba(34, 197, 94, 0.15);
+  border-color: #4ade80;
+}
+
+.slot-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+/* Initials avatar — hue derived from teacher_id for colour variety */
+.teacher-avatar {
+  --avatar-hue: 210deg;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: hsl(var(--avatar-hue), 55%, 88%);
+  color:       hsl(var(--avatar-hue), 55%, 32%);
+  font-size: 0.75rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.teacher-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  font-size: 0.84rem;
+  color: var(--text);
+}
+
+/* Remove button: hidden by default, revealed on hover */
+.slot-remove-btn {
+  display: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.75rem;
+  color: var(--danger);
+  padding: 2px 5px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  line-height: 1;
+  transition: background 0.15s;
+}
+.slot-remove-btn:hover { background: #fde8e8; }
+.slot-filled:hover .slot-remove-btn { display: flex; align-items: center; }
+
+/* ─── Grade class badge (break duties — filled slot) ─────────────────────── */
+.grade-class-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 5px;
+  background: #ede9fe;
+  color: #5b21b6;
+  border: 1px solid #c4b5fd;
+  border-radius: 20px;
+  padding: 2px 9px;
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+.grade-class-badge-label { opacity: 0.65; font-weight: 500; }
+
+/* ─── Empty slot — non-break (drag drop zone) ────────────────────────────── */
+.slot-empty {
+  background: var(--bg);
+  border: 1.5px dashed var(--border);
+  cursor: default;
+}
+
+.slot-drop-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 6px 0 4px;
+  opacity: 0.45;
+  pointer-events: none;
+}
+.slot-drop-icon { font-size: 1rem; line-height: 1; }
+.slot-drop-text { font-size: 0.75rem; color: var(--text-muted); }
+
+/* Highlight on drag-over */
+.slots-list.sortable-drag-over .slot-empty {
+  background: #eff6ff;
+  border-color: var(--nav-light);
+}
+.slots-list.sortable-drag-over .slot-empty .slot-drop-zone { opacity: 0.85; }
+
+/* Sortable drag ghost */
+.slot-item.sortable-ghost { opacity: 0.35; }
+
+/* ─── Empty break slot — class identity is the slot label ───────────────── */
+.slot-break-empty {
+  background: #faf5ff;
+  border-color: #ddd6fe;
+  text-align: center;
+}
+.break-class-identity {
+  display: block;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #6d28d9;
+  letter-spacing: 0.02em;
+  margin-bottom: 3px;
+}
+.slot-drop-hint {
+  display: block;
+  font-size: 0.72rem;
+  color: #a78bfa;
+  opacity: 0.7;
+}
+
+/* ─── Locked empty slot ──────────────────────────────────────────────────── */
+.slot-locked-text {
+  color: var(--text-muted);
+  opacity: 0.4;
+  font-size: 0.85rem;
+  display: block;
+  text-align: center;
+}
+
+/* ─── Data Tables ────────────────────────────────────────────────────────── */
+.data-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.data-table th {
+  background: var(--bg);
+  padding: 10px 12px;
+  text-align: start;
+  font-weight: 600;
+  border-bottom: 2px solid var(--border);
+  color: var(--nav);
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.data-table td { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.data-table tr:hover td { background: #F0F6FB; }
+
+/* ─── Cards ─────────────────────────────────────────────────────────────── */
+.card {
+  background: var(--white);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  padding: 20px;
+  border: 1px solid var(--border);
+}
+
+.stat-card {
+  background: var(--white);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  padding: 20px 24px;
+  border-left: 4px solid var(--primary);
+}
+.stat-card.blue  { border-left-color: var(--nav); }
+.stat-card.green { border-left-color: var(--primary); }
+
+/* ─── Modal ─────────────────────────────────────────────────────────────── */
+.modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(31,45,58,0.55);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000;
+}
+.modal-overlay.hidden { display: none; }
+.modal {
+  background: var(--white);
+  border-radius: var(--radius-lg);
+  padding: 28px;
+  width: 100%;
+  max-width: 480px;
+  box-shadow: 0 12px 40px rgba(31,45,58,0.2);
+}
+.modal h3 { margin-bottom: 20px; color: var(--nav); }
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+/* ─── Loading Spinner ────────────────────────────────────────────────────── */
+.spinner {
+  border: 3px solid var(--border);
+  border-top-color: var(--nav);
+  border-radius: 50%;
+  width: 32px; height: 32px;
+  animation: spin 0.7s linear infinite;
+  margin: 32px auto;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ─── Pending badge ──────────────────────────────────────────────────────── */
+.pending-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary);
+  color: var(--white);
+  border-radius: 12px;
+  padding: 2px 8px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  margin-inline-start: 6px;
+}
+
 /* ─── Responsive ─────────────────────────────────────────────────────────── */
 @media (max-width: 768px) {
-  .location-column { max-width: 100%; flex-basis: 100%; }
+  .planner-layout   { flex-direction: column; }
+  .sidebar          { width: 100%; position: static; }
+  .locations-grid   { flex-direction: column; }
+  .location-column  { max-width: 100%; flex-basis: 100%; }
 }
