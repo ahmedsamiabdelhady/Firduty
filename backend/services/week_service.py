@@ -114,8 +114,7 @@ BREAK_GRADE_CLASSES_FALLBACK = [
     "6/B",
     "7/A",
     "7/B",
-    "8/A",
-    "8/B",
+    "8/AB",
     "9",
 ]
 
