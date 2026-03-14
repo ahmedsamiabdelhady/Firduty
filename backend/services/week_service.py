@@ -31,6 +31,7 @@ from models.models import (
     DeviceToken,
     Shift,
     Location,
+    GradeClass,
 )
 
 logger = logging.getLogger(__name__)
@@ -92,7 +93,7 @@ END_OF_DAY_LOCATION_SPECS = [
     {"name_en": "General supervision", "slots_count": 1},
 ]
 
-BREAK_GRADE_CLASSES = [
+BREAK_GRADE_CLASSES_FALLBACK = [
     "1/A",
     "1/B",
     "1/C",
@@ -113,12 +114,43 @@ BREAK_GRADE_CLASSES = [
     "6/B",
     "7/A",
     "7/B",
-    "8/A/B",
+    "8/A",
+    "8/B",
     "9",
 ]
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+
+def _get_break_grade_classes(db: Session) -> list[str]:
+    rows = (
+        db.query(GradeClass)
+        .filter(GradeClass.active.is_(True))
+        .order_by(GradeClass.order.asc(), GradeClass.id.asc())
+        .all()
+    )
+    if rows:
+        return [row.name_en for row in rows]
+    return BREAK_GRADE_CLASSES_FALLBACK.copy()
+
+
+def _find_shift_location(
+    db: Session,
+    day_plan_id: int,
+    shift_id: int,
+    location_id: Optional[int],
+) -> Optional[ShiftLocation]:
+    query = db.query(ShiftLocation).filter(
+        ShiftLocation.day_plan_id == day_plan_id,
+        ShiftLocation.shift_id == shift_id,
+    )
+    if location_id is None:
+        query = query.filter(ShiftLocation.location_id.is_(None))
+    else:
+        query = query.filter(ShiftLocation.location_id == location_id)
+    return query.options(selectinload(ShiftLocation.assignments)).first()
+
 
 def get_current_week_start() -> date:
     """
@@ -259,15 +291,20 @@ def _create_shift_location_block(
     slots_count: int,
     order: int,
 ) -> ShiftLocation:
-    sl = ShiftLocation(
-        day_plan_id=day.id,
-        shift_id=shift_id,
-        location_id=location_id,
-        slots_count=slots_count,
-        order=order,
-    )
-    db.add(sl)
-    db.flush()
+    sl = _find_shift_location(db, day.id, shift_id, location_id)
+    if not sl:
+        sl = ShiftLocation(
+            day_plan_id=day.id,
+            shift_id=shift_id,
+            location_id=location_id,
+            slots_count=slots_count,
+            order=order,
+        )
+        db.add(sl)
+        db.flush()
+    else:
+        sl.slots_count = slots_count
+        sl.order = order
 
     _ensure_assignments_for_shift_location(db, sl, slots_count)
     return sl
@@ -279,25 +316,41 @@ def _create_break_shift_block(
     shift_id: int,
     order: int,
 ) -> ShiftLocation:
-    sl = ShiftLocation(
-        day_plan_id=day.id,
-        shift_id=shift_id,
-        location_id=None,
-        slots_count=len(BREAK_GRADE_CLASSES),
-        order=order,
-    )
-    db.add(sl)
-    db.flush()
-
-    for idx, grade_class in enumerate(BREAK_GRADE_CLASSES):
-        db.add(
-            Assignment(
-                shift_location_id=sl.id,
-                slot_index=idx,
-                teacher_id=None,
-                grade_class=grade_class,
-            )
+    grade_classes = _get_break_grade_classes(db)
+    sl = _find_shift_location(db, day.id, shift_id, None)
+    if not sl:
+        sl = ShiftLocation(
+            day_plan_id=day.id,
+            shift_id=shift_id,
+            location_id=None,
+            slots_count=len(grade_classes),
+            order=order,
         )
+        db.add(sl)
+        db.flush()
+    else:
+        sl.slots_count = len(grade_classes)
+        sl.order = order
+
+    existing = {int(a.slot_index): a for a in sl.assignments}
+
+    for idx, grade_class in enumerate(grade_classes):
+        current = existing.get(idx)
+        if current:
+            current.grade_class = grade_class
+        else:
+            db.add(
+                Assignment(
+                    shift_location_id=sl.id,
+                    slot_index=idx,
+                    teacher_id=None,
+                    grade_class=grade_class,
+                )
+            )
+
+    for idx, assignment in existing.items():
+        if idx >= len(grade_classes):
+            db.delete(assignment)
 
     return sl
 
@@ -800,7 +853,8 @@ def update_assignment(
             )
 
     assignment.teacher_id = teacher_id
-    assignment.grade_class = grade_class
+    if grade_class is not None:
+        assignment.grade_class = grade_class
 
     _log_change(
         db,

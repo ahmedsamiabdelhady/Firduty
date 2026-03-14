@@ -184,6 +184,7 @@ async function loadWeek() {
 
       I18N.applyTranslations();
       updateStatusBadge(null);
+      showToast('No plan found for this week', 'info');
       return;
     }
 
@@ -191,7 +192,7 @@ async function loadWeek() {
       currentWeekData = null;
       showEl(noPlanMsg, 'block');
       updateStatusBadge(null);
-      showToast(I18N.t('error_generic'), 'error');
+      showToast(await getApiErrorMessage(res, I18N.t('error_generic')), 'error');
       return;
     }
 
@@ -475,6 +476,68 @@ function updateGradeClass(slId, slotIdx, value) {
 
 /* ─── Drag & Drop ─────────────────────────────────────────────────────────── */
 
+function findShiftLocationInCurrentWeek(slId) {
+  if (!currentWeekData?.day_plans) return null;
+
+  for (const day of currentWeekData.day_plans) {
+    for (const sl of day.shift_locations || []) {
+      if (sl.id === slId) {
+        return { day, sl };
+      }
+    }
+  }
+
+  return null;
+}
+
+function getEffectiveAssignment(slId, slotIdx, fallbackAssignment = null) {
+  const pending = pendingAssignments?.[slId]?.[slotIdx];
+  if (pending) {
+    return {
+      teacher_id: pending.teacher_id ?? null,
+      grade_class: pending.grade_class ?? fallbackAssignment?.grade_class ?? null,
+    };
+  }
+
+  return fallbackAssignment
+    ? {
+        teacher_id: fallbackAssignment.teacher_id ?? null,
+        grade_class: fallbackAssignment.grade_class ?? null,
+      }
+    : { teacher_id: null, grade_class: null };
+}
+
+function isTeacherAssignedInSameShift(slId, teacherId) {
+  const found = findShiftLocationInCurrentWeek(slId);
+  if (!found || !teacherId) return false;
+
+  const { day, sl } = found;
+
+  for (const candidate of day.shift_locations || []) {
+    if (candidate.shift_id !== sl.shift_id) continue;
+
+    for (const assignment of candidate.assignments || []) {
+      const effective = getEffectiveAssignment(candidate.id, assignment.slot_index, assignment);
+      if (effective.teacher_id === teacherId) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+async function getApiErrorMessage(res, fallbackMessage) {
+  if (!res) return fallbackMessage;
+
+  try {
+    const data = await res.json();
+    return data?.detail || data?.message || fallbackMessage;
+  } catch (_) {
+    return fallbackMessage;
+  }
+}
+
 function initDragAndDrop() {
   const sidebar = byId('teacherList');
 
@@ -518,6 +581,12 @@ function initDragAndDrop() {
         const slId = parseInt(list.dataset.slId, 10);
         const teacherId = parseInt(evt.item.dataset.teacherId, 10);
         const teacherName = evt.item.dataset.teacherName;
+
+        if (isTeacherAssignedInSameShift(slId, teacherId)) {
+          showToast('Teacher already assigned in this duty', 'error');
+          evt.item.parentNode && evt.item.parentNode.removeChild(evt.item);
+          return;
+        }
 
         // لو القائمة كلها مليانة، استبدل آخر/أول slot مملوءة بدل الفشل
         const filledSlots = Array.from(list.querySelectorAll('.slot-item.filled'));
@@ -657,8 +726,15 @@ function changeSlots(dayDate, shiftId, locationId, delta) {
 
 async function saveDraft() {
   if (!currentWeekData) return;
-  await flushPendingChanges();
-  showToast(I18N.t('success_saved'));
+
+  showToast('Saving...', 'info');
+
+  try {
+    await flushPendingChanges();
+    showToast(I18N.t('success_saved') || 'Saved successfully');
+  } catch (err) {
+    console.error('saveDraft failed:', err);
+  }
 }
 
 async function flushPendingChanges() {
@@ -681,8 +757,9 @@ async function flushPendingChanges() {
       pendingSlots = {};
       currentWeekData = await res.json();
     } else {
-      const err = res ? await res.json() : {};
-      throw new Error(err.detail || 'Failed to save slot changes');
+      const message = await getApiErrorMessage(res, 'Failed to save slot changes');
+      showToast(message, 'error');
+      throw new Error(message);
     }
   }
 
@@ -708,8 +785,9 @@ async function flushPendingChanges() {
       pendingAssignments = {};
       currentWeekData = await res.json();
     } else {
-      const err = res ? await res.json() : {};
-      throw new Error(err.detail || 'Failed to save assignment changes');
+      const message = await getApiErrorMessage(res, 'Failed to save assignment changes');
+      showToast(message, 'error');
+      throw new Error(message);
     }
   }
 
@@ -773,18 +851,21 @@ async function createWeek() {
   if (!selected) return;
 
   const weekStart = getWeekStartFromDate(selected);
+  showToast('Creating week...', 'info');
 
   const res = await apiFetch(`/weeks/${weekStart}/create`, { method: 'POST' });
+  if (!res) return;
 
-  if (res && res.ok) {
-    currentWeekData = await res.json();
-    selectedDate = selected;
-    renderWeek();
-    showToast(I18N.t('success_saved'));
-  } else {
-    const err = res ? await res.json() : {};
-    showToast(err.detail || I18N.t('error_generic'), 'error');
+  const data = await res.json();
+
+  if (!res.ok) {
+    showToast(data.detail || data.message || 'Failed to create week', 'error');
+    return;
   }
+
+  selectedDate = selected;
+  showToast(data.message || 'Week created successfully', 'success');
+  await loadWeek();
 }
 
 async function cloneWeek() {
@@ -792,18 +873,21 @@ async function cloneWeek() {
   if (!selected) return;
 
   const weekStart = getWeekStartFromDate(selected);
+  showToast('Cloning week...', 'info');
 
   const res = await apiFetch(`/weeks/${weekStart}/clone`, { method: 'POST' });
+  if (!res) return;
 
-  if (res && res.ok) {
-    currentWeekData = await res.json();
-    selectedDate = selected;
-    renderWeek();
-    showToast(I18N.t('success_cloned'));
-  } else {
-    const err = res ? await res.json() : {};
-    showToast(err.detail || I18N.t('error_generic'), 'error');
+  const data = await res.json();
+
+  if (!res.ok) {
+    showToast(data.detail || data.message || 'Clone failed', 'error');
+    return;
   }
+
+  selectedDate = selected;
+  showToast(data.message || I18N.t('success_cloned') || 'Week cloned successfully', 'success');
+  await loadWeek();
 }
 
 /* ─── Auto Init ───────────────────────────────────────────────────────────── */

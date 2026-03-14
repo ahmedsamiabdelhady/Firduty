@@ -107,6 +107,17 @@ class DeviceToken(Base):
 
 # ─── Location ─────────────────────────────────────────────────────────────────
 
+class GradeClass(Base):
+    __tablename__ = "grade_classes"
+    id      = Column(Integer, primary_key=True, index=True)
+    name_en = Column(String(100), nullable=False, unique=True)
+    name_ar = Column(String(100), nullable=False, unique=True)
+    order   = Column(Integer, default=0, nullable=False, server_default="0")
+    active  = Column(Boolean, default=True, nullable=False, server_default="true")
+
+
+# ─── Location ─────────────────────────────────────────────────────────────────
+
 class Location(Base):
     __tablename__ = "locations"
     id      = Column(Integer, primary_key=True, index=True)
@@ -192,6 +203,9 @@ class DayPlan(Base):
 
 class ShiftLocation(Base):
     __tablename__ = "shift_locations"
+    __table_args__ = (
+        UniqueConstraint("day_plan_id", "shift_id", "location_id", name="uq_shift_location_day_shift_location"),
+    )
     id          = Column(Integer, primary_key=True, index=True)
     day_plan_id = Column(Integer, ForeignKey("day_plans.id"),  nullable=False)
     shift_id    = Column(Integer, ForeignKey("shifts.id"),     nullable=False)
@@ -207,6 +221,9 @@ class ShiftLocation(Base):
 
 class Assignment(Base):
     __tablename__ = "assignments"
+    __table_args__ = (
+        UniqueConstraint("shift_location_id", "slot_index", name="uq_assignment_shift_location_slot"),
+    )
     id                = Column(Integer, primary_key=True, index=True)
     shift_location_id = Column(Integer, ForeignKey("shift_locations.id"), nullable=False)
     slot_index        = Column(Integer, nullable=False)

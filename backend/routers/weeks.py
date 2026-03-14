@@ -3,7 +3,7 @@
 from datetime import date
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session, selectinload
 
 from database import get_db
@@ -19,10 +19,17 @@ from services.week_service import (
     publish_week,
     publish_day,
     is_day_editable,
-    ensure_week_fully_populated,
 )
 
 router = APIRouter(prefix="/weeks", tags=["weeks"])
+
+
+CONFLICT_HINTS = (
+    "already exists",
+    "already assigned",
+    "conflict",
+    "duplicate",
+)
 
 
 def _get_week_with_relations(db: Session, week_start: date) -> Optional[WeekPlan]:
@@ -46,6 +53,27 @@ def _get_week_with_relations(db: Session, week_start: date) -> Optional[WeekPlan
         .filter(WeekPlan.week_start_date == week_start)
         .first()
     )
+
+
+
+def _get_week_or_404(db: Session, week_start: date) -> WeekPlan:
+    week = db.query(WeekPlan).filter(WeekPlan.week_start_date == week_start).first()
+    if not week:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Week starting {week_start} was not found",
+        )
+    return week
+
+
+
+def _raise_service_error(exc: ValueError) -> None:
+    message = str(exc)
+    lowered = message.lower()
+    if any(hint in lowered for hint in CONFLICT_HINTS):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=message)
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=message)
+
 
 
 def _serialize_week(week: WeekPlan) -> dict:
@@ -141,26 +169,29 @@ def get_current_week(db: Session = Depends(get_db)):
         return {
             "week_start_date": str(ws),
             "status": None,
-            "message": "No plan for current week",
+            "message": "No plan found for the current week",
         }
 
-    # IMPORTANT:
-    # Do NOT call ensure_week_fully_populated() on GET.
-    return _serialize_week(week)
+    payload = _serialize_week(week)
+    payload["message"] = "Current week loaded successfully"
+    return payload
 
 
 @router.get("/{week_start}")
 def get_week(week_start: date, db: Session = Depends(get_db)):
     week = _get_week_with_relations(db, week_start)
     if not week:
-        raise HTTPException(404, f"No plan found for week starting {week_start}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No plan found for week starting {week_start}",
+        )
 
-    # IMPORTANT:
-    # Do NOT call ensure_week_fully_populated() on GET.
-    return _serialize_week(week)
+    payload = _serialize_week(week)
+    payload["message"] = "Week loaded successfully"
+    return payload
 
 
-@router.post("/{week_start}/create")
+@router.post("/{week_start}/create", status_code=status.HTTP_201_CREATED)
 def create_week(
     week_start: date,
     db: Session = Depends(get_db),
@@ -170,13 +201,18 @@ def create_week(
         create_week_plan(db, week_start, actor=admin)
         week = _get_week_with_relations(db, week_start)
         if not week:
-            raise HTTPException(500, "Week was created but could not be reloaded")
-        return _serialize_week(week)
-    except ValueError as e:
-        raise HTTPException(409, str(e))
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Week was created but could not be reloaded",
+            )
+        payload = _serialize_week(week)
+        payload["message"] = f"Week {week_start} created successfully"
+        return payload
+    except ValueError as exc:
+        _raise_service_error(exc)
 
 
-@router.post("/{week_start}/clone")
+@router.post("/{week_start}/clone", status_code=status.HTTP_201_CREATED)
 def clone_week_endpoint(
     week_start: date,
     source_week: Optional[date] = None,
@@ -195,22 +231,33 @@ def clone_week_endpoint(
         )
 
         if not latest:
-            raise HTTPException(404, "No published week found to clone from")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No published week was found to clone from",
+            )
 
         source_week = latest.week_start_date
 
     result = clone_week(db, source_week, week_start, actor=admin)
     if result is None:
         raise HTTPException(
-            400,
-            f"Week {week_start} already exists or source {source_week} not found",
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Could not clone into week {week_start}. "
+                f"Either the target week already exists or the source week {source_week} was not found"
+            ),
         )
 
     week = _get_week_with_relations(db, week_start)
     if not week:
-        raise HTTPException(500, "Cloned week could not be reloaded")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Cloned week could not be reloaded",
+        )
 
-    return _serialize_week(week)
+    payload = _serialize_week(week)
+    payload["message"] = f"Week {week_start} cloned successfully from {source_week}"
+    return payload
 
 
 @router.put("/{week_start}/status")
@@ -220,25 +267,30 @@ def update_week_status(
     db: Session = Depends(get_db),
     admin=Depends(get_current_admin),
 ):
-    week = db.query(WeekPlan).filter(WeekPlan.week_start_date == week_start).first()
-    if not week:
-        raise HTTPException(404, "Week not found")
+    week = _get_week_or_404(db, week_start)
 
-    # Optional safety for old/incomplete historical data only:
-    # week = ensure_week_fully_populated(db, week)
-
-    if data.status == "published":
-        publish_week(db, week, actor=admin)
-    else:
-        week.status = data.status
-        db.commit()
-        db.refresh(week)
+    try:
+        if data.status == "published":
+            publish_week(db, week, actor=admin)
+            success_message = f"Week {week_start} published successfully"
+        else:
+            week.status = data.status
+            db.commit()
+            db.refresh(week)
+            success_message = f"Week {week_start} status updated to {data.status}"
+    except ValueError as exc:
+        _raise_service_error(exc)
 
     week_loaded = _get_week_with_relations(db, week_start)
     if not week_loaded:
-        raise HTTPException(500, "Updated week could not be reloaded")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Updated week could not be reloaded",
+        )
 
-    return _serialize_week(week_loaded)
+    payload = _serialize_week(week_loaded)
+    payload["message"] = success_message
+    return payload
 
 
 @router.put("/{week_start}/publish-day")
@@ -248,20 +300,23 @@ def publish_single_day(
     db: Session = Depends(get_db),
     admin=Depends(get_current_admin),
 ):
-    week = db.query(WeekPlan).filter(WeekPlan.week_start_date == week_start).first()
-    if not week:
-        raise HTTPException(404, "Week not found")
+    week = _get_week_or_404(db, week_start)
 
     try:
         publish_day(db, week, day_date, actor=admin)
-    except ValueError as e:
-        raise HTTPException(400, str(e))
+    except ValueError as exc:
+        _raise_service_error(exc)
 
     week_loaded = _get_week_with_relations(db, week_start)
     if not week_loaded:
-        raise HTTPException(500, "Published day but failed to reload week")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="The day was published but the week could not be reloaded",
+        )
 
-    return _serialize_week(week_loaded)
+    payload = _serialize_week(week_loaded)
+    payload["message"] = f"Day {day_date} published successfully"
+    return payload
 
 
 @router.put("/{week_start}/shift-locations")
@@ -271,9 +326,13 @@ def update_shift_locations(
     db: Session = Depends(get_db),
     admin=Depends(get_current_admin),
 ):
-    week = db.query(WeekPlan).filter(WeekPlan.week_start_date == week_start).first()
-    if not week:
-        raise HTTPException(404, "Week not found")
+    if not updates:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No shift-location updates were provided",
+        )
+
+    week = _get_week_or_404(db, week_start)
 
     for upd in updates:
         try:
@@ -286,14 +345,19 @@ def update_shift_locations(
                 slots_count=upd.slots_count,
                 actor=admin,
             )
-        except ValueError as e:
-            raise HTTPException(400, str(e))
+        except ValueError as exc:
+            _raise_service_error(exc)
 
     week_loaded = _get_week_with_relations(db, week_start)
     if not week_loaded:
-        raise HTTPException(500, "Shift locations updated but failed to reload week")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Shift locations were updated but the week could not be reloaded",
+        )
 
-    return _serialize_week(week_loaded)
+    payload = _serialize_week(week_loaded)
+    payload["message"] = "Shift locations updated successfully"
+    return payload
 
 
 @router.put("/{week_start}/assignments")
@@ -303,9 +367,13 @@ def update_assignments(
     db: Session = Depends(get_db),
     admin=Depends(get_current_admin),
 ):
-    week = db.query(WeekPlan).filter(WeekPlan.week_start_date == week_start).first()
-    if not week:
-        raise HTTPException(404, "Week not found")
+    if not updates:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No assignment updates were provided",
+        )
+
+    week = _get_week_or_404(db, week_start)
 
     for upd in updates:
         try:
@@ -318,16 +386,21 @@ def update_assignments(
                 grade_class=upd.grade_class,
                 actor=admin,
             )
-        except ValueError as e:
-            raise HTTPException(400, str(e))
+        except ValueError as exc:
+            _raise_service_error(exc)
 
     week_loaded = _get_week_with_relations(db, week_start)
     if not week_loaded:
-        raise HTTPException(500, "Assignments updated but failed to reload week")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Assignments were updated but the week could not be reloaded",
+        )
 
     if str(week_loaded.status) == "published":
         from services.week_service import _notify_assigned_teachers
 
         _notify_assigned_teachers(db, week_loaded)
 
-    return _serialize_week(week_loaded)
+    payload = _serialize_week(week_loaded)
+    payload["message"] = "Assignments updated successfully"
+    return payload

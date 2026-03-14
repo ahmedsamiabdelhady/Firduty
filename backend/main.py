@@ -54,7 +54,7 @@ from routers.reports import router as reports_router
 from routers.dashboard import router as dashboard_router
 from scheduler import start_scheduler, stop_scheduler
 from scheduler import router as scheduler_router
-from seed_data import seed_shifts, seed_locations
+from seed_data import seed_shifts, seed_locations, seed_grade_classes
 
 logging.basicConfig(
     level=logging.INFO,
@@ -64,34 +64,49 @@ logger = logging.getLogger(__name__)
 
 
 def bootstrap_database() -> None:
-    """
-    Create tables if missing, then seed required master data.
-    Safe to run on every startup.
-    """
+    logger.info("Starting database bootstrap...")
+
+    logger.info("Creating tables if missing...")
     Base.metadata.create_all(bind=engine)
+    logger.info("create_all completed.")
 
     db = SessionLocal()
     try:
+        logger.info("Seeding shifts...")
         seed_shifts(db)
+        db.commit()
+        logger.info("Shifts committed successfully.")
+
+        logger.info("Seeding locations...")
         seed_locations(db)
         db.commit()
+        logger.info("Locations committed successfully.")
+
+        logger.info("Seeding grade classes...")
+        seed_grade_classes(db)
+        db.commit()
+        logger.info("Grade classes committed successfully.")
+
         logger.info("Database bootstrap completed successfully.")
     except Exception:
         db.rollback()
         logger.exception("Database bootstrap failed.")
-        raise
     finally:
         db.close()
-
-
-bootstrap_database()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Firduty API starting up...")
+
+    try:
+        bootstrap_database()
+    except Exception:
+        logger.exception("Startup bootstrap crashed unexpectedly.")
+
     start_scheduler()
     yield
+
     logger.info("Firduty API shutting down...")
     stop_scheduler()
 
@@ -137,4 +152,4 @@ def health():
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=settings.PORT, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=settings.PORT)

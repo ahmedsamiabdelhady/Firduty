@@ -12,8 +12,6 @@ from config import settings
 
 DATABASE_URL: str = settings.DATABASE_URL
 
-# PostgreSQL (Supabase) — enforce SSL
-# SQLite — no SSL, no extra args needed
 _is_postgres = DATABASE_URL.startswith("postgresql")
 
 _engine_kwargs: dict = {}
@@ -22,9 +20,17 @@ if _is_postgres:
     _engine_kwargs["pool_pre_ping"] = True
     _engine_kwargs["pool_recycle"] = 1800
 
-engine = create_engine(DATABASE_URL, **_engine_kwargs)
+engine = create_engine(
+    DATABASE_URL,
+    future=True,
+    **_engine_kwargs
+)
 
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+SessionLocal = sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=engine
+)
 
 
 class Base(DeclarativeBase):
@@ -32,7 +38,6 @@ class Base(DeclarativeBase):
 
 
 def get_db():
-    """FastAPI dependency that yields a database session and closes it on exit."""
     db = SessionLocal()
     try:
         yield db
