@@ -1,16 +1,12 @@
 """
 week_service.py — Week plan creation, cloning, assignment, and publishing.
 
-Public API consumed by routers/weeks.py and jobs/auto_clone.py:
-  get_current_week_start()          → date (Sunday, Asia/Muscat)
-  create_week_plan(...)             → WeekPlan
-  clone_week(...)                   → WeekPlan | None
-  ensure_week_fully_populated(...)  → WeekPlan
-  update_shift_location_slots(...)
-  update_assignment(...)
-  publish_week(...)
-  publish_day(...)
-  _notify_assigned_teachers(...)    (internal, called from weeks.py inline)
+Optimized version:
+- Greatly reduces flush() calls during create/clone
+- Creates day rows in one batch, then flushes once
+- Creates shift-location rows in one batch, then flushes once
+- Creates assignment rows in one batch
+- Keeps public API compatible with existing routers
 """
 
 import json
@@ -38,8 +34,6 @@ logger = logging.getLogger(__name__)
 
 MUSCAT_TZ = pytz.timezone("Asia/Muscat")
 WEEK_DAYS = 5  # Sun–Thu (Oman working week)
-
-# ── Templates / constants ────────────────────────────────────────────────────
 
 SHIFT_NAME_ALIASES = {
     "morning": {
@@ -94,32 +88,16 @@ END_OF_DAY_LOCATION_SPECS = [
 ]
 
 BREAK_GRADE_CLASSES_FALLBACK = [
-    "1/A",
-    "1/B",
-    "1/C",
-    "1/D",
-    "2/A",
-    "2/B",
-    "2/C",
-    "2/D",
-    "3/A",
-    "3/B",
-    "3/C",
-    "4/A",
-    "4/B",
-    "4/C",
-    "5/A",
-    "5/B",
-    "6/A",
-    "6/B",
-    "7/A",
-    "7/B",
+    "1/A", "1/B", "1/C", "1/D",
+    "2/A", "2/B", "2/C", "2/D",
+    "3/A", "3/B", "3/C",
+    "4/A", "4/B", "4/C",
+    "5/A", "5/B",
+    "6/A", "6/B",
+    "7/A", "7/B",
     "8/AB",
     "9",
 ]
-
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
 
 
 def _get_break_grade_classes(db: Session) -> list[str]:
@@ -152,10 +130,6 @@ def _find_shift_location(
 
 
 def get_current_week_start() -> date:
-    """
-    Return the Sunday that starts the current school week (Asia/Muscat timezone).
-    isoweekday(): Mon=1 … Sun=7. (isoweekday % 7) gives days-since-Sunday.
-    """
     now = datetime.now(MUSCAT_TZ).date()
     days_since_sunday = now.isoweekday() % 7
     return now - timedelta(days=days_since_sunday)
@@ -166,10 +140,6 @@ def get_previous_week_start() -> date:
 
 
 def purge_old_weeks(db: Session, actor: str = "system") -> int:
-    """
-    Delete all week-plan data older than the previous week.
-    Keeps: previous week, current week, and any future weeks.
-    """
     cutoff = get_previous_week_start()
     old_weeks = (
         db.query(WeekPlan)
@@ -221,10 +191,6 @@ def get_today_muscat() -> date:
 
 
 def is_day_editable(day_date: date) -> bool:
-    """
-    Past days are locked.
-    Today and future days are editable.
-    """
     return day_date >= get_today_muscat()
 
 
@@ -337,87 +303,57 @@ def _ensure_assignments_for_shift_location(
             db.delete(assignment)
 
 
-def _create_shift_location_block(
-    db: Session,
-    day: DayPlan,
-    shift_id: int,
-    location_id: Optional[int],
-    slots_count: int,
-    order: int,
-) -> ShiftLocation:
-    sl = _find_shift_location(db, day.id, shift_id, location_id)
-    if not sl:
-        sl = ShiftLocation(
-            day_plan_id=day.id,
-            shift_id=shift_id,
-            location_id=location_id,
-            slots_count=slots_count,
-            order=order,
-        )
-        db.add(sl)
-        db.flush()
-    else:
-        sl.slots_count = slots_count
-        sl.order = order
+def _build_day_template_rows(
+    day_id: int,
+    morning_shift: Shift,
+    break_1_shift: Shift,
+    break_2_shift: Shift,
+    end_of_day_shift: Shift,
+    location_map: dict[str, Location],
+    break_grade_classes: list[str],
+) -> list[ShiftLocation]:
+    shift_locations: list[ShiftLocation] = []
+    order_counter = 0
 
-    _ensure_assignments_for_shift_location(db, sl, slots_count)
-    return sl
-
-
-def _create_break_shift_block(
-    db: Session,
-    day: DayPlan,
-    shift_id: int,
-    order: int,
-) -> ShiftLocation:
-    grade_classes = _get_break_grade_classes(db)
-    sl = _find_shift_location(db, day.id, shift_id, None)
-    if not sl:
-        sl = ShiftLocation(
-            day_plan_id=day.id,
-            shift_id=shift_id,
-            location_id=None,
-            slots_count=len(grade_classes),
-            order=order,
-        )
-        db.add(sl)
-        db.flush()
-    else:
-        sl.slots_count = len(grade_classes)
-        sl.order = order
-
-    existing = {int(a.slot_index): a for a in sl.assignments}
-
-    for idx, grade_class in enumerate(grade_classes):
-        current = existing.get(idx)
-        if current:
-            current.grade_class = grade_class
-        else:
-            db.add(
-                Assignment(
-                    shift_location_id=sl.id,
-                    slot_index=idx,
-                    teacher_id=None,
-                    grade_class=grade_class,
-                )
+    for spec in MORNING_LOCATION_SPECS:
+        loc = location_map[_normalize(spec["name_en"])]
+        shift_locations.append(
+            ShiftLocation(
+                day_plan_id=day_id,
+                shift_id=morning_shift.id,
+                location_id=loc.id,
+                slots_count=int(spec["slots_count"]),
+                order=order_counter,
             )
+        )
+        order_counter += 1
 
-    for idx, assignment in existing.items():
-        if idx >= len(grade_classes):
-            db.delete(assignment)
+    for break_shift in (break_1_shift, break_2_shift):
+        shift_locations.append(
+            ShiftLocation(
+                day_plan_id=day_id,
+                shift_id=break_shift.id,
+                location_id=None,
+                slots_count=len(break_grade_classes),
+                order=order_counter,
+            )
+        )
+        order_counter += 1
 
-    return sl
+    for spec in END_OF_DAY_LOCATION_SPECS:
+        loc = location_map[_normalize(spec["name_en"])]
+        shift_locations.append(
+            ShiftLocation(
+                day_plan_id=day_id,
+                shift_id=end_of_day_shift.id,
+                location_id=loc.id,
+                slots_count=int(spec["slots_count"]),
+                order=order_counter,
+            )
+        )
+        order_counter += 1
 
-
-def _week_has_any_shift_locations(week: WeekPlan) -> bool:
-    for day in week.day_plans:
-        if day.shift_locations:
-            return True
-    return False
-
-
-def _day_has_any_shift_locations(day: DayPlan) -> bool:
-    return bool(day.shift_locations)
+    return shift_locations
 
 
 def _populate_day_if_empty(
@@ -429,50 +365,50 @@ def _populate_day_if_empty(
     end_of_day_shift: Shift,
     location_map: dict[str, Location],
 ) -> None:
-    if _day_has_any_shift_locations(day):
+    if day.shift_locations:
         return
 
-    order_counter = 0
-
-    for spec in MORNING_LOCATION_SPECS:
-        loc = location_map[_normalize(spec["name_en"])]
-        _create_shift_location_block(
-            db=db,
-            day=day,
-            shift_id=morning_shift.id,
-            location_id=loc.id,
-            slots_count=int(spec["slots_count"]),
-            order=order_counter,
-        )
-        order_counter += 1
-
-    _create_break_shift_block(
-        db=db,
-        day=day,
-        shift_id=break_1_shift.id,
-        order=order_counter,
+    break_grade_classes = _get_break_grade_classes(db)
+    shift_locations = _build_day_template_rows(
+        day_id=day.id,
+        morning_shift=morning_shift,
+        break_1_shift=break_1_shift,
+        break_2_shift=break_2_shift,
+        end_of_day_shift=end_of_day_shift,
+        location_map=location_map,
+        break_grade_classes=break_grade_classes,
     )
-    order_counter += 1
 
-    _create_break_shift_block(
-        db=db,
-        day=day,
-        shift_id=break_2_shift.id,
-        order=order_counter,
-    )
-    order_counter += 1
+    db.add_all(shift_locations)
+    db.flush()
 
-    for spec in END_OF_DAY_LOCATION_SPECS:
-        loc = location_map[_normalize(spec["name_en"])]
-        _create_shift_location_block(
-            db=db,
-            day=day,
-            shift_id=end_of_day_shift.id,
-            location_id=loc.id,
-            slots_count=int(spec["slots_count"]),
-            order=order_counter,
-        )
-        order_counter += 1
+    assignments: list[Assignment] = []
+    break_shift_ids = {break_1_shift.id, break_2_shift.id}
+
+    for sl in shift_locations:
+        if sl.location_id is None and sl.shift_id in break_shift_ids:
+            for idx, grade_class in enumerate(break_grade_classes):
+                assignments.append(
+                    Assignment(
+                        shift_location_id=sl.id,
+                        slot_index=idx,
+                        teacher_id=None,
+                        grade_class=grade_class,
+                    )
+                )
+        else:
+            for idx in range(int(sl.slots_count)):
+                assignments.append(
+                    Assignment(
+                        shift_location_id=sl.id,
+                        slot_index=idx,
+                        teacher_id=None,
+                        grade_class=None,
+                    )
+                )
+
+    if assignments:
+        db.add_all(assignments)
 
 
 def _get_week_with_day_plans(db: Session, week_id: int) -> WeekPlan:
@@ -492,11 +428,6 @@ def _get_week_with_day_plans(db: Session, week_id: int) -> WeekPlan:
 
 
 def ensure_week_fully_populated(db: Session, week: WeekPlan) -> WeekPlan:
-    """
-    Ensure an existing week has all 5 DayPlans populated with shift locations + assignments.
-    Safe to call during create/clone/backfill flows.
-    Avoid calling this on every GET request.
-    """
     week = _get_week_with_day_plans(db, week.id)
 
     shift_map = _build_shift_alias_map(db)
@@ -504,6 +435,7 @@ def ensure_week_fully_populated(db: Session, week: WeekPlan) -> WeekPlan:
         db,
         MORNING_LOCATION_SPECS + END_OF_DAY_LOCATION_SPECS,
     )
+    break_grade_classes = _get_break_grade_classes(db)
 
     existing_days_by_date = {day.date: day for day in week.day_plans}
     changed = False
@@ -523,16 +455,45 @@ def ensure_week_fully_populated(db: Session, week: WeekPlan) -> WeekPlan:
             existing_days_by_date[day_date] = day
             changed = True
 
-        if not _day_has_any_shift_locations(day):
-            _populate_day_if_empty(
-                db=db,
-                day=day,
+        if not day.shift_locations:
+            shift_locations = _build_day_template_rows(
+                day_id=day.id,
                 morning_shift=shift_map["morning"],
                 break_1_shift=shift_map["break_1"],
                 break_2_shift=shift_map["break_2"],
                 end_of_day_shift=shift_map["end_of_day"],
                 location_map=location_map,
+                break_grade_classes=break_grade_classes,
             )
+            db.add_all(shift_locations)
+            db.flush()
+
+            assignments: list[Assignment] = []
+            break_shift_ids = {shift_map["break_1"].id, shift_map["break_2"].id}
+            for sl in shift_locations:
+                if sl.location_id is None and sl.shift_id in break_shift_ids:
+                    for idx, grade_class in enumerate(break_grade_classes):
+                        assignments.append(
+                            Assignment(
+                                shift_location_id=sl.id,
+                                slot_index=idx,
+                                teacher_id=None,
+                                grade_class=grade_class,
+                            )
+                        )
+                else:
+                    for idx in range(int(sl.slots_count)):
+                        assignments.append(
+                            Assignment(
+                                shift_location_id=sl.id,
+                                slot_index=idx,
+                                teacher_id=None,
+                                grade_class=None,
+                            )
+                        )
+
+            if assignments:
+                db.add_all(assignments)
             changed = True
 
     if changed:
@@ -548,37 +509,19 @@ def _is_week_fully_populated(db: Session, week: WeekPlan) -> bool:
     for i in range(WEEK_DAYS):
         day_date = week.week_start_date + timedelta(days=i)
         day = existing_days_by_date.get(day_date)
-        if not day or not _day_has_any_shift_locations(day):
+        if not day or not day.shift_locations:
             return False
 
     return True
 
 
-# ── Week creation ─────────────────────────────────────────────────────────────
-
 def create_week_plan(db: Session, week_start: date, actor: str = "admin") -> WeekPlan:
-    """
-    Create a new draft WeekPlan for the given Sunday start date,
-    pre-populated with:
-      - 5 DayPlans (Sun → Thu)
-      - Morning Duty locations
-      - First Break block (grade_class-based)
-      - Second Break block (grade_class-based)
-      - End of Day Duty locations
-
-    Behavior:
-      - If the week already exists and is fully populated, raise ValueError.
-      - If the week already exists but is empty / partially empty, backfill it.
-      - Creation does NOT mean publishing.
-    """
     existing = db.query(WeekPlan).filter(WeekPlan.week_start_date == week_start).first()
 
     if existing:
         week = ensure_week_fully_populated(db, existing)
-
         if _is_week_fully_populated(db, week):
             raise ValueError(f"Week {week_start} already exists. Cannot create it again.")
-
         return week
 
     shift_map = _build_shift_alias_map(db)
@@ -586,40 +529,74 @@ def create_week_plan(db: Session, week_start: date, actor: str = "admin") -> Wee
         db,
         MORNING_LOCATION_SPECS + END_OF_DAY_LOCATION_SPECS,
     )
+    break_grade_classes = _get_break_grade_classes(db)
 
     week = WeekPlan(week_start_date=week_start, status="draft", version=1)
     db.add(week)
     db.flush()
 
-    for i in range(WEEK_DAYS):
-        day_date = week_start + timedelta(days=i)
-
-        day = DayPlan(
+    days: list[DayPlan] = [
+        DayPlan(
             week_plan_id=week.id,
-            date=day_date,
+            date=week_start + timedelta(days=i),
             is_published=False,
         )
-        db.add(day)
-        db.flush()
+        for i in range(WEEK_DAYS)
+    ]
+    db.add_all(days)
+    db.flush()
 
-        _populate_day_if_empty(
-            db=db,
-            day=day,
-            morning_shift=shift_map["morning"],
-            break_1_shift=shift_map["break_1"],
-            break_2_shift=shift_map["break_2"],
-            end_of_day_shift=shift_map["end_of_day"],
-            location_map=location_map,
+    all_shift_locations: list[ShiftLocation] = []
+    for day in days:
+        all_shift_locations.extend(
+            _build_day_template_rows(
+                day_id=day.id,
+                morning_shift=shift_map["morning"],
+                break_1_shift=shift_map["break_1"],
+                break_2_shift=shift_map["break_2"],
+                end_of_day_shift=shift_map["end_of_day"],
+                location_map=location_map,
+                break_grade_classes=break_grade_classes,
+            )
         )
+
+    db.add_all(all_shift_locations)
+    db.flush()
+
+    all_assignments: list[Assignment] = []
+    break_shift_ids = {shift_map["break_1"].id, shift_map["break_2"].id}
+
+    for sl in all_shift_locations:
+        if sl.location_id is None and sl.shift_id in break_shift_ids:
+            for idx, grade_class in enumerate(break_grade_classes):
+                all_assignments.append(
+                    Assignment(
+                        shift_location_id=sl.id,
+                        slot_index=idx,
+                        teacher_id=None,
+                        grade_class=grade_class,
+                    )
+                )
+        else:
+            for idx in range(int(sl.slots_count)):
+                all_assignments.append(
+                    Assignment(
+                        shift_location_id=sl.id,
+                        slot_index=idx,
+                        teacher_id=None,
+                        grade_class=None,
+                    )
+                )
+
+    if all_assignments:
+        db.add_all(all_assignments)
 
     _log_change(db, week, actor, "create_week", {"week_start": str(week_start)})
     db.commit()
     db.refresh(week)
-    logger.info(f"Created week plan for {week_start} (id={week.id})")
+    logger.info("Created optimized week plan for %s (id=%s)", week_start, week.id)
     return week
 
-
-# ── Week cloning ──────────────────────────────────────────────────────────────
 
 def clone_week(
     db: Session,
@@ -627,14 +604,8 @@ def clone_week(
     target_week_start: date,
     actor: str = "admin",
 ) -> Optional[WeekPlan]:
-    """
-    Clone source week → new draft week at target_week_start.
-    Copies DayPlans, ShiftLocations, and Assignments (including grade_class).
-    Does NOT auto-publish the new week or its days.
-    Returns None if target already exists or source not found.
-    """
     if db.query(WeekPlan).filter(WeekPlan.week_start_date == target_week_start).first():
-        logger.warning(f"clone_week: target {target_week_start} already exists.")
+        logger.warning("clone_week: target %s already exists.", target_week_start)
         return None
 
     source = (
@@ -648,11 +619,10 @@ def clone_week(
         .first()
     )
     if not source:
-        logger.error(f"clone_week: source {source_week_start} not found.")
+        logger.error("clone_week: source %s not found.", source_week_start)
         return None
 
     source = ensure_week_fully_populated(db, source)
-
     day_offset = target_week_start - source_week_start
 
     new_week = WeekPlan(
@@ -666,20 +636,25 @@ def clone_week(
 
     sorted_days = sorted(source.day_plans, key=lambda d: d.date)
 
-    for src_day in sorted_days:
-        new_day = DayPlan(
+    new_days: list[DayPlan] = [
+        DayPlan(
             week_plan_id=new_week.id,
             date=src_day.date + day_offset,
             is_published=False,
         )
-        db.add(new_day)
-        db.flush()
+        for src_day in sorted_days
+    ]
+    db.add_all(new_days)
+    db.flush()
 
+    all_new_shift_locations: list[ShiftLocation] = []
+    sl_mapping: list[tuple[ShiftLocation, ShiftLocation]] = []
+
+    for src_day, new_day in zip(sorted_days, new_days):
         sorted_shift_locations = sorted(
             src_day.shift_locations,
             key=lambda sl: ((sl.order if sl.order is not None else 9999), sl.id),
         )
-
         for src_sl in sorted_shift_locations:
             new_sl = ShiftLocation(
                 day_plan_id=new_day.id,
@@ -688,41 +663,43 @@ def clone_week(
                 slots_count=src_sl.slots_count,
                 order=src_sl.order,
             )
-            db.add(new_sl)
-            db.flush()
+            all_new_shift_locations.append(new_sl)
+            sl_mapping.append((src_sl, new_sl))
 
-            sorted_assignments = sorted(
-                src_sl.assignments,
-                key=lambda a: (a.slot_index if a.slot_index is not None else 9999, a.id),
+    db.add_all(all_new_shift_locations)
+    db.flush()
+
+    all_new_assignments: list[Assignment] = []
+    for src_sl, new_sl in sl_mapping:
+        sorted_assignments = sorted(
+            src_sl.assignments,
+            key=lambda a: (a.slot_index if a.slot_index is not None else 9999, a.id),
+        )
+        for src_a in sorted_assignments:
+            all_new_assignments.append(
+                Assignment(
+                    shift_location_id=new_sl.id,
+                    slot_index=src_a.slot_index,
+                    teacher_id=src_a.teacher_id,
+                    grade_class=src_a.grade_class,
+                )
             )
 
-            for src_a in sorted_assignments:
-                db.add(
-                    Assignment(
-                        shift_location_id=new_sl.id,
-                        slot_index=src_a.slot_index,
-                        teacher_id=src_a.teacher_id,
-                        grade_class=src_a.grade_class,
-                    )
-                )
+    if all_new_assignments:
+        db.add_all(all_new_assignments)
 
     _log_change(
         db,
         new_week,
         actor,
         "clone_week",
-        {
-            "source": str(source_week_start),
-            "target": str(target_week_start),
-        },
+        {"source": str(source_week_start), "target": str(target_week_start)},
     )
     db.commit()
     db.refresh(new_week)
-    logger.info(f"Cloned {source_week_start} → {target_week_start} (id={new_week.id})")
+    logger.info("Cloned optimized %s → %s (id=%s)", source_week_start, target_week_start, new_week.id)
     return new_week
 
-
-# ── Slot management ───────────────────────────────────────────────────────────
 
 def update_shift_location_slots(
     db: Session,
@@ -733,15 +710,6 @@ def update_shift_location_slots(
     slots_count: int,
     actor: str = "admin",
 ) -> ShiftLocation:
-    """
-    Set the number of assignment slots for a shift+location on a given day.
-    Finds or creates DayPlan / ShiftLocation rows as needed.
-    Pads or trims Assignment rows to match slots_count.
-
-    IMPORTANT:
-    Matching is done by (day_plan_id + shift_id + location_id), not only shift_id.
-    This is required because a single shift can have many locations on the same day.
-    """
     _ensure_day_not_past(day_date)
 
     day = (
@@ -772,10 +740,7 @@ def update_shift_location_slots(
     else:
         sl_query = sl_query.filter(ShiftLocation.location_id == location_id)
 
-    sl = (
-        sl_query.options(selectinload(ShiftLocation.assignments))
-        .first()
-    )
+    sl = sl_query.options(selectinload(ShiftLocation.assignments)).first()
 
     if not sl:
         max_order = (
@@ -831,8 +796,6 @@ def update_shift_location_slots(
     return sl
 
 
-# ── Assignment management ─────────────────────────────────────────────────────
-
 def update_shift_time(
     db: Session,
     week: WeekPlan,
@@ -873,14 +836,6 @@ def update_assignment(
     grade_class: Optional[str],
     actor: str = "admin",
 ) -> Assignment:
-    """
-    Assign or clear a teacher for a slot. Stores grade_class for break duties.
-
-    Rules:
-      - The shift location must belong to the given week.
-      - Past days are locked and cannot be modified.
-      - A teacher cannot appear twice in the same duty (same shift) on the same day.
-    """
     sl = db.query(ShiftLocation).filter(ShiftLocation.id == shift_location_id).first()
     if not sl:
         raise ValueError(f"ShiftLocation {shift_location_id} not found")
@@ -958,15 +913,7 @@ def update_assignment(
     return assignment
 
 
-# ── Publishing ────────────────────────────────────────────────────────────────
-
 def publish_week(db: Session, week: WeekPlan, actor: str = "admin") -> WeekPlan:
-    """
-    Publish a full draft week and notify all assigned teachers.
-
-    Kept for backward compatibility.
-    If you want day-by-day publishing in UI/API, use publish_day().
-    """
     week = (
         db.query(WeekPlan)
         .options(
@@ -990,7 +937,7 @@ def publish_week(db: Session, week: WeekPlan, actor: str = "admin") -> WeekPlan:
     _log_change(db, week, actor, "publish", {"version": week.version})
     db.commit()
     db.refresh(week)
-    logger.info(f"Week {week.week_start_date} published (v{week.version})")
+    logger.info("Week %s published (v%s)", week.week_start_date, week.version)
     _notify_assigned_teachers(db, week)
     return week
 
@@ -1001,9 +948,6 @@ def publish_day(
     day_date: date,
     actor: str = "admin",
 ) -> DayPlan:
-    """
-    Publish one day only.
-    """
     day = (
         db.query(DayPlan)
         .options(
@@ -1031,7 +975,7 @@ def publish_day(
     db.commit()
     db.refresh(day)
 
-    logger.info(f"Published day {day_date} in week {week.week_start_date}")
+    logger.info("Published day %s in week %s", day_date, week.week_start_date)
 
     try:
         from services.notification_service import notify_teacher_updated
@@ -1068,13 +1012,7 @@ def publish_day(
     return day
 
 
-# ── Notifications ─────────────────────────────────────────────────────────────
-
 def _notify_assigned_teachers(db: Session, week: WeekPlan) -> None:
-    """
-    Send a schedule-updated FCM notification to every teacher assigned this week.
-    Silent no-op if Firebase is not initialised.
-    """
     try:
         from services.notification_service import notify_teacher_updated
     except Exception:

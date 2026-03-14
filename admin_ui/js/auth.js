@@ -12,8 +12,6 @@
  *                          and redirects to login on 401
  */
 
-console.log('AUTH VERSION TEST 99');
-
 window.API_BASE = localStorage.getItem('firduty_api') || 'https://naval-donnamarie-firduty-6e288803.koyeb.app';
 
 /** Return headers object with Authorization and Content-Type set. */

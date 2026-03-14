@@ -7,9 +7,6 @@
  * Use apiFetch() for all API calls — it attaches the token and handles 401.
  */
 
-alert('planner loaded 99');
-console.log('PLANNER VERSION TEST 99');
-
 let currentWeekData = null;
 let allTeachers = [];
 let pendingAssignments = {};   // slId → { slotIdx → { teacher_id, grade_class } }
