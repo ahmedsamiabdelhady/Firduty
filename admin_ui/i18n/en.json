@@ -119,5 +119,27 @@
   "no_teachers_yet": "No teacher records found.",
   "teacher_approved_ok": "Teacher approved successfully.",
   "all_approved_ok": "All pending teachers approved",
-  "email": "Email"
+  "email": "Email",
+
+  "day_locked": "Past days cannot be edited",
+  "teacher_removed": "Teacher removed",
+  "teacher_replaced": "Teacher replaced",
+  "duplicate_teacher": "Teacher already assigned in this duty",
+  "week_exists_loaded": "Week already exists, loaded successfully",
+  "success_created": "Week created successfully",
+  "create_failed": "Failed to create week",
+  "clone_failed": "Clone failed",
+  "success_day_published": "Day published successfully",
+  "publish_day": "Publish Day",
+  "publishing": "Publishing...",
+  "creating_week": "Creating week...",
+  "cloning_week": "Cloning week...",
+
+  "edit_shift_time": "Edit Time",
+  "shift_start_time": "Start Time",
+  "shift_end_time": "End Time",
+  "save_shift_time": "Save",
+  "time_applies_all_days": "This change applies to all days of the week",
+  "success_shift_time_saved": "Shift time updated successfully",
+  "class_label": "Class"
 }

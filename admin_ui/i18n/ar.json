@@ -119,5 +119,27 @@
   "no_teachers_yet": "لم يتم العثور على سجلات معلمين.",
   "teacher_approved_ok": "تمت الموافقة على المعلم بنجاح.",
   "all_approved_ok": "تمت الموافقة على جميع المعلمين المنتظرين",
-  "email": "البريد الإلكتروني"
+  "email": "البريد الإلكتروني",
+
+  "day_locked": "لا يمكن تعديل الأيام السابقة",
+  "teacher_removed": "تم إزالة المعلم",
+  "teacher_replaced": "تم استبدال المعلم",
+  "duplicate_teacher": "المعلم مُعيَّن مسبقًا في هذه المناوبة",
+  "week_exists_loaded": "الأسبوع موجود مسبقًا، تم تحميله بنجاح",
+  "success_created": "تم إنشاء الأسبوع بنجاح",
+  "create_failed": "فشل إنشاء الأسبوع",
+  "clone_failed": "فشل نسخ الأسبوع",
+  "success_day_published": "تم نشر اليوم بنجاح",
+  "publish_day": "نشر اليوم",
+  "publishing": "جار النشر...",
+  "creating_week": "جار إنشاء الأسبوع...",
+  "cloning_week": "جار نسخ الأسبوع...",
+
+  "edit_shift_time": "تعديل الوقت",
+  "shift_start_time": "وقت البداية",
+  "shift_end_time": "وقت الانتهاء",
+  "save_shift_time": "حفظ",
+  "time_applies_all_days": "هذا التغيير سيُطبَّق على جميع أيام الأسبوع",
+  "success_shift_time_saved": "تم تحديث وقت المناوبة بنجاح",
+  "class_label": "الفصل"
 }

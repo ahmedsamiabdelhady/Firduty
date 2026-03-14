@@ -1,10 +1,17 @@
 /**
  * planner.js — Firduty Admin Week Planner
  * Handles: week loading, day/shift tabs, drag-and-drop, slot management.
- * Duty-type aware: break duties show grade/class input instead of location.
+ * Duty-type aware: break duties show grade/class label instead of location.
  *
  * Auth is handled by auth.js (loaded before this script in planner.html).
  * Use apiFetch() for all API calls — it attaches the token and handles 401.
+ *
+ * Changes:
+ * - Shift time inline editor: click ✏️ on any shift tab panel header to edit
+ *   start_time / end_time. Calls PUT /shifts/{id} — change applies to ALL days.
+ * - Break duty slots: grade_class is displayed as a static read-only badge.
+ *   No input/dropdown. The class label comes from the pre-seeded assignment.
+ *   Drag-and-drop preserves the slot's existing grade_class automatically.
  */
 
 let currentWeekData = null;
@@ -13,6 +20,8 @@ let pendingAssignments = {};   // slId → { slotIdx → { teacher_id, grade_cla
 let pendingSlots = {};         // key → { dayDate, shiftId, locationId, slotsCount }
 let selectedDate = null;       // the exact day chosen by admin in the date picker
 let lang = () => I18N.getLang();
+
+// ─── Utilities ────────────────────────────────────────────────────────────────
 
 function byId(id) {
   return document.getElementById(id);
@@ -29,7 +38,6 @@ function hideEl(el) {
 function showToast(message, type = 'success') {
   const c = byId('toastContainer');
   if (!c) return;
-
   const t = document.createElement('div');
   t.className = `toast toast-${type}`;
   t.textContent = message;
@@ -71,12 +79,9 @@ function getPreviousSunday() {
 function applyWeekInputLimits() {
   const weekInput = byId('weekStartInput');
   if (!weekInput) return;
-
   const minDate = getPreviousSunday();
   const today = getCurrentLocalDate();
-
   weekInput.min = minDate;
-
   if (!weekInput.value) {
     weekInput.value = today >= minDate ? today : minDate;
   } else if (weekInput.value < minDate) {
@@ -87,238 +92,71 @@ function applyWeekInputLimits() {
 function syncWeekInputWithSelectedDate() {
   const weekInput = byId('weekStartInput');
   if (!weekInput) return;
-
-  const value = selectedDate || getCurrentLocalDate();
-  weekInput.value = value;
+  weekInput.value = selectedDate || getCurrentLocalDate();
 }
 
 function setPlannerBusy(isBusy, message = '') {
-  const overlay = byId('plannerBusyOverlay');
-  const textEl = byId('plannerLoadingText');
-  const barEl = byId('plannerLoadingBar');
+  const overlay   = byId('plannerBusyOverlay');
+  const textEl    = byId('plannerLoadingText');
+  const barEl     = byId('plannerLoadingBar');
   const plannerMain = document.querySelector('.planner-main');
+  if (textEl) textEl.textContent = message || I18N.t('loading') || 'Loading...';
+  if (overlay) overlay.style.display = isBusy ? 'flex' : 'none';
+  if (barEl) barEl.classList.toggle('is-active', !!isBusy);
+  if (plannerMain) plannerMain.style.pointerEvents = isBusy ? 'none' : '';
+}
 
-  if (textEl) {
-    textEl.textContent = message || 'Loading...';
-  }
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
-  if (overlay) {
-    overlay.style.display = isBusy ? 'flex' : 'none';
-  }
+// ─── Teachers ─────────────────────────────────────────────────────────────────
 
-  if (barEl) {
-    barEl.classList.toggle('is-active', !!isBusy);
-  }
-
-  if (plannerMain) {
-    plannerMain.style.pointerEvents = isBusy ? 'none' : '';
+async function loadTeachers() {
+  const listEl    = byId('teacherList');
+  const loadingEl = byId('teachersLoading');
+  try {
+    const res = await apiFetch('/teachers/');
+    if (!res || !res.ok) return;
+    allTeachers = await res.json();
+    if (loadingEl) loadingEl.style.display = 'none';
+    if (listEl) {
+      listEl.innerHTML = allTeachers.map(t => `
+        <div class="teacher-list-item"
+             data-teacher-id="${t.id}"
+             data-teacher-name="${escHtml(t.name)}">
+          ${escHtml(t.name)}
+        </div>
+      `).join('');
+    }
+  } catch (err) {
+    console.error('loadTeachers failed:', err);
   }
 }
 
-function ensurePlannerDynamicStyles() {
-  if (byId('plannerDynamicStyles')) return;
-
-  const style = document.createElement('style');
-  style.id = 'plannerDynamicStyles';
-  style.textContent = `
-    .slots-list.slots-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-      gap: 10px;
-      align-items: start;
-    }
-
-    .slot-item {
-      background: #ffffff;
-      border: 1px solid #e5e7eb;
-      border-radius: 12px;
-      padding: 10px;
-      min-height: 70px;
-      box-sizing: border-box;
-      transition: box-shadow 0.15s ease, border-color 0.15s ease;
-    }
-
-    .slot-item.filled {
-      background: #faf5ff;
-      border-color: #d8b4fe;
-    }
-
-    .slot-item:hover {
-      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
-    }
-
-    .teacher-card {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 8px;
-      font-weight: 600;
-      font-size: 0.9rem;
-    }
-
-    .teacher-card > span:first-child {
-      flex: 1;
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .grade-select-wrap {
-      margin-top: 6px;
-    }
-
-    .grade-label {
-      display: block;
-      font-size: 0.75rem;
-      font-weight: 600;
-      color: #6d28d9;
-      margin-bottom: 4px;
-    }
-
-    .grade-input {
-      width: 100%;
-      font-size: 0.85rem;
-      padding: 6px 8px;
-      border: 1px solid #c4b5fd;
-      border-radius: 6px;
-      background: #fff;
-      box-sizing: border-box;
-      outline: none;
-    }
-
-    .grade-input:focus {
-      border-color: #8b5cf6;
-      box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.12);
-    }
-
-    .remove-btn {
-      cursor: pointer;
-      color: #dc2626;
-      font-weight: bold;
-      font-size: 0.95rem;
-      line-height: 1;
-      flex-shrink: 0;
-    }
-  `;
-  document.head.appendChild(style);
-}
-
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-async function pollUntilWeekVisible(weekStart, attempts = 6, delayMs = 1200) {
-  for (let i = 0; i < attempts; i++) {
-    try {
-      const res = await apiFetch(`/weeks/${weekStart}`);
-      if (res && res.ok) {
-        currentWeekData = await res.json();
-        selectedDate = weekStart;
-        syncWeekInputWithSelectedDate();
-        pendingAssignments = {};
-        pendingSlots = {};
-        renderWeek();
-        return true;
-      }
-    } catch (err) {
-      console.warn('pollUntilWeekVisible attempt failed:', err);
-    }
-
-    if (i < attempts - 1) {
-      await sleep(delayMs);
-    }
-  }
-
-  return false;
-}
-
-/* ─── Init ────────────────────────────────────────────────────────────────── */
+// ─── Init ─────────────────────────────────────────────────────────────────────
 
 async function initPlanner() {
-  try {
-    ensurePlannerDynamicStyles();
-    applyWeekInputLimits();
-
-    const weekInput = byId('weekStartInput');
-    const today = getCurrentLocalDate();
-    selectedDate = weekInput?.value || today;
-
-    await Promise.all([
-      loadTeachers(),
-      loadWeek()
-    ]);
-  } catch (err) {
-    console.error('initPlanner failed:', err);
-    showToast(I18N.t('error_generic'), 'error');
-  }
-}
-
-async function onWeekSelected() {
+  guardPage();
   applyWeekInputLimits();
-
-  const weekInput = byId('weekStartInput');
-  if (!weekInput || !weekInput.value) return;
-
-  selectedDate = weekInput.value;
+  await loadTeachers();
   await loadWeek();
 }
 
-/* ─── Teachers Sidebar ────────────────────────────────────────────────────── */
-
-async function loadTeachers() {
-  const teacherList = byId('teacherList');
-  const teachersLoading = byId('teachersLoading');
-
-  try {
-    showEl(teachersLoading);
-    if (teacherList) teacherList.innerHTML = '';
-
-    const res = await apiFetch('/teachers/');
-
-    if (!res || !res.ok) {
-      allTeachers = [];
-      renderTeacherSidebar();
-      return;
-    }
-
-    allTeachers = await res.json();
-    renderTeacherSidebar();
-  } catch (err) {
-    console.error('loadTeachers failed:', err);
-    allTeachers = [];
-    renderTeacherSidebar();
-  } finally {
-    hideEl(teachersLoading);
-  }
-}
-
-function renderTeacherSidebar() {
-  const list = byId('teacherList');
-  if (!list) return;
-
-  if (!allTeachers.length) {
-    list.innerHTML = `<p style="font-size:0.8rem;color:#999">${I18N.t('no_teachers_yet') || 'No teachers'}</p>`;
-    return;
-  }
-
-  list.innerHTML = allTeachers.map(t => `
-    <div class="teacher-list-item"
-         data-teacher-id="${t.id}"
-         data-teacher-name="${escHtml(t.name)}"
-         draggable="true">${escHtml(t.name)}</div>
-  `).join('');
-}
-
-/* ─── Week Loading ────────────────────────────────────────────────────────── */
+// ─── Week Loading ─────────────────────────────────────────────────────────────
 
 async function loadWeek() {
-  const weekInput = byId('weekStartInput');
-  const noPlanMsg = byId('noPlanMsg');
-  const dayTabs = byId('dayTabs');
-  const dayPanels = byId('dayPanels');
   const plannerLoading = byId('plannerLoading');
+  const noPlanMsg      = byId('noPlanMsg');
+  const dayTabs        = byId('dayTabs');
+  const dayPanels      = byId('dayPanels');
 
+  const weekInput = byId('weekStartInput');
   const pickedDate = weekInput ? weekInput.value : '';
   if (!pickedDate) return;
 
@@ -331,38 +169,24 @@ async function loadWeek() {
   try {
     showEl(plannerLoading);
     hideEl(noPlanMsg);
-
-    if (dayTabs) dayTabs.innerHTML = '';
+    if (dayTabs)   dayTabs.innerHTML   = '';
     if (dayPanels) dayPanels.innerHTML = '';
 
     const res = await apiFetch(`/weeks/${weekStart}`);
-    if (!res) {
-      currentWeekData = null;
-      showEl(noPlanMsg, 'block');
-      updateStatusBadge(null);
-      return;
-    }
+    if (!res) { currentWeekData = null; showEl(noPlanMsg, 'block'); updateStatusBadge(null); return; }
 
     if (res.status === 404) {
       currentWeekData = null;
       showEl(noPlanMsg, 'block');
-
-      if (dayTabs) dayTabs.innerHTML = '';
-      if (dayPanels) {
-        dayPanels.innerHTML =
-          '<p style="color:#6c757d;text-align:center;margin-top:40px" data-i18n="no_week"></p>';
-      }
-
+      if (dayPanels) dayPanels.innerHTML = `<p style="color:#6c757d;text-align:center;margin-top:40px" data-i18n="no_week"></p>`;
       I18N.applyTranslations();
       updateStatusBadge(null);
-      showToast('No plan found for this week', 'info');
+      showToast(I18N.t('no_week') || 'No plan found for this week', 'info');
       return;
     }
 
     if (!res.ok) {
-      currentWeekData = null;
-      showEl(noPlanMsg, 'block');
-      updateStatusBadge(null);
+      currentWeekData = null; showEl(noPlanMsg, 'block'); updateStatusBadge(null);
       showToast(await getApiErrorMessage(res, I18N.t('error_generic')), 'error');
       return;
     }
@@ -371,9 +195,7 @@ async function loadWeek() {
     renderWeek();
   } catch (err) {
     console.error('loadWeek failed:', err);
-    currentWeekData = null;
-    showEl(noPlanMsg, 'block');
-    updateStatusBadge(null);
+    currentWeekData = null; showEl(noPlanMsg, 'block'); updateStatusBadge(null);
     showToast(I18N.t('error_generic'), 'error');
   } finally {
     hideEl(plannerLoading);
@@ -381,48 +203,39 @@ async function loadWeek() {
 }
 
 function updateStatusBadge(status) {
-  const badge = byId('weekStatusBadge');
+  const badge  = byId('weekStatusBadge');
   const vBadge = byId('weekVersionBadge');
-
   if (!badge || !vBadge) return;
-
-  if (!status) {
-    badge.style.display = 'none';
-    vBadge.textContent = '';
-    return;
-  }
-
+  if (!status) { badge.style.display = 'none'; vBadge.textContent = ''; return; }
   badge.style.display = 'inline';
   badge.className = `week-status-badge status-${status}`;
   badge.textContent = I18N.t(status);
   vBadge.textContent = currentWeekData ? `v${currentWeekData.version}` : '';
 }
 
-/* ─── Week Rendering ──────────────────────────────────────────────────────── */
+// ─── Week Rendering ───────────────────────────────────────────────────────────
 
 const DAY_KEYS = ['day_sun', 'day_mon', 'day_tue', 'day_wed', 'day_thu'];
 
 function renderWeek() {
-  if (!currentWeekData || !currentWeekData.day_plans) return;
-
+  if (!currentWeekData?.day_plans) return;
   updateStatusBadge(currentWeekData.status);
 
-  const tabsEl = byId('dayTabs');
-  const panelsEl = byId('dayPanels');
+  const tabsEl    = byId('dayTabs');
+  const panelsEl  = byId('dayPanels');
   const noPlanMsg = byId('noPlanMsg');
-
   if (!tabsEl || !panelsEl) return;
 
-  tabsEl.innerHTML = '';
+  tabsEl.innerHTML   = '';
   panelsEl.innerHTML = '';
   hideEl(noPlanMsg);
 
   const activeIdx = getActiveDayIndex();
 
   currentWeekData.day_plans.forEach((dayPlan, idx) => {
-    const dayDate = new Date(dayPlan.date + 'T12:00:00');
+    const dayDate  = new Date(dayPlan.date + 'T12:00:00');
     const dayOfWeek = dayDate.getDay();
-    const dayLabel = I18N.t(DAY_KEYS[dayOfWeek] || `Day ${idx}`);
+    const dayLabel  = I18N.t(DAY_KEYS[dayOfWeek] || `Day ${idx}`);
 
     const tab = document.createElement('button');
     tab.className = 'tab-btn' + (idx === activeIdx ? ' active' : '');
@@ -433,9 +246,7 @@ function renderWeek() {
     const panel = document.createElement('div');
     panel.className = 'tab-panel' + (idx === activeIdx ? ' active' : '');
     panel.innerHTML = renderDayPanel(dayPlan, dayPlan.is_editable);
-    if (idx !== activeIdx) {
-      panel.style.display = 'none';
-    }
+    if (idx !== activeIdx) panel.style.display = 'none';
     panelsEl.appendChild(panel);
   });
 
@@ -444,15 +255,11 @@ function renderWeek() {
 
 function getActiveDayIndex() {
   if (!currentWeekData?.day_plans?.length) return 0;
-
   const exactMatch = currentWeekData.day_plans.findIndex(d => d.date === selectedDate);
   if (exactMatch >= 0) return exactMatch;
-
   const today = getCurrentLocalDate();
   const todayMatch = currentWeekData.day_plans.findIndex(d => d.date === today);
-  if (todayMatch >= 0) return todayMatch;
-
-  return 0;
+  return todayMatch >= 0 ? todayMatch : 0;
 }
 
 function switchDayTab(idx) {
@@ -462,45 +269,37 @@ function switchDayTab(idx) {
     p.classList.toggle('active', isActive);
     p.style.display = isActive ? 'block' : 'none';
   });
-
-  const day = currentWeekData.day_plans[idx];
+  const day = currentWeekData?.day_plans[idx];
   if (day) {
     selectedDate = day.date;
     const weekInput = byId('weekStartInput');
     if (weekInput) weekInput.value = day.date;
-    showToast(`Loaded ${day.date}`, 'info');
   }
 }
 
 function renderDayPanel(dayPlan, isEditable) {
   const shiftMap = {};
-
   dayPlan.shift_locations.forEach(sl => {
-    if (!shiftMap[sl.shift_id]) {
-      shiftMap[sl.shift_id] = { shift: sl.shift, locations: [] };
-    }
+    if (!shiftMap[sl.shift_id]) shiftMap[sl.shift_id] = { shift: sl.shift, locations: [] };
     shiftMap[sl.shift_id].locations.push(sl);
   });
-
   const shifts = Object.values(shiftMap).sort((a, b) => a.shift.order - b.shift.order);
 
-  if (!shifts.length) {
-    return `<p style="color:#999;margin-top:20px;text-align:center">Loading day slots...</p>`;
-  }
+  if (!shifts.length) return `<p style="color:#999;margin-top:20px;text-align:center">Loading day slots...</p>`;
 
   const dayBadge = isEditable
     ? `<span style="font-size:0.8rem;color:#15803d;background:#dcfce7;padding:4px 10px;border-radius:999px">${I18N.t('editable') || 'Editable'}</span>`
     : `<span style="font-size:0.8rem;color:#991b1b;background:#fee2e2;padding:4px 10px;border-radius:999px">${I18N.t('locked') || 'Locked'}</span>`;
 
   const publishBtn = dayPlan.is_published
-    ? `<span style="font-size:0.8rem;color:#166534;background:#dcfce7;padding:6px 10px;border-radius:999px">✅ Published</span>`
-    : `<button class="btn btn-success btn-sm" id="publish-day-btn-${dayPlan.date}" onclick="publishDay('${dayPlan.date}')">Publish Day</button>`;
+    ? `<span style="font-size:0.8rem;color:#166534;background:#dcfce7;padding:6px 10px;border-radius:999px">✅ ${I18N.t('published') || 'Published'}</span>`
+    : `<button class="btn btn-success btn-sm" id="publish-day-btn-${dayPlan.date}" onclick="publishDay('${dayPlan.date}')">${I18N.t('publish_day') || 'Publish Day'}</button>`;
 
+  // Shift tab buttons
   const shiftTabsHtml = shifts.map((s, i) => {
     const dutyBadge = s.shift.duty_type === 'break'
       ? `<span style="font-size:0.7rem;background:#ede9fe;color:#5b21b6;border-radius:8px;padding:1px 7px;margin-inline-start:6px">${I18N.t('break')}</span>`
       : '';
-
     return `
       <button class="shift-tab-btn${i === 0 ? ' active' : ''}"
               onclick="switchShiftTab('${dayPlan.date}', ${s.shift.id})"
@@ -513,15 +312,38 @@ function renderDayPanel(dayPlan, isEditable) {
     `;
   }).join('');
 
-  const shiftPanelsHtml = shifts.map((s, i) => `
-    <div class="shift-panel${i === 0 ? ' active' : ''}"
-         id="shift-panel-${dayPlan.date}-${s.shift.id}"
-         style="${i === 0 ? 'display:block' : 'display:none'}">
-      <div class="locations-grid">
-        ${s.locations.map(sl => renderLocationColumn(dayPlan.date, sl, isEditable)).join('')}
+  // Shift panel bodies — each includes an inline time editor header
+  const shiftPanelsHtml = shifts.map((s, i) => {
+    const startFmt = s.shift.start_time.slice(0, 5);
+    const endFmt   = s.shift.end_time.slice(0, 5);
+    const shiftName = lang() === 'ar' ? s.shift.name_ar : s.shift.name_en;
+
+    // Time editor header (always visible, applies to all days)
+    const timeHeader = `
+      <div class="shift-time-header" id="shift-time-header-${s.shift.id}">
+        <span class="shift-time-label">
+          <strong>${escHtml(shiftName)}</strong>
+          <span class="shift-time-display" id="shift-time-display-${s.shift.id}">
+            ${startFmt} – ${endFmt}
+          </span>
+        </span>
+        <button class="btn-edit-time"
+                title="${I18N.t('edit_shift_time') || 'Edit Time'}"
+                onclick="openEditShiftTime(${s.shift.id}, '${startFmt}', '${endFmt}')">✏️</button>
       </div>
-    </div>
-  `).join('');
+    `;
+
+    return `
+      <div class="shift-panel${i === 0 ? ' active' : ''}"
+           id="shift-panel-${dayPlan.date}-${s.shift.id}"
+           style="${i === 0 ? 'display:block' : 'display:none'}">
+        ${timeHeader}
+        <div class="locations-grid">
+          ${s.locations.map(sl => renderLocationColumn(dayPlan.date, sl, isEditable)).join('')}
+        </div>
+      </div>
+    `;
+  }).join('');
 
   return `
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
@@ -529,9 +351,7 @@ function renderDayPanel(dayPlan, isEditable) {
         <strong>${dayPlan.date}</strong>
         ${dayBadge}
       </div>
-      <div>
-        ${publishBtn}
-      </div>
+      <div>${publishBtn}</div>
     </div>
     <div class="shift-tabs" id="shift-tabs-${dayPlan.date}">${shiftTabsHtml}</div>
     ${shiftPanelsHtml}
@@ -541,55 +361,173 @@ function renderDayPanel(dayPlan, isEditable) {
 function switchShiftTab(dayDate, shiftId) {
   const container = byId(`shift-tabs-${dayDate}`);
   if (!container) return;
-
   container.querySelectorAll('.shift-tab-btn').forEach(b => {
     b.classList.toggle('active', parseInt(b.dataset.shiftId, 10) === shiftId);
   });
-
   document.querySelectorAll(`[id^="shift-panel-${dayDate}-"]`).forEach(p => {
     p.style.display = p.id === `shift-panel-${dayDate}-${shiftId}` ? 'block' : 'none';
   });
 }
 
+// ─── Shift Time Inline Editor ─────────────────────────────────────────────────
+//
+// Clicking ✏️ opens a floating card anchored to the shift time header.
+// PUT /shifts/{id} updates the Shift record, which is shared across all days.
+// After saving, the week is reloaded so every day panel reflects the new time.
+
+function openEditShiftTime(shiftId, currentStart, currentEnd) {
+  closeEditShiftTime(); // close any previously open editor
+
+  const headerId = `shift-time-header-${shiftId}`;
+  const headerEl = byId(headerId);
+  if (!headerEl) return;
+
+  const card = document.createElement('div');
+  card.id = 'shiftTimeEditor';
+  card.className = 'shift-time-editor-card';
+  card.innerHTML = `
+    <p class="shift-time-editor-note">⚠️ ${I18N.t('time_applies_all_days') || 'This change applies to all days of the week'}</p>
+    <div class="shift-time-editor-fields">
+      <label>
+        ${I18N.t('shift_start_time') || 'Start Time'}
+        <input type="time" id="editShiftStart" value="${currentStart}">
+      </label>
+      <label>
+        ${I18N.t('shift_end_time') || 'End Time'}
+        <input type="time" id="editShiftEnd" value="${currentEnd}">
+      </label>
+    </div>
+    <div class="shift-time-editor-actions">
+      <button class="btn btn-primary btn-sm" onclick="saveShiftTime(${shiftId})">${I18N.t('save_shift_time') || 'Save'}</button>
+      <button class="btn btn-secondary btn-sm" onclick="closeEditShiftTime()">${I18N.t('cancel') || 'Cancel'}</button>
+    </div>
+  `;
+
+  // Insert right after the header element
+  headerEl.insertAdjacentElement('afterend', card);
+  card.querySelector('#editShiftStart')?.focus();
+}
+
+async function saveShiftTime(shiftId) {
+  const startInput = byId('editShiftStart');
+  const endInput   = byId('editShiftEnd');
+  if (!startInput || !endInput) return;
+
+  const start_time = startInput.value;
+  const end_time   = endInput.value;
+  if (!start_time || !end_time) {
+    showToast(I18N.t('error_generic'), 'error');
+    return;
+  }
+
+  const saveBtn = document.querySelector('#shiftTimeEditor .btn-primary');
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = '...'; }
+
+  try {
+    const res = await apiFetch(`/shifts/${shiftId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ start_time: start_time + ':00', end_time: end_time + ':00' }),
+    });
+
+    if (!res || !res.ok) {
+      const msg = await getApiErrorMessage(res, I18N.t('error_generic'));
+      showToast(msg, 'error');
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = I18N.t('save_shift_time') || 'Save'; }
+      return;
+    }
+
+    closeEditShiftTime();
+    showToast(I18N.t('success_shift_time_saved') || 'Shift time updated successfully');
+
+    // Reload the week so all day panels reflect the new time
+    await loadWeek();
+  } catch (err) {
+    console.error('saveShiftTime failed:', err);
+    showToast(I18N.t('error_generic'), 'error');
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = I18N.t('save_shift_time') || 'Save'; }
+  }
+}
+
+function closeEditShiftTime() {
+  const existing = byId('shiftTimeEditor');
+  if (existing) existing.remove();
+}
+
+// Close editor if clicking outside of it
+document.addEventListener('click', (e) => {
+  const editor = byId('shiftTimeEditor');
+  if (editor && !editor.contains(e.target) && !e.target.classList.contains('btn-edit-time')) {
+    closeEditShiftTime();
+  }
+});
+
+// ─── Location Column & Slot Rendering ────────────────────────────────────────
+
+/**
+ * Returns the first letter(s) of a teacher's name for an avatar circle.
+ * "Ahmed Al-Rashidi" → "A"   "Sara Nasser" → "S"
+ */
+function _initials(name) {
+  if (!name) return '?';
+  return name.trim().charAt(0).toUpperCase();
+}
+
 function renderLocationColumn(dayDate, sl, isEditable) {
   const isBreak = sl.duty_type === 'break' || sl.shift.duty_type === 'break';
 
+  // Column title
   let colTitle;
   if (isBreak) {
-    colTitle = `<span style="color:#7c3aed">${lang() === 'ar' ? sl.shift.name_ar : sl.shift.name_en}</span>`;
+    colTitle = `<span class="col-title-break">${lang() === 'ar' ? sl.shift.name_ar : sl.shift.name_en}</span>`;
   } else {
     colTitle = sl.location
-      ? (lang() === 'ar' ? sl.location.name_ar : sl.location.name_en)
+      ? escHtml(lang() === 'ar' ? sl.location.name_ar : sl.location.name_en)
       : '—';
   }
 
+  // Fill metrics
+  const total  = sl.slots_count;
+  const filled = sl.assignments.filter(a => a.teacher_id != null).length;
+  const pct    = total > 0 ? Math.round((filled / total) * 100) : 0;
+  const colStatus = filled === 0 ? 'col-empty' : filled < total ? 'col-partial' : 'col-full';
+
+  // Render each slot
   const slots = [];
-  for (let i = 0; i < sl.slots_count; i++) {
+  for (let i = 0; i < total; i++) {
     const assignment = sl.assignments.find(a => a.slot_index === i);
     slots.push(renderSlot(sl.id, i, assignment, isBreak, isEditable));
   }
 
   return `
-    <div class="location-column"
+    <div class="location-column ${colStatus}"
          data-sl-id="${sl.id}"
          data-day="${dayDate}"
          data-shift="${sl.shift_id}"
          data-loc="${sl.location_id || ''}"
          data-duty-type="${isBreak ? 'break' : 'morning_endofday'}"
          data-editable="${isEditable ? 'true' : 'false'}">
+
       <div class="location-header">
-        <span class="location-name">${colTitle}</span>
+        <span class="location-name" title="${colTitle}">${colTitle}</span>
         <div class="slot-controls">
           <button class="btn-slot btn-slot-sub"
-                  ${!isEditable ? 'disabled style="opacity:0.4;pointer-events:none"' : ''}
+                  ${!isEditable ? 'disabled' : ''}
                   onclick="changeSlots('${dayDate}', ${sl.shift_id}, ${sl.location_id || 'null'}, -1)">−</button>
-          <span class="slot-count" id="slot-count-${sl.id}">${sl.slots_count}</span>
+          <span class="slot-count" id="slot-count-${sl.id}">${total}</span>
           <button class="btn-slot btn-slot-add"
-                  ${!isEditable ? 'disabled style="opacity:0.4;pointer-events:none"' : ''}
+                  ${!isEditable ? 'disabled' : ''}
                   onclick="changeSlots('${dayDate}', ${sl.shift_id}, ${sl.location_id || 'null'}, +1)">+</button>
         </div>
       </div>
-      <div class="slots-list slots-grid"
+
+      <div class="col-fill-bar">
+        <div class="col-fill-bar-track">
+          <div class="col-fill-bar-fill" style="width:${pct}%"></div>
+        </div>
+        <span class="col-fill-label" id="col-fill-label-${sl.id}">${filled}/${total}</span>
+      </div>
+
+      <div class="slots-list"
            id="slots-${sl.id}"
            data-sl-id="${sl.id}"
            data-duty-type="${isBreak ? 'break' : 'morning_endofday'}">
@@ -599,97 +537,129 @@ function renderLocationColumn(dayDate, sl, isEditable) {
   `;
 }
 
+/**
+ * renderSlot — redesigned for clarity:
+ *
+ * FILLED slot:
+ *   - Initials avatar circle (colour-coded by name hash)
+ *   - Teacher name (truncated, full name in title tooltip)
+ *   - Slot number badge
+ *   - ✕ remove button — hidden by CSS, revealed on hover
+ *   - For break: grade class badge (the slot's identity)
+ *
+ * EMPTY slot (non-break):
+ *   - Dashed drop-zone card with arrow-down icon + "Drop teacher" hint
+ *   - Slot number badge
+ *
+ * EMPTY slot (break):
+ *   - The grade class IS the identity of the slot — shown large and prominent
+ *   - Arrow-down drop-zone hint underneath
+ */
 function renderSlot(slId, slotIdx, assignment, isBreak, isEditable = true) {
+  const slotNum = slotIdx + 1;
+  const slotNumBadge = `<span class="slot-num">${slotNum}</span>`;
+
   if (assignment && assignment.teacher_id) {
-    const gradeHtml = isBreak
-      ? `
-        <div class="grade-select-wrap">
-          <label class="grade-label">${I18N.t('grade_class_label') || 'Class'}</label>
-          <select class="grade-input"
-                  onchange="updateGradeClass(${slId}, ${slotIdx}, this.value)"
-                  onclick="event.stopPropagation()"
-                  ${!isEditable ? 'disabled' : ''}
-                  style="${!isEditable ? 'opacity:0.6;background:#f3f4f6' : ''}">
-            ${renderGradeOptions(assignment.grade_class || '')}
-          </select>
-        </div>
-      `
+    const name    = assignment.teacher_name || '';
+    const initial = _initials(name);
+    // Deterministic hue from teacher_id for avatar colour variety
+    const hue     = (assignment.teacher_id * 47) % 360;
+
+    const gradeHtml = isBreak && assignment.grade_class
+      ? `<span class="grade-class-badge"><span class="grade-class-badge-label">${I18N.t('class_label') || 'Class'}:</span>${escHtml(assignment.grade_class)}</span>`
+      : '';
+
+    const removeBtn = isEditable
+      ? `<button class="slot-remove-btn" onclick="removeTeacher(${slId}, ${slotIdx})" title="Remove">✕</button>`
       : '';
 
     return `
-      <div class="slot-item filled" data-sl-id="${slId}" data-slot-idx="${slotIdx}" data-teacher-id="${assignment.teacher_id}">
-        <div class="teacher-card" data-teacher-id="${assignment.teacher_id}" data-teacher-name="${escHtml(assignment.teacher_name)}">
-          <span>${escHtml(assignment.teacher_name)}</span>
-          ${isEditable ? `<span class="remove-btn" onclick="removeTeacher(${slId}, ${slotIdx})">✕</span>` : ''}
+      <div class="slot-item slot-filled" data-sl-id="${slId}" data-slot-idx="${slotIdx}" data-teacher-id="${assignment.teacher_id}">
+        ${slotNumBadge}
+        <div class="slot-inner">
+          <div class="slot-row">
+            <span class="teacher-avatar" style="--avatar-hue:${hue}deg">${escHtml(initial)}</span>
+            <span class="teacher-name" title="${escHtml(name)}">${escHtml(name)}</span>
+            ${removeBtn}
+          </div>
+          ${gradeHtml}
         </div>
-        ${gradeHtml}
       </div>
     `;
   }
 
+  // Empty slot
+  const gradeClass = assignment?.grade_class ?? null;
+
+  if (isBreak && gradeClass) {
+    // Break: class is the slot's identity — show it large, drop-zone underneath
+    return `
+      <div class="slot-item slot-empty slot-break-empty" data-sl-id="${slId}" data-slot-idx="${slotIdx}" data-teacher-id="">
+        ${slotNumBadge}
+        <div class="slot-inner">
+          <span class="break-class-identity">${escHtml(gradeClass)}</span>
+          ${isEditable ? `<span class="slot-drop-hint">↓ ${I18N.t('no_teacher') || 'Drop teacher'}</span>` : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  // Non-break empty: dashed drop zone
   return `
-    <div class="slot-item" data-sl-id="${slId}" data-slot-idx="${slotIdx}" data-teacher-id="">
-      <span style="color:#bbb;font-size:0.8rem">${I18N.t('no_teacher')}</span>
+    <div class="slot-item slot-empty" data-sl-id="${slId}" data-slot-idx="${slotIdx}" data-teacher-id="">
+      ${slotNumBadge}
+      ${isEditable
+        ? `<div class="slot-drop-zone">
+             <span class="slot-drop-icon">↓</span>
+             <span class="slot-drop-text">${I18N.t('no_teacher') || 'Drop teacher'}</span>
+           </div>`
+        : `<span class="slot-locked-text">—</span>`
+      }
     </div>
   `;
 }
 
-function getGradeClassOptions() {
-  const classes = [
-    '1/A', '1/B', '1/C', '1/D',
-    '2/A', '2/B', '2/C', '2/D',
-    '3/A', '3/B', '3/C',
-    '4/A', '4/B', '4/C',
-    '5/A', '5/B',
-    '6/A', '6/B',
-    '7/A', '7/B',
-    '8/AB',
-    '9'
-  ];
-
-  return [
-    { value: '', label: I18N.t('select_class') || 'Select class' },
-    ...classes.map(value => ({ value, label: value }))
-  ];
-}
-
-function renderGradeOptions(selectedValue = '') {
-  return getGradeClassOptions().map(opt => `
-    <option value="${escHtml(opt.value)}" ${opt.value === selectedValue ? 'selected' : ''}>
-      ${escHtml(opt.label)}
-    </option>
-  `).join('');
-}
-
-/* ─── Grade/Class update ──────────────────────────────────────────────────── */
+// ─── Grade Class (no longer user-editable, but updateGradeClass kept for
+//     any programmatic callers during drag-drop grade preservation) ──────────
 
 function updateGradeClass(slId, slotIdx, value) {
-  const list = byId(`slots-${slId}`);
-  const col = list?.closest('.location-column');
-
-  if (col?.dataset.editable !== 'true') {
-    showToast(I18N.t('day_locked') || 'Past days cannot be edited', 'error');
-    return;
-  }
-
   if (!pendingAssignments[slId]) pendingAssignments[slId] = {};
   if (!pendingAssignments[slId][slotIdx]) pendingAssignments[slId][slotIdx] = {};
   pendingAssignments[slId][slotIdx].grade_class = value;
 }
 
-/* ─── Drag & Drop ─────────────────────────────────────────────────────────── */
+/**
+ * Recomputes and updates the fill bar + column status class for a given slId.
+ * Called after any in-place slot mutation (add teacher, remove teacher).
+ */
+function _refreshFillBar(slId) {
+  const list = byId(`slots-${slId}`);
+  const col  = list?.closest('.location-column');
+  const bar  = col?.querySelector('.col-fill-bar-fill');
+  const label = byId(`col-fill-label-${slId}`);
+  const countEl = byId(`slot-count-${slId}`);
+  if (!list || !col) return;
+
+  const total  = parseInt(countEl?.textContent || '0', 10);
+  const filled = list.querySelectorAll('.slot-filled').length;
+  const pct    = total > 0 ? Math.round((filled / total) * 100) : 0;
+
+  if (bar)   bar.style.width = `${pct}%`;
+  if (label) label.textContent = `${filled}/${total}`;
+
+  col.classList.remove('col-empty', 'col-partial', 'col-full');
+  col.classList.add(filled === 0 ? 'col-empty' : filled < total ? 'col-partial' : 'col-full');
+}
+
+// ─── Drag & Drop ──────────────────────────────────────────────────────────────
 
 function findShiftLocationInCurrentWeek(slId) {
   if (!currentWeekData?.day_plans) return null;
-
   for (const day of currentWeekData.day_plans) {
     for (const sl of day.shift_locations || []) {
-      if (sl.id === slId) {
-        return { day, sl };
-      }
+      if (sl.id === slId) return { day, sl };
     }
   }
-
   return null;
 }
 
@@ -701,38 +671,27 @@ function getEffectiveAssignment(slId, slotIdx, fallbackAssignment = null) {
       grade_class: pending.grade_class ?? fallbackAssignment?.grade_class ?? null,
     };
   }
-
   return fallbackAssignment
-    ? {
-        teacher_id: fallbackAssignment.teacher_id ?? null,
-        grade_class: fallbackAssignment.grade_class ?? null,
-      }
+    ? { teacher_id: fallbackAssignment.teacher_id ?? null, grade_class: fallbackAssignment.grade_class ?? null }
     : { teacher_id: null, grade_class: null };
 }
 
 function isTeacherAssignedInSameShift(slId, teacherId) {
   const found = findShiftLocationInCurrentWeek(slId);
   if (!found || !teacherId) return false;
-
   const { day, sl } = found;
-
   for (const candidate of day.shift_locations || []) {
     if (candidate.shift_id !== sl.shift_id) continue;
-
     for (const assignment of candidate.assignments || []) {
       const effective = getEffectiveAssignment(candidate.id, assignment.slot_index, assignment);
-      if (effective.teacher_id === teacherId) {
-        return true;
-      }
+      if (effective.teacher_id === teacherId) return true;
     }
   }
-
   return false;
 }
 
 async function getApiErrorMessage(res, fallbackMessage) {
   if (!res) return fallbackMessage;
-
   try {
     const data = await res.json();
     return data?.detail || data?.message || fallbackMessage;
@@ -743,7 +702,6 @@ async function getApiErrorMessage(res, fallbackMessage) {
 
 function initDragAndDrop() {
   const sidebar = byId('teacherList');
-
   if (sidebar && typeof Sortable !== 'undefined' && !sidebar.dataset.sortableInit) {
     new Sortable(sidebar, {
       group: { name: 'teachers', pull: 'clone', put: false },
@@ -764,16 +722,16 @@ function initDragAndDrop() {
       group: { name: 'teachers', pull: false, put: true },
       animation: 150,
 
-      onMove: function() {
+      onMove: function () {
         const col = list.closest('.location-column');
         if (!col || col.dataset.editable !== 'true') return false;
         return true;
       },
 
-      onAdd: function(evt) {
-        const col = list.closest('.location-column');
+      onAdd: function (evt) {
+        const col     = list.closest('.location-column');
         const dayDate = col?.dataset.day;
-        const day = currentWeekData?.day_plans?.find(d => d.date === dayDate);
+        const day     = currentWeekData?.day_plans?.find(d => d.date === dayDate);
 
         if (!day || !day.is_editable) {
           showToast(I18N.t('day_locked') || 'Past days cannot be edited', 'error');
@@ -781,55 +739,68 @@ function initDragAndDrop() {
           return;
         }
 
-        const slId = parseInt(list.dataset.slId, 10);
+        const slId      = parseInt(list.dataset.slId, 10);
         const teacherId = parseInt(evt.item.dataset.teacherId, 10);
         const teacherName = evt.item.dataset.teacherName;
 
         if (isTeacherAssignedInSameShift(slId, teacherId)) {
-          showToast('Teacher already assigned in this duty', 'error');
+          showToast(I18N.t('duplicate_teacher') || 'Teacher already assigned in this duty', 'error');
           evt.item.parentNode && evt.item.parentNode.removeChild(evt.item);
           return;
         }
 
         const filledSlots = Array.from(list.querySelectorAll('.slot-item.filled'));
-        const emptySlot = list.querySelector('.slot-item:not(.filled)');
+        const emptySlot   = list.querySelector('.slot-item:not(.filled)');
 
         if (!emptySlot && filledSlots.length > 0) {
+          // All slots full — replace last filled slot
           const targetSlot = filledSlots[filledSlots.length - 1];
-          const slotIdx = parseInt(targetSlot.dataset.slotIdx, 10);
-
-          replaceTeacherInSlot(slId, slotIdx, teacherId, teacherName, isBreak);
-
+          const slotIdx    = parseInt(targetSlot.dataset.slotIdx, 10);
+          // Preserve existing grade_class for break duties
+          const existingGradeClass = _getExistingGradeClass(slId, slotIdx);
+          replaceTeacherInSlot(slId, slotIdx, teacherId, teacherName, isBreak, existingGradeClass);
           evt.item.parentNode && evt.item.parentNode.removeChild(evt.item);
+          _refreshFillBar(slId);
           showToast(I18N.t('teacher_replaced') || 'Teacher replaced');
           return;
         }
 
         if (!emptySlot) {
-          showToast(
-            I18N.t('no_empty_slot') || 'No empty slot available',
-            'error'
-          );
+          showToast(I18N.t('no_empty_slot') || 'No empty slot available', 'error');
           evt.item.parentNode && evt.item.parentNode.removeChild(evt.item);
           return;
         }
 
         const slotIdx = parseInt(emptySlot.dataset.slotIdx, 10);
-        recordAssignment(slId, slotIdx, teacherId, null);
+        // Preserve the pre-seeded grade_class for break duties
+        const gradeClass = _getExistingGradeClass(slId, slotIdx);
+        recordAssignment(slId, slotIdx, teacherId, gradeClass);
 
         emptySlot.outerHTML = renderSlot(slId, slotIdx, {
-          teacher_id: teacherId,
+          teacher_id:   teacherId,
           teacher_name: teacherName,
-          slot_index: slotIdx,
-          grade_class: null,
+          slot_index:   slotIdx,
+          grade_class:  gradeClass,
         }, isBreak, true);
 
         evt.item.parentNode && evt.item.parentNode.removeChild(evt.item);
-      }
+        _refreshFillBar(slId);
+      },
     });
 
     list.dataset.sortableInit = 'true';
   });
+}
+
+/**
+ * Returns the pre-seeded grade_class for a break slot from currentWeekData.
+ * For non-break slots returns null.
+ */
+function _getExistingGradeClass(slId, slotIdx) {
+  const found = findShiftLocationInCurrentWeek(slId);
+  if (!found) return null;
+  const existing = found.sl.assignments?.find(a => a.slot_index === slotIdx);
+  return existing?.grade_class ?? null;
 }
 
 function recordAssignment(slId, slotIdx, teacherId, gradeClass) {
@@ -837,54 +808,56 @@ function recordAssignment(slId, slotIdx, teacherId, gradeClass) {
   pendingAssignments[slId][slotIdx] = { teacher_id: teacherId, grade_class: gradeClass };
 }
 
-function replaceTeacherInSlot(slId, slotIdx, teacherId, teacherName, isBreak) {
-  recordAssignment(slId, slotIdx, teacherId, null);
+function replaceTeacherInSlot(slId, slotIdx, teacherId, teacherName, isBreak, gradeClass = null) {
+  // Preserve existing grade_class if not explicitly passed
+  const resolvedGrade = gradeClass ?? _getExistingGradeClass(slId, slotIdx);
+  recordAssignment(slId, slotIdx, teacherId, resolvedGrade);
 
   const list = byId(`slots-${slId}`);
   if (!list) return;
-
   const slotEl = list.querySelector(`[data-slot-idx="${slotIdx}"]`);
   if (!slotEl) return;
-
   slotEl.outerHTML = renderSlot(slId, slotIdx, {
-    teacher_id: teacherId,
+    teacher_id:   teacherId,
     teacher_name: teacherName,
-    slot_index: slotIdx,
-    grade_class: null,
+    slot_index:   slotIdx,
+    grade_class:  resolvedGrade,
   }, isBreak, true);
 }
 
 function removeTeacher(slId, slotIdx) {
   const list = byId(`slots-${slId}`);
-  const col = list?.closest('.location-column');
-
+  const col  = list?.closest('.location-column');
   if (col?.dataset.editable !== 'true') {
     showToast(I18N.t('day_locked') || 'Past days cannot be edited', 'error');
     return;
   }
 
-  recordAssignment(slId, slotIdx, null, null);
+  // Preserve grade_class so the empty slot badge still shows the class
+  const gradeClass = _getExistingGradeClass(slId, slotIdx);
+  recordAssignment(slId, slotIdx, null, gradeClass);
 
   if (!list) return;
-
   const slotEl = list.querySelector(`[data-slot-idx="${slotIdx}"]`);
   if (slotEl) {
-    slotEl.outerHTML = renderSlot(slId, slotIdx, null, list.dataset.dutyType === 'break', true);
+    const isBreak = list.dataset.dutyType === 'break';
+    slotEl.outerHTML = renderSlot(slId, slotIdx, { grade_class: gradeClass }, isBreak, true);
+    _refreshFillBar(slId);
     showToast(I18N.t('teacher_removed') || 'Teacher removed', 'info');
   }
 }
 
-/* ─── Slot Count Control ──────────────────────────────────────────────────── */
+// ─── Slot Count Control ───────────────────────────────────────────────────────
 
 function changeSlots(dayDate, shiftId, locationId, delta) {
-  const day = currentWeekData.day_plans.find(d => d.date === dayDate);
+  const day = currentWeekData?.day_plans.find(d => d.date === dayDate);
   if (!day || !day.is_editable) {
     showToast(I18N.t('day_locked') || 'Past days cannot be edited', 'error');
     return;
   }
 
   const locId = locationId === 'null' ? null : locationId;
-  const key = `${dayDate}:${shiftId}:${locId}`;
+  const key   = `${dayDate}:${shiftId}:${locId}`;
 
   const selector = locId === null
     ? `[data-day="${dayDate}"][data-shift="${shiftId}"][data-loc=""]`
@@ -893,68 +866,40 @@ function changeSlots(dayDate, shiftId, locationId, delta) {
   const col = document.querySelector(selector);
   if (!col) return;
 
-  const slId = parseInt(col.dataset.slId, 10);
-  const countEl = byId(`slot-count-${slId}`);
+  const slId     = parseInt(col.dataset.slId, 10);
+  const countEl  = byId(`slot-count-${slId}`);
   if (!countEl) return;
 
-  const current = parseInt(countEl.textContent, 10) || 0;
+  const current  = parseInt(countEl.textContent, 10) || 0;
   const newCount = Math.max(0, current + delta);
   countEl.textContent = newCount;
 
   pendingSlots[key] = {
     dayDate,
-    shiftId: parseInt(shiftId, 10),
+    shiftId:    parseInt(shiftId, 10),
     locationId: locId ? parseInt(locId, 10) : null,
-    slotsCount: newCount
+    slotsCount: newCount,
   };
-
-  const list = byId(`slots-${slId}`);
-  if (!list) return;
-
-  const isBreak = list.dataset.dutyType === 'break';
-
-  if (delta > 0) {
-    const div = document.createElement('div');
-    div.innerHTML = renderSlot(slId, current, null, isBreak, true);
-    list.appendChild(div.firstChild);
-    initDragAndDrop();
-  } else if (delta < 0 && current > 0) {
-    const lastSlot = list.querySelector(`[data-slot-idx="${current - 1}"]`);
-    if (lastSlot) lastSlot.remove();
-  }
 }
 
-/* ─── Save / Publish / Clone ──────────────────────────────────────────────── */
-
-async function saveDraft() {
-  if (!currentWeekData) return;
-
-  showToast('Saving...', 'info');
-
-  try {
-    await flushPendingChanges();
-    showToast(I18N.t('success_saved') || 'Saved successfully');
-  } catch (err) {
-    console.error('saveDraft failed:', err);
-  }
-}
+// ─── Save / Publish ───────────────────────────────────────────────────────────
 
 async function flushPendingChanges() {
-  const weekStart = currentWeekData.week_start_date;
+  const weekStart = currentWeekData?.week_start_date;
+  if (!weekStart) return;
 
-  if (Object.keys(pendingSlots).length > 0) {
-    const updates = Object.values(pendingSlots).map(s => ({
-      day_date: s.dayDate,
-      shift_id: s.shiftId,
-      location_id: s.locationId,
-      slots_count: s.slotsCount
-    }));
-
+  // 1. Flush slot count changes
+  const slotUpdates = Object.values(pendingSlots);
+  if (slotUpdates.length > 0) {
     const res = await apiFetch(`/weeks/${weekStart}/shift-locations`, {
       method: 'PUT',
-      body: JSON.stringify(updates)
+      body: JSON.stringify(slotUpdates.map(u => ({
+        day_date:    u.dayDate,
+        shift_id:    u.shiftId,
+        location_id: u.locationId,
+        slots_count: u.slotsCount,
+      }))),
     });
-
     if (res && res.ok) {
       pendingSlots = {};
       currentWeekData = await res.json();
@@ -965,14 +910,15 @@ async function flushPendingChanges() {
     }
   }
 
+  // 2. Flush assignment changes
   const assignmentUpdates = [];
-  for (const [slId, slots] of Object.entries(pendingAssignments)) {
-    for (const [slotIdx, data] of Object.entries(slots)) {
+  for (const [slId, slotMap] of Object.entries(pendingAssignments)) {
+    for (const [slotIdx, data] of Object.entries(slotMap)) {
       assignmentUpdates.push({
         shift_location_id: parseInt(slId, 10),
-        slot_index: parseInt(slotIdx, 10),
-        teacher_id: data.teacher_id,
-        grade_class: data.grade_class || null,
+        slot_index:        parseInt(slotIdx, 10),
+        teacher_id:        data.teacher_id ?? null,
+        grade_class:       data.grade_class ?? null,
       });
     }
   }
@@ -980,9 +926,8 @@ async function flushPendingChanges() {
   if (assignmentUpdates.length > 0) {
     const res = await apiFetch(`/weeks/${weekStart}/assignments`, {
       method: 'PUT',
-      body: JSON.stringify(assignmentUpdates)
+      body: JSON.stringify(assignmentUpdates),
     });
-
     if (res && res.ok) {
       pendingAssignments = {};
       currentWeekData = await res.json();
@@ -996,19 +941,27 @@ async function flushPendingChanges() {
   renderWeek();
 }
 
+async function saveDraft() {
+  if (!currentWeekData) return;
+  try {
+    await flushPendingChanges();
+    showToast(I18N.t('success_saved'));
+  } catch (err) {
+    showToast(err.message || I18N.t('error_generic'), 'error');
+  }
+}
+
 async function publishWeek() {
   if (!currentWeekData) return;
   if (!confirm(I18N.t('confirm_publish'))) return;
 
   try {
     await flushPendingChanges();
-
     const weekStart = currentWeekData.week_start_date;
     const res = await apiFetch(`/weeks/${weekStart}/status`, {
       method: 'PUT',
-      body: JSON.stringify({ status: 'published' })
+      body: JSON.stringify({ status: 'published' }),
     });
-
     if (res && res.ok) {
       currentWeekData = await res.json();
       renderWeek();
@@ -1025,42 +978,31 @@ async function publishWeek() {
 
 async function publishDay(dayDate) {
   if (!currentWeekData) return;
-
   const publishBtn = byId(`publish-day-btn-${dayDate}`);
-  const originalBtnHtml = publishBtn ? publishBtn.outerHTML : null;
+  const originalText = publishBtn?.textContent;
 
   if (publishBtn) {
     publishBtn.disabled = true;
-    publishBtn.textContent = 'Publishing...';
+    publishBtn.textContent = I18N.t('publishing') || 'Publishing...';
   }
 
   try {
     await flushPendingChanges();
-
     const weekStart = currentWeekData.week_start_date;
-    const res = await apiFetch(
-      `/weeks/${weekStart}/publish-day?day_date=${dayDate}`,
-      { method: 'PUT' }
-    );
+    const res = await apiFetch(`/weeks/${weekStart}/publish-day?day_date=${dayDate}`, { method: 'PUT' });
 
     if (res && res.ok) {
       let data = null;
-      try {
-        data = await res.json();
-      } catch (_) {
-        data = null;
-      }
-
-      if (data && data.day_plans) {
+      try { data = await res.json(); } catch (_) {}
+      if (data?.day_plans) {
         currentWeekData = data;
       } else if (currentWeekData?.day_plans) {
-        currentWeekData.day_plans = currentWeekData.day_plans.map(day =>
-          day.date === dayDate ? { ...day, is_published: true } : day
+        currentWeekData.day_plans = currentWeekData.day_plans.map(d =>
+          d.date === dayDate ? { ...d, is_published: true } : d
         );
       }
-
       renderWeek();
-      showToast('Day published successfully', 'success');
+      showToast(I18N.t('success_day_published') || 'Day published successfully');
       return;
     }
 
@@ -1072,65 +1014,40 @@ async function publishDay(dayDate) {
     const currentBtn = byId(`publish-day-btn-${dayDate}`);
     if (currentBtn) {
       currentBtn.disabled = false;
-      currentBtn.textContent = 'Publish Day';
-    } else if (originalBtnHtml) {
-      const activePanelHeader = document.querySelector('.tab-panel.active .day-header-actions, .tab-panel.active [data-day-header-actions]');
-      if (activePanelHeader && !activePanelHeader.querySelector(`#publish-day-btn-${dayDate}`)) {
-        activePanelHeader.insertAdjacentHTML('beforeend', originalBtnHtml);
-      }
+      currentBtn.textContent = originalText || I18N.t('publish_day') || 'Publish Day';
     }
   }
 }
 
 async function createWeek() {
   const input = byId('weekStartInput');
-  const selected = input?.value;
-  if (!selected) return;
-
-  const weekStart = getWeekStartFromDate(selected);
-  setPlannerBusy(true, 'Creating week...');
+  if (!input?.value) return;
+  const weekStart = getWeekStartFromDate(input.value);
+  setPlannerBusy(true, I18N.t('creating_week') || 'Creating week...');
 
   try {
     const res = await apiFetch(`/weeks/${weekStart}/create`, { method: 'POST' });
-    if (!res) {
-      throw new Error('Failed to reach server');
-    }
+    if (!res) throw new Error('Failed to reach server');
 
     let data = null;
-    try {
-      data = await res.json();
-    } catch (_) {
-      data = null;
-    }
-
-    selectedDate = weekStart;
-    syncWeekInputWithSelectedDate();
-    pendingAssignments = {};
-    pendingSlots = {};
+    try { data = await res.json(); } catch (_) {}
 
     if (res.status === 409) {
-      setPlannerBusy(true, 'Loading existing week...');
+      selectedDate = weekStart; syncWeekInputWithSelectedDate();
+      pendingAssignments = {}; pendingSlots = {};
       await loadWeek();
-      showToast(data?.detail || data?.message || 'Week already exists, loaded successfully', 'info');
+      showToast(data?.detail || I18N.t('week_exists_loaded') || 'Week already exists, loaded successfully', 'info');
       return;
     }
 
-    if (!res.ok) {
-      throw new Error(data?.detail || data?.message || 'Failed to create week');
-    }
+    if (!res.ok) throw new Error(data?.detail || I18N.t('create_failed') || 'Failed to create week');
 
-    setPlannerBusy(true, 'Preparing shifts and slots...');
-    const visible = await pollUntilWeekVisible(weekStart, 8, 1200);
-
-    if (!visible) {
-      showToast(data?.message || 'Week created but still initializing. Please click Load Week.', 'warning');
-      return;
-    }
-
-    showToast(data?.message || 'Week created successfully', 'success');
+    selectedDate = weekStart; syncWeekInputWithSelectedDate();
+    pendingAssignments = {}; pendingSlots = {};
+    await loadWeek();
+    showToast(data?.message || I18N.t('success_created') || 'Week created successfully');
   } catch (err) {
-    console.error('createWeek failed:', err);
-    showToast(err.message || 'Failed to create week', 'error');
+    showToast(err.message || I18N.t('create_failed'), 'error');
   } finally {
     setPlannerBusy(false);
   }
@@ -1138,73 +1055,42 @@ async function createWeek() {
 
 async function cloneWeek() {
   const input = byId('weekStartInput');
-  const selected = input?.value;
-  if (!selected) return;
-
-  const weekStart = getWeekStartFromDate(selected);
-  setPlannerBusy(true, 'Cloning week...');
+  if (!input?.value) return;
+  const weekStart = getWeekStartFromDate(input.value);
+  setPlannerBusy(true, I18N.t('cloning_week') || 'Cloning week...');
 
   try {
     const res = await apiFetch(`/weeks/${weekStart}/clone`, { method: 'POST' });
-    if (!res) {
-      throw new Error('Failed to reach server');
-    }
+    if (!res) throw new Error('Failed to reach server');
 
     let data = null;
-    try {
-      data = await res.json();
-    } catch (_) {
-      data = null;
-    }
-
-    selectedDate = weekStart;
-    syncWeekInputWithSelectedDate();
-    pendingAssignments = {};
-    pendingSlots = {};
+    try { data = await res.json(); } catch (_) {}
 
     if (res.status === 409) {
-      setPlannerBusy(true, 'Loading existing week...');
+      selectedDate = weekStart; syncWeekInputWithSelectedDate();
+      pendingAssignments = {}; pendingSlots = {};
       await loadWeek();
-      showToast(data?.detail || data?.message || 'Week already exists, loaded successfully', 'info');
+      showToast(data?.detail || I18N.t('week_exists_loaded') || 'Week already exists, loaded successfully', 'info');
       return;
     }
 
-    if (!res.ok) {
-      throw new Error(data?.detail || data?.message || 'Clone failed');
-    }
+    if (!res.ok) throw new Error(data?.detail || I18N.t('clone_failed') || 'Clone failed');
 
-    setPlannerBusy(true, 'Preparing cloned shifts and slots...');
-    const visible = await pollUntilWeekVisible(weekStart, 8, 1200);
-
-    if (!visible) {
-      showToast(data?.message || 'Week cloned but still initializing. Please click Load Week.', 'warning');
-      return;
-    }
-
-    showToast(data?.message || I18N.t('success_cloned') || 'Week cloned successfully', 'success');
+    selectedDate = weekStart; syncWeekInputWithSelectedDate();
+    pendingAssignments = {}; pendingSlots = {};
+    await loadWeek();
+    showToast(data?.message || I18N.t('success_cloned') || 'Week cloned successfully');
   } catch (err) {
-    console.error('cloneWeek failed:', err);
-    showToast(err.message || 'Clone failed', 'error');
+    showToast(err.message || I18N.t('clone_failed'), 'error');
   } finally {
     setPlannerBusy(false);
   }
 }
 
-/* ─── Auto Init ───────────────────────────────────────────────────────────── */
+// ─── Auto Init ────────────────────────────────────────────────────────────────
 
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initPlanner);
 } else {
   initPlanner();
-}
-
-/* ─── Helpers ─────────────────────────────────────────────────────────────── */
-
-function escHtml(str) {
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
 }
