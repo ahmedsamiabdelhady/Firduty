@@ -9,9 +9,7 @@
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">
   <link rel="apple-touch-icon" sizes="192x192" href="favicon-192x192.png">
-  <link rel="stylesheet" href="css/style.css">
   <style>
-    /* ─── Report-specific styles ─────────────────────────────────────────── */
     .report-header {
       display: flex;
       align-items: center;
@@ -23,99 +21,43 @@
       box-shadow: var(--shadow);
       margin-bottom: 20px;
     }
-
-    .month-selector { display: flex; align-items: center; gap: 8px; }
-
+    .month-selector { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .summary-cards {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
       gap: 14px;
       margin-bottom: 20px;
     }
-
-    .summary-card {
-      background: var(--white);
-      border-radius: var(--radius);
-      padding: 16px 20px;
-      box-shadow: var(--shadow);
-      text-align: center;
-    }
-
-    .summary-card .card-value {
-      font-size: 2rem;
-      font-weight: 700;
-      color: var(--primary);
-    }
-
-    .summary-card .card-label {
-      font-size: 0.82rem;
-      color: var(--text-muted);
-      margin-top: 4px;
-    }
-
-    /* Leaderboard table */
-    .rank-badge {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 28px;
-      height: 28px;
-      border-radius: 50%;
-      font-weight: 700;
-      font-size: 0.85rem;
-    }
+    .summary-card { background: var(--white); border-radius: var(--radius); padding: 16px 20px; box-shadow: var(--shadow); text-align: center; }
+    .summary-card .card-value { font-size: 2rem; font-weight: 700; color: var(--primary); }
+    .summary-card .card-label { font-size: 0.82rem; color: var(--text-muted); margin-top: 4px; }
+    .rank-badge { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; font-weight: 700; font-size: 0.85rem; }
     .rank-1 { background: #ffd700; color: #333; }
     .rank-2 { background: #c0c0c0; color: #333; }
     .rank-3 { background: #cd7f32; color: #fff; }
-    .rank-other { background: var(--secondary); color: var(--text-muted); }
-
+    .rank-other { background: var(--border); color: var(--text-muted); }
     .points-bar-wrap { width: 120px; }
-    .points-bar {
-      height: 8px;
-      border-radius: 4px;
-      background: #e9ecef;
-      overflow: hidden;
-    }
+    .points-bar { height: 8px; border-radius: 4px; background: #e9ecef; overflow: hidden; }
     .points-bar-fill { height: 100%; background: var(--primary); border-radius: 4px; transition: width 0.4s; }
-
-    .pill {
-      display: inline-block;
-      padding: 3px 9px;
-      border-radius: 12px;
-      font-size: 0.78rem;
-      font-weight: 600;
-    }
+    .pill { display: inline-block; padding: 3px 9px; border-radius: 12px; font-size: 0.78rem; font-weight: 600; }
     .pill-green  { background: #d4edda; color: #155724; }
     .pill-yellow { background: #fff3cd; color: #856404; }
     .pill-gray   { background: #f0f0f0; color: #888; }
-
-    /* Drill-down modal */
     .detail-table th, .detail-table td { font-size: 0.85rem; }
-
-    /* Nav link back */
-    .nav-back {
-      color: rgba(255,255,255,0.85);
-      text-decoration: none;
-      font-size: 0.9rem;
-    }
-    .nav-back:hover { color: #fff; text-decoration: underline; }
   </style>
 </head>
 <body>
 
-<!-- ─── Header ──────────────────────────────────────────────────────────────── -->
 <header class="app-header">
-  <div style="display:flex;align-items:center;gap:16px">
-    <a href="planner.html" class="nav-back">← <span data-i18n="week_planner">Week Planner</span></a>
-    <h1 data-i18n="monthly_report">Monthly Points Report</h1>
-  </div>
+  <h1><img src="logo.png" alt="Firduty" class="header-logo">Firduty</h1>
   <div class="header-actions">
     <button class="btn btn-lang btn-sm" onclick="I18N.toggle().then(()=>location.reload())">عربي | EN</button>
     <button class="btn btn-lang btn-sm" onclick="logout()" data-i18n="logout">Logout</button>
   </div>
 </header>
 
-<!-- ─── Main ─────────────────────────────────────────────────────────────────── -->
+<nav class="main-nav" id="mainNav" aria-label="Main navigation"></nav>
+
 <main class="main-content">
 
   <!-- Controls -->
@@ -127,7 +69,7 @@
       <select id="monthInput" style="width:140px"></select>
       <button class="btn btn-primary btn-sm" onclick="loadReport()" data-i18n="load_report">Load</button>
     </div>
-    <div style="margin-inline-start:auto;display:flex;gap:8px">
+    <div style="margin-inline-start:auto;display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn btn-secondary btn-sm" onclick="exportCSV()" data-i18n="export_csv">⬇ Export CSV</button>
       <button class="btn btn-secondary btn-sm" onclick="rebuildCache()" data-i18n="rebuild_cache">↺ Rebuild Cache</button>
     </div>
@@ -153,7 +95,7 @@
     </div>
   </div>
 
-  <!-- Leaderboard Table -->
+  <!-- Leaderboard -->
   <div id="reportContainer" style="display:none">
     <div style="background:var(--white);border-radius:var(--radius);box-shadow:var(--shadow);overflow:auto">
       <table class="data-table" id="reportTable">
@@ -175,14 +117,13 @@
     </div>
   </div>
 
-  <!-- Empty state -->
   <p id="noDataMsg" style="display:none;color:#999;text-align:center;margin-top:48px" data-i18n="no_report_data">
     No data found for the selected month.
   </p>
 
 </main>
 
-<!-- ─── Detail Drill-down Modal ─────────────────────────────────────────────── -->
+<!-- Detail Modal -->
 <div class="modal-overlay hidden" id="detailModal">
   <div class="modal" style="max-width:700px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
@@ -214,32 +155,13 @@
   </div>
 </div>
 
-<!-- Toast -->
 <div class="toast-container" id="toastContainer"></div>
 
-<script src="js/i18n.js"></script>
+<!-- Scripts — same order as every other page -->
+<script src="js/auth.js?v=101"></script>
+<script src="js/i18n.js?v=101"></script>
+<script src="js/nav.js?v=101"></script>
 <script>
-/* ─── Auth ──────────────────────────────────────────────────────────────────── */
-const API = (localStorage.getItem('firduty_api') || 'https://naval-donnamarie-firduty-6e288803.koyeb.app/').replace(/\/$/, '');
-const TOKEN = () => localStorage.getItem('firduty_token');
-
-if (!TOKEN()) window.location.href = 'login.html';
-
-function authHeaders() {
-  return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${TOKEN()}` };
-}
-function logout() { localStorage.removeItem('firduty_token'); window.location.href = 'login.html'; }
-
-/* ─── Toast ─────────────────────────────────────────────────────────────────── */
-function showToast(msg, type = 'success') {
-  const c = document.getElementById('toastContainer');
-  const t = document.createElement('div');
-  t.className = `toast toast-${type}`;
-  t.textContent = msg;
-  c.appendChild(t);
-  setTimeout(() => t.remove(), 3500);
-}
-
 /* ─── Month Names ──────────────────────────────────────────────────────────── */
 const MONTHS_EN = ['January','February','March','April','May','June',
                    'July','August','September','October','November','December'];
@@ -260,13 +182,14 @@ function populateMonths() {
 
 /* ─── Init ──────────────────────────────────────────────────────────────────── */
 let reportData = null;
-let maxPoints = 0;
+let maxPoints  = 0;
 
 async function init() {
   await I18N.load(localStorage.getItem('firduty_lang') || 'ar');
+  initNav();
   populateMonths();
   const now = new Date();
-  document.getElementById('yearInput').value = now.getFullYear();
+  document.getElementById('yearInput').value  = now.getFullYear();
   document.getElementById('monthInput').value = now.getMonth() + 1;
   await loadReport();
 }
@@ -275,16 +198,12 @@ async function init() {
 async function loadReport() {
   const year  = document.getElementById('yearInput').value;
   const month = document.getElementById('monthInput').value;
-
   document.getElementById('reportContainer').style.display = 'none';
-  document.getElementById('summaryCards').style.display = 'none';
-  document.getElementById('noDataMsg').style.display = 'none';
+  document.getElementById('summaryCards').style.display    = 'none';
+  document.getElementById('noDataMsg').style.display       = 'none';
 
-  const res = await fetch(`${API}/admin/reports/monthly-points?year=${year}&month=${month}`, {
-    headers: authHeaders()
-  });
-
-  if (!res.ok) { showToast(I18N.t('error_generic'), 'error'); return; }
+  const res = await apiFetch(`/admin/reports/monthly-points?year=${year}&month=${month}`);
+  if (!res || !res.ok) { showToast(I18N.t('error_generic'), 'error'); return; }
 
   const data = await res.json();
   reportData = data;
@@ -295,11 +214,9 @@ async function loadReport() {
   }
 
   maxPoints = Math.max(...data.teachers.map(t => t.total_points), 1);
-
   renderSummaryCards(data);
   renderTable(data.teachers);
-
-  document.getElementById('summaryCards').style.display = 'grid';
+  document.getElementById('summaryCards').style.display    = 'grid';
   document.getElementById('reportContainer').style.display = 'block';
 }
 
@@ -307,7 +224,6 @@ async function loadReport() {
 function renderSummaryCards(data) {
   const total = data.teachers.reduce((s, t) => s + t.total_points, 0);
   const avg   = data.teachers.length ? Math.round(total / data.teachers.length) : 0;
-
   document.getElementById('totalTeachers').textContent      = data.total_teachers;
   document.getElementById('totalConfirmations').textContent = data.total_confirmations;
   document.getElementById('totalPoints').textContent        = total;
@@ -318,12 +234,10 @@ function renderSummaryCards(data) {
 function renderTable(teachers) {
   const tbody = document.getElementById('reportBody');
   tbody.innerHTML = '';
-
   teachers.forEach((t, idx) => {
     const rank      = idx + 1;
     const rankClass = rank <= 3 ? `rank-${rank}` : 'rank-other';
     const barPct    = maxPoints > 0 ? Math.round((t.total_points / maxPoints) * 100) : 0;
-
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td><span class="rank-badge ${rankClass}">${rank}</span></td>
@@ -335,17 +249,11 @@ function renderTable(teachers) {
       <td><span class="pill pill-gray">${t.no_points}</span></td>
       <td>
         <div class="points-bar-wrap">
-          <div class="points-bar">
-            <div class="points-bar-fill" style="width:${barPct}%"></div>
-          </div>
+          <div class="points-bar"><div class="points-bar-fill" style="width:${barPct}%"></div></div>
           <small style="color:var(--text-muted)">${barPct}%</small>
         </div>
       </td>
-      <td>
-        <button class="btn btn-secondary btn-sm" onclick="openDetail(${t.teacher_id},'${t.teacher_name}')">
-          ${I18N.t('details')}
-        </button>
-      </td>
+      <td><button class="btn btn-secondary btn-sm" onclick="openDetail(${t.teacher_id},'${t.teacher_name}')">${I18N.t('details')}</button></td>
     `;
     tbody.appendChild(tr);
   });
@@ -355,7 +263,7 @@ function renderTable(teachers) {
 async function openDetail(teacherId, teacherName) {
   const year  = document.getElementById('yearInput').value;
   const month = document.getElementById('monthInput').value;
-  const lang  = I18N.getLang();
+  const isAr  = I18N.getLang() === 'ar';
 
   document.getElementById('detailModal').classList.remove('hidden');
   document.getElementById('modalTitle').textContent = teacherName;
@@ -363,31 +271,23 @@ async function openDetail(teacherId, teacherName) {
     `<tr><td colspan="6" style="text-align:center">${I18N.t('loading')}</td></tr>`;
   document.getElementById('noDetailMsg').style.display = 'none';
 
-  const res = await fetch(
-    `${API}/admin/reports/monthly-points/${teacherId}?year=${year}&month=${month}`,
-    { headers: authHeaders() }
-  );
-
-  if (!res.ok) { showToast(I18N.t('error_generic'), 'error'); closeModal(); return; }
+  const res = await apiFetch(`/admin/reports/monthly-points/${teacherId}?year=${year}&month=${month}`);
+  if (!res || !res.ok) { showToast(I18N.t('error_generic'), 'error'); closeModal(); return; }
 
   const data = await res.json();
-
   document.getElementById('modalSummary').textContent =
     `${I18N.t('total_points')}: ${data.total_points} | ${I18N.t('confirmations')}: ${data.duties.length}`;
 
   const tbody = document.getElementById('detailBody');
   tbody.innerHTML = '';
-
   if (!data.duties.length) {
     document.getElementById('noDetailMsg').style.display = 'block';
     return;
   }
-
   data.duties.forEach(d => {
-    const locName   = lang === 'ar' ? d.location_name_ar : d.location_name_en;
-    const shiftName = lang === 'ar' ? d.shift_name_ar    : d.shift_name_en;
+    const locName   = isAr ? d.location_name_ar   : d.location_name_en;
+    const shiftName = isAr ? d.shift_name_ar       : d.shift_name_en;
     const ptClass   = d.points_earned === 2 ? 'pill-green' : d.points_earned === 1 ? 'pill-yellow' : 'pill-gray';
-
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${d.date}</td>
@@ -404,32 +304,21 @@ async function openDetail(teacherId, teacherName) {
 function closeModal() {
   document.getElementById('detailModal').classList.add('hidden');
 }
-
 document.getElementById('detailModal').addEventListener('click', function(e) {
   if (e.target === this) closeModal();
 });
 
 /* ─── Export CSV ────────────────────────────────────────────────────────────── */
-/**
- * Download CSV using fetch + Blob so the JWT Authorization header is included.
- * window.location.href cannot send custom headers and would get a 401.
- */
 async function exportCSV() {
   const year  = document.getElementById('yearInput').value;
   const month = document.getElementById('monthInput').value;
-
-  const res = await fetch(
-    `${API}/admin/reports/monthly-points/export/csv?year=${year}&month=${month}`,
-    { headers: authHeaders() }
-  );
-
-  if (!res.ok) { showToast(I18N.t('error_generic'), 'error'); return; }
-
+  const res = await apiFetch(`/admin/reports/monthly-points/export/csv?year=${year}&month=${month}`);
+  if (!res || !res.ok) { showToast(I18N.t('error_generic'), 'error'); return; }
   const blob = await res.blob();
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
-  a.href     = url;
-  a.download = `firduty_points_${year}_${String(month).padStart(2, '0')}.csv`;
+  a.href = url;
+  a.download = `firduty_points_${year}_${String(month).padStart(2,'0')}.csv`;
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -440,18 +329,20 @@ async function exportCSV() {
 async function rebuildCache() {
   const year  = document.getElementById('yearInput').value;
   const month = document.getElementById('monthInput').value;
+  const res = await apiFetch(`/admin/reports/monthly-points/rebuild?year=${year}&month=${month}`, { method: 'POST' });
+  if (res && res.ok) { showToast(I18N.t('success_saved')); await loadReport(); }
+  else showToast(I18N.t('error_generic'), 'error');
+}
 
-  const res = await fetch(
-    `${API}/admin/reports/monthly-points/rebuild?year=${year}&month=${month}`,
-    { method: 'POST', headers: authHeaders() }
-  );
-
-  if (res.ok) {
-    showToast(I18N.t('success_saved'));
-    await loadReport();
-  } else {
-    showToast(I18N.t('error_generic'), 'error');
-  }
+/* ─── Toast (uses global from auth.js scope isn't available — define locally) */
+function showToast(msg, type = 'success') {
+  const c = document.getElementById('toastContainer');
+  if (!c) return;
+  const t = document.createElement('div');
+  t.className = `toast toast-${type}`;
+  t.textContent = msg;
+  c.appendChild(t);
+  setTimeout(() => t.remove(), 3500);
 }
 
 /* ─── Bootstrap ─────────────────────────────────────────────────────────────── */

@@ -74,7 +74,7 @@
 <body>
 
 <header class="app-header">
-  <h1 data-i18n="app_title">Firduty</h1>
+  <h1><img src="logo.png" alt="Firduty" class="header-logo">Firduty</h1>
   <div class="header-actions">
     <button class="btn btn-lang btn-sm" onclick="I18N.toggle().then(()=>location.reload())">عربي | EN</button>
     <button class="btn btn-lang btn-sm" onclick="logout()" data-i18n="logout">Logout</button>
@@ -149,5 +149,12 @@
 <script src="js/auth.js?v=101"></script>
 <script src="js/nav.js?v=101"></script>
 <script src="js/planner.js?v=101"></script>
+<script>
+  // initPlanner() (defined in planner.js) calls guardPage() + loads data.
+  // initNav() is called after I18N loads so tab labels are translated.
+  I18N.load(localStorage.getItem('firduty_lang') || 'ar').then(() => {
+    initNav();
+  });
+</script>
 </body>
 </html>

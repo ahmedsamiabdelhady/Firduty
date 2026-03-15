@@ -1,67 +1,66 @@
 /**
  * nav.js — Shared navigation bar for all Firduty admin pages.
  *
- * Injects a unified tab bar with icons, active state, and a live
- * pending-teachers badge. Call initNav() once on each page.
+ * Injects a unified <nav class="main-nav"> into #mainNav on every page.
+ * Call initNav() after I18N has loaded so labels are translated.
  *
- * Determines the active tab from window.location.pathname.
+ * Also applies RTL direction from stored language preference immediately,
+ * before I18N loads, to prevent layout flash.
  */
 
 const NAV_PAGES = [
-  { href: 'dashboard.html', icon: '📊', key: 'dashboard',       label: 'Dashboard' },
-  { href: 'planner.html',   icon: '📅', key: 'week_planner',    label: 'Week Planner' },
-  { href: 'reports.html',   icon: '🏆', key: 'monthly_report',  label: 'Report' },
-  { href: 'teachers.html',  icon: '👥', key: 'teacher_approval', label: 'Teachers', badge: 'pendingTeachers' },
+  { href: 'dashboard.html', icon: '📊', key: 'dashboard',        fallback: 'Dashboard'     },
+  { href: 'planner.html',   icon: '📅', key: 'week_planner',     fallback: 'Week Planner'  },
+  { href: 'reports.html',   icon: '🏆', key: 'monthly_report',   fallback: 'Report'        },
+  { href: 'teachers.html',  icon: '👥', key: 'teacher_approval', fallback: 'Teachers', badge: true },
 ];
 
-// Cached pending count — refreshed once per page load
-let _pendingCount = 0;
+// Apply RTL immediately from stored preference (before I18N loads)
+(function applyDirEarly() {
+  const lang = localStorage.getItem('firduty_lang') || 'ar';
+  document.documentElement.lang = lang;
+  document.documentElement.dir  = lang === 'ar' ? 'rtl' : 'ltr';
+})();
 
-async function initNav() {
+function initNav() {
   _renderNav();
-  // Load pending count in background — non-blocking
-  _loadPendingCount();
+  _loadPendingBadge();
 }
 
 function _renderNav() {
+  const bar = document.getElementById('mainNav');
+  if (!bar) return;
+
+  // Detect active page by filename
   const current = window.location.pathname.split('/').pop() || 'dashboard.html';
 
-  const html = NAV_PAGES.map(p => {
-    const active = current === p.href || (current === '' && p.href === 'dashboard.html');
-    const badgeHtml = p.badge === 'pendingTeachers' && _pendingCount > 0
-      ? `<span class="nav-badge" id="navBadgePending">${_pendingCount}</span>`
-      : `<span class="nav-badge" id="navBadgePending" style="display:none">0</span>`;
+  bar.innerHTML = NAV_PAGES.map(p => {
+    const active = current === p.href;
+    const label  = (typeof I18N !== 'undefined' ? I18N.t(p.key) : '') || p.fallback;
 
     return `
       <a href="${p.href}"
          class="nav-tab${active ? ' nav-tab-active' : ''}"
-         data-i18n="${p.key}"
          aria-current="${active ? 'page' : ''}">
-        <span class="nav-tab-icon">${p.icon}</span>
-        <span class="nav-tab-label">${I18N.t(p.key) || p.label}</span>
-        ${p.badge ? badgeHtml : ''}
-      </a>
-    `;
+        <span class="nav-tab-icon" aria-hidden="true">${p.icon}</span>
+        <span class="nav-tab-label">${label}</span>
+        ${p.badge ? `<span class="nav-badge" id="navBadgePending" style="display:none">0</span>` : ''}
+      </a>`;
   }).join('');
-
-  const bar = document.getElementById('mainNav');
-  if (bar) bar.innerHTML = html;
 }
 
-async function _loadPendingCount() {
+async function _loadPendingBadge() {
+  // Only show badge on Teachers page or fetch count on all pages
   try {
+    if (typeof apiFetch !== 'function') return;
     const res = await apiFetch('/teachers/pending');
     if (!res || !res.ok) return;
     const data = await res.json();
-    _pendingCount = Array.isArray(data) ? data.length : 0;
-
-    // Update badge in-place without re-rendering the whole nav
+    const count = Array.isArray(data) ? data.length : 0;
     const badge = document.getElementById('navBadgePending');
-    if (badge) {
-      badge.textContent = _pendingCount;
-      badge.style.display = _pendingCount > 0 ? 'inline-flex' : 'none';
+    if (badge && count > 0) {
+      badge.textContent = count > 99 ? '99+' : count;
+      badge.style.display = 'inline-flex';
     }
-  } catch (_) {
-    // Non-critical — badge simply stays hidden
-  }
+  } catch (_) { /* non-critical */ }
 }
