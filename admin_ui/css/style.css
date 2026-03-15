@@ -83,30 +83,106 @@ body {
 .main-content { max-width: 1400px; margin: 0 auto; padding: 24px 16px; }
 
 /* ─── Navigation bar ─────────────────────────────────────────────────────── */
-.nav-bar {
-  background: var(--nav);
+/*
+ * Replaced the old .nav-bar (dark-background link row) with .main-nav —
+ * a white tab bar that lives below the header with a bottom-border indicator.
+ * Used on all four admin pages via nav.js.
+ */
+.main-nav {
+  background: var(--white);
+  border-bottom: 2px solid var(--border);
   display: flex;
-  gap: 2px;
-  padding: 0 24px;
+  align-items: stretch;
+  padding: 0 20px;
+  gap: 0;
+  box-shadow: 0 1px 4px rgba(31,45,58,0.06);
 }
 
-.nav-btn {
-  padding: 10px 20px;
-  color: rgba(255,255,255,0.8);
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 0.9rem;
-  font-weight: 500;
-  border-bottom: 3px solid transparent;
-  transition: color 0.2s, border-color 0.2s, background 0.2s;
-  text-decoration: none;
+.nav-tab {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  padding: 12px 18px;
+  text-decoration: none;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  font-weight: 500;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -2px;
+  transition: color 0.18s, border-color 0.18s, background 0.18s;
+  position: relative;
+  white-space: nowrap;
 }
-.nav-btn:hover  { color: var(--white); background: rgba(255,255,255,0.1); }
-.nav-btn.active { color: var(--white); border-bottom-color: var(--primary-light); }
+.nav-tab:hover {
+  color: var(--nav);
+  background: rgba(46,125,167,0.05);
+}
+.nav-tab-active {
+  color: var(--nav);
+  border-bottom-color: var(--nav);
+  font-weight: 600;
+}
+.nav-tab-icon { font-size: 1rem; line-height: 1; }
+
+/* Pending count badge on Teachers tab */
+.nav-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--danger);
+  color: #fff;
+  border-radius: 999px;
+  min-width: 18px;
+  height: 18px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0 5px;
+  margin-inline-start: 2px;
+}
+
+@media (max-width: 560px) {
+  .nav-tab { padding: 10px 12px; font-size: 0.8rem; }
+  .nav-tab-icon { display: none; }
+}
+
+/* ─── Skeleton loading cards ─────────────────────────────────────────────── */
+@keyframes skelPulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.45; }
+}
+.skel {
+  background: var(--border);
+  border-radius: 6px;
+  animation: skelPulse 1.4s ease-in-out infinite;
+}
+.skel-val  { height: 36px; width: 60%; margin-bottom: 10px; }
+.skel-lbl  { height: 14px; width: 80%; }
+.skel-title { height: 20px; width: 55%; margin-bottom: 16px; }
+.skel-row  { height: 14px; width: 100%; margin-bottom: 10px; }
+.skel-row:last-child { width: 75%; }
+
+/* ─── Dashboard helpers ──────────────────────────────────────────────────── */
+.section-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--nav);
+  margin-bottom: 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.chart-label {
+  font-size: 0.88rem;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+  font-weight: 500;
+}
+.warn-card { border-left: 4px solid var(--warning); }
+.stat-card-sm { padding: 12px 14px; }
+.stat-card-sm .stat-value { font-size: 1.5rem; }
+.dash-grid-4 { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 640px) { .dash-grid-4 { grid-template-columns: repeat(2, 1fr); } }
+
+.header-logo { height: 30px; width: 30px; object-fit: contain; border-radius: 6px; }
 
 /* ─── Login Page ─────────────────────────────────────────────────────────── */
 .login-wrapper {
