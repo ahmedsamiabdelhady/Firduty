@@ -5,21 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Firduty — Week Planner</title>
 
-  <!-- Favicons -->
   <link rel="icon" type="image/x-icon" href="favicon.ico">
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">
   <link rel="apple-touch-icon" sizes="192x192" href="favicon-192x192.png">
 
   <link rel="stylesheet" href="css/style.css">
-
-  <!-- SortableJS for drag-and-drop -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
 
   <style>
-    /* ── Planner busy overlay ─────────────────────────────────────────── */
     .planner-main { position: relative; }
-
     .planner-busy-overlay {
       position: absolute;
       inset: 0;
@@ -84,10 +79,6 @@
 <nav class="main-nav" id="mainNav" aria-label="Main navigation"></nav>
 
 <main class="main-content">
-
-
-
-  <!-- Week Controls -->
   <div class="week-controls">
     <label data-i18n="select_week">Select Week:</label>
     <input type="date" id="weekStartInput" onchange="onWeekSelected ? onWeekSelected() : loadWeek()">
@@ -97,21 +88,19 @@
     <span id="weekVersionBadge" style="font-size:0.8rem;color:#6c757d"></span>
 
     <div style="margin-inline-start:auto;display:flex;gap:8px;flex-wrap:wrap">
-      <button class="btn btn-secondary btn-sm" onclick="createWeek()"  data-i18n="create_week">Create Week</button>
-      <button class="btn btn-secondary btn-sm" onclick="cloneWeek()"   data-i18n="clone_last_week">Clone</button>
-      <button class="btn btn-warning   btn-sm" onclick="saveDraft()"   data-i18n="save_draft">Save Draft</button>
-      <button class="btn btn-success   btn-sm" onclick="publishWeek()" data-i18n="publish_week">Publish</button>
+      <button class="btn btn-secondary btn-sm" onclick="createWeek()" data-i18n="create_week">Create Week</button>
+      <button class="btn btn-secondary btn-sm" onclick="cloneWeek()" data-i18n="clone_last_week">Clone</button>
+      <button class="btn btn-warning btn-sm" onclick="saveDraft()" data-i18n="save_draft">Save Draft</button>
+      <button class="btn btn-success btn-sm" onclick="publishWeek()" data-i18n="publish_week">Publish</button>
     </div>
   </div>
 
-  <!-- Planner Layout -->
   <div class="planner-layout">
-
     <aside class="sidebar" id="teachersSidebar">
       <div class="teacher-panel-header">
         <div>
           <h3 data-i18n="teachers">Teachers</h3>
-          <p class="teacher-panel-subtitle" id="teacherPanelSubtitle">Search and drag teachers into slots.</p>
+          <p class="teacher-panel-subtitle">Search and drag teachers into slots.</p>
         </div>
       </div>
       <div class="teacher-search-wrap">
@@ -147,41 +136,33 @@
         </p>
       </div>
     </div>
-
   </div>
 </main>
 
-<button class="mobile-teacher-toggle" id="mobileTeacherToggle" type="button" aria-expanded="false">
-  <span class="mobile-teacher-toggle-label" id="mobileTeacherToggleLabel">Teachers</span>
-  <span class="mobile-teacher-toggle-count" id="mobileTeacherCount">0</span>
-</button>
-
+<div class="mobile-teacher-sheet-backdrop" id="mobileTeacherSheetBackdrop"></div>
 <div class="mobile-teacher-sheet" id="mobileTeacherSheet" aria-hidden="true">
   <div class="mobile-teacher-sheet-handle"></div>
   <div class="mobile-teacher-sheet-header">
     <div>
-      <h3 data-i18n="teachers">Teachers</h3>
-      <p class="mobile-teacher-sheet-subtitle" id="mobileTeacherSheetSubtitle">Tap a teacher, then tap a slot.</p>
+      <h3 id="mobileTeacherSheetTitle" data-i18n="teachers">Teachers <span class="mobile-teacher-toggle-count" id="mobileTeacherCount">0</span></h3>
+      <p class="mobile-teacher-sheet-subtitle" id="mobileTeacherSheetSubtitle">Tap a slot to choose a teacher.</p>
     </div>
     <button class="btn btn-secondary btn-sm" id="mobileTeacherClose" type="button">Close</button>
   </div>
   <div class="teacher-search-wrap mobile-teacher-search-wrap">
-    <input type="search" id="mobileTeacherSearchInput" class="teacher-search-input" placeholder="Search teachers..." autocomplete="off">
+    <input type="search" id="mobileTeacherSearchInput" class="teacher-search-input" placeholder="Search teacher..." autocomplete="off">
   </div>
   <div class="mobile-selected-hint" id="mobileSelectedHint" style="display:none"></div>
   <div class="teacher-list teacher-list-mobile" id="mobileTeacherList"></div>
 </div>
-
 
 <div class="toast-container" id="toastContainer"></div>
 
 <script src="js/i18n.js?v=101"></script>
 <script src="js/auth.js?v=101"></script>
 <script src="js/nav.js?v=101"></script>
-<script src="js/planner.js?v=108"></script>
+<script src="js/planner.js?v=109"></script>
 <script>
-  // initPlanner() (defined in planner.js) calls guardPage() + loads data.
-  // initNav() is called after I18N loads so tab labels are translated.
   I18N.load(localStorage.getItem('firduty_lang') || 'ar').then(() => {
     initNav();
   });

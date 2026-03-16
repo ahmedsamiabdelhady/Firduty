@@ -11,203 +11,72 @@
   <link rel="apple-touch-icon" sizes="192x192" href="favicon-192x192.png">
 
   <style>
-    .teachers-header {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 16px;
-      flex-wrap: wrap;
-      margin-bottom: 18px;
-    }
-
-    .teachers-title-wrap h2 {
-      margin: 0 0 6px;
-      color: var(--text);
-      font-size: 1.2rem;
-    }
-
-    .teachers-subtitle {
-      margin: 0;
-      color: var(--text-muted);
-      font-size: 0.92rem;
-    }
-
-    .teachers-header-actions {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
-
-    .teachers-summary {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-      gap: 14px;
-      margin-bottom: 18px;
-    }
-
-    .summary-card {
-      background: var(--white);
-      border-radius: var(--radius-lg);
-      box-shadow: var(--shadow);
-      padding: 16px;
-      border: 1px solid var(--border);
-    }
-
-    .summary-card-label {
-      font-size: 0.84rem;
-      color: var(--text-muted);
-      margin-bottom: 8px;
-    }
-
-    .summary-card-value {
-      font-size: 1.5rem;
-      font-weight: 800;
-      color: var(--text);
-      line-height: 1;
-    }
-
-    .teachers-panel {
-      background: var(--white);
-      border-radius: var(--radius-lg);
-      box-shadow: var(--shadow);
-      border: 1px solid var(--border);
-      overflow: hidden;
-    }
-
-    .teachers-panel-topbar {
+    .teachers-page-head {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 12px;
+      margin-bottom: 16px;
       flex-wrap: wrap;
+    }
+    .teachers-page-head h2 {
+      margin: 0;
+      color: var(--text);
+      font-size: 1.15rem;
+    }
+    .teachers-page-subtitle {
+      margin: 4px 0 0;
+      color: var(--text-muted);
+      font-size: 0.9rem;
+    }
+    .teachers-toolbar-card {
+      background: var(--white);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
       padding: 16px;
-      border-bottom: 1px solid var(--border);
-      background: #fbfcff;
+      margin-bottom: 16px;
+      border: 1px solid var(--border);
     }
-
-    .teachers-tools {
+    .tabs {
       display: flex;
-      align-items: center;
-      gap: 10px;
+      gap: 8px;
+      margin-bottom: 14px;
+      border-bottom: none;
       flex-wrap: wrap;
-      min-width: min(100%, 340px);
     }
-
-    .teachers-search {
-      min-width: 260px;
-      flex: 1 1 280px;
-      position: relative;
-    }
-
-    .teachers-search input {
-      width: 100%;
-      padding: 11px 14px;
-      border-radius: 12px;
+    .tab-btn {
       border: 1px solid var(--border);
       background: var(--white);
-      outline: none;
-      font-size: 0.94rem;
+      border-radius: 999px;
+      padding: 10px 14px;
+      color: var(--text);
+      font-weight: 700;
+      margin-bottom: 0;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
     }
-
-    .teachers-search input:focus,
-    .inline-input:focus,
-    .inline-select:focus,
-    .modal-body input:focus,
-    .modal-body select:focus {
-      border-color: var(--nav-light);
-      box-shadow: 0 0 0 3px rgba(79,161,204,0.16);
+    .tab-btn.active {
+      background: var(--nav);
+      color: var(--white);
+      border-color: var(--nav);
     }
-
-    .tab-count {
+    .tab-badge {
       min-width: 22px;
       height: 22px;
-      padding: 0 7px;
       border-radius: 999px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      background: rgba(46,125,167,0.12);
-      color: var(--nav);
-      font-size: 0.78rem;
+      padding: 0 7px;
+      font-size: 0.76rem;
       font-weight: 800;
-      margin-inline-start: 4px;
+      background: rgba(255,255,255,0.18);
     }
-
-    .tab-btn.active .tab-count {
-      background: rgba(46,125,167,0.12);
+    .tab-btn:not(.active) .tab-badge {
+      background: #eef6fb;
       color: var(--nav);
     }
-
-    .teachers-section {
-      padding: 16px;
-    }
-
-    .teachers-section-note {
-      margin: 0 0 14px;
-      font-size: 0.88rem;
-      color: var(--text-muted);
-    }
-
-    .table-wrap {
-      overflow-x: auto;
-    }
-
-    .teacher-table {
-      width: 100%;
-      border-collapse: collapse;
-      background: var(--white);
-    }
-
-    .teacher-table th {
-      background: var(--nav);
-      color: var(--white);
-      padding: 13px 14px;
-      text-align: start;
-      font-weight: 700;
-      font-size: 0.86rem;
-      white-space: nowrap;
-      text-transform: none;
-      letter-spacing: 0;
-      border-bottom: none;
-    }
-
-    .teacher-table td {
-      padding: 13px 14px;
-      border-bottom: 1px solid var(--border);
-      font-size: 0.93rem;
-      vertical-align: middle;
-    }
-
-    .teacher-table tr:last-child td {
-      border-bottom: none;
-    }
-
-    .teacher-table tr:hover td {
-      background: #f8fbff;
-    }
-
-    .teacher-row-editing td {
-      background: #f7fbfe;
-    }
-
-    .teacher-name {
-      font-weight: 700;
-      color: var(--text);
-    }
-
-    .teacher-email {
-      color: var(--text-muted);
-      word-break: break-word;
-    }
-
-    .teacher-actions {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-
     .badge {
       display: inline-flex;
       align-items: center;
@@ -215,193 +84,59 @@
       padding: 5px 10px;
       border-radius: 999px;
       font-size: 0.78rem;
-      font-weight: 800;
-      white-space: nowrap;
-    }
-
-    .badge-pending {
-      background: #fff3cd;
-      color: #856404;
-    }
-
-    .badge-approved {
-      background: #d1e7dd;
-      color: #0a5c36;
-    }
-
-    .lang-chip {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      padding: 5px 10px;
-      border-radius: 999px;
-      background: #eef6fb;
-      color: var(--nav);
-      font-size: 0.78rem;
       font-weight: 700;
     }
-
-    .inline-input,
-    .inline-select {
+    .badge-pending  { background: #fff3cd; color: #856404; }
+    .badge-approved { background: #d1e7dd; color: #0a5c36; }
+    .teachers-table-wrap {
+      min-height: 180px;
+    }
+    .teacher-table {
       width: 100%;
-      min-width: 120px;
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 9px 10px;
+      border-collapse: collapse;
       background: var(--white);
+      overflow: hidden;
+    }
+    .teacher-table th {
+      background: var(--nav);
+      color: var(--white);
+      padding: 12px 14px;
+      text-align: start;
+      font-size: 0.84rem;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .teacher-table td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
       font-size: 0.9rem;
-      outline: none;
+      vertical-align: middle;
     }
-
-    .inline-input[type="email"] {
-      min-width: 180px;
+    .teacher-table tr:last-child td {
+      border-bottom: none;
     }
-
-    .inline-actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
+    .teacher-table tr:hover td {
+      background: #f8fbfd;
     }
-
-    .row-saving {
-      opacity: 0.7;
-      pointer-events: none;
+    .teacher-name-cell strong {
+      color: var(--text);
+      font-size: 0.95rem;
     }
-
+    .teacher-actions-cell {
+      white-space: nowrap;
+    }
     .empty-state {
       text-align: center;
-      padding: 54px 20px;
+      padding: 48px 20px;
       color: var(--text-muted);
-      background: #fcfcfd;
-      border: 1px dashed var(--border);
-      border-radius: 14px;
+      background: var(--white);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      border: 1px solid var(--border);
     }
-
     .empty-icon {
       font-size: 2.5rem;
       margin-bottom: 12px;
-    }
-
-    .loading-wrap {
-      text-align: center;
-      padding: 28px 20px;
-    }
-
-    .modal-backdrop {
-      position: fixed;
-      inset: 0;
-      background: rgba(15, 23, 42, 0.45);
-      display: none;
-      align-items: center;
-      justify-content: center;
-      padding: 18px;
-      z-index: 1000;
-    }
-
-    .modal-backdrop.open {
-      display: flex;
-    }
-
-    .modal-card {
-      width: min(100%, 460px);
-      background: var(--white);
-      border-radius: 18px;
-      box-shadow: 0 20px 60px rgba(2, 8, 23, 0.25);
-      overflow: hidden;
-      border: 1px solid rgba(255,255,255,0.25);
-    }
-
-    .modal-header {
-      padding: 18px 20px 12px;
-      border-bottom: 1px solid var(--border);
-    }
-
-    .modal-header h3 {
-      margin: 0 0 6px;
-      color: var(--text);
-      font-size: 1.08rem;
-    }
-
-    .modal-header p {
-      margin: 0;
-      color: var(--text-muted);
-      font-size: 0.9rem;
-    }
-
-    .modal-body {
-      padding: 18px 20px;
-      display: grid;
-      gap: 14px;
-    }
-
-    .form-field label {
-      display: block;
-      margin-bottom: 6px;
-      font-size: 0.88rem;
-      font-weight: 700;
-      color: var(--text);
-    }
-
-    .modal-body input,
-    .modal-body select {
-      width: 100%;
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 11px 12px;
-      font-size: 0.94rem;
-      outline: none;
-      background: var(--white);
-    }
-
-    .modal-footer {
-      display: flex;
-      justify-content: flex-end;
-      gap: 10px;
-      flex-wrap: wrap;
-      padding: 0 20px 20px;
-    }
-
-    .text-danger {
-      color: #b42318;
-      font-size: 0.84rem;
-      display: none;
-    }
-
-    .danger-zone {
-      border: 1px solid #fecaca;
-      background: #fff5f5;
-      color: #991b1b;
-      border-radius: 12px;
-      padding: 12px 14px;
-      font-size: 0.84rem;
-      margin-bottom: 14px;
-    }
-
-    @media (max-width: 720px) {
-      .teachers-panel-topbar {
-        align-items: stretch;
-      }
-
-      .teachers-tools {
-        width: 100%;
-        min-width: 100%;
-      }
-
-      .teachers-search {
-        min-width: 100%;
-      }
-
-      .teacher-actions,
-      .inline-actions {
-        flex-direction: column;
-        align-items: stretch;
-      }
-
-      .modal-footer .btn,
-      .teachers-header-actions .btn {
-        width: 100%;
-        justify-content: center;
-      }
     }
   </style>
 </head>
@@ -418,152 +153,70 @@
 <nav class="main-nav" id="mainNav" aria-label="Main navigation"></nav>
 
 <main class="main-content">
-  <div class="teachers-header">
-    <div class="teachers-title-wrap">
-      <h2 id="teachersPageTitle">Teachers Management</h2>
-      <p class="teachers-subtitle" id="teachersPageSubtitle">
-        Review pending registrations, add teachers directly, edit rows inline, and remove inactive records.
-      </p>
-    </div>
-
-    <div class="teachers-header-actions">
-      <button class="btn btn-primary btn-sm" id="addTeacherBtn" type="button">+ Add New Teacher</button>
-      <button class="btn btn-success btn-sm" id="approveAllBtn" type="button">Approve All Pending</button>
-      <button class="btn btn-secondary btn-sm" id="refreshTeachersBtn" type="button">Refresh</button>
+  <div class="teachers-page-head">
+    <div>
+      <h2 data-i18n="teacher_approval">Teachers</h2>
+      <p class="teachers-page-subtitle">Review registrations and manage approvals with a mobile-friendly layout.</p>
     </div>
   </div>
 
-  <div class="teachers-summary">
-    <div class="summary-card">
-      <div class="summary-card-label" id="summaryPendingLabel">Pending Teachers</div>
-      <div class="summary-card-value" id="summaryPendingValue">0</div>
+  <div class="teachers-stats-grid" aria-label="Teacher statistics">
+    <div class="teachers-stat-card">
+      <div class="teachers-stat-label">Pending</div>
+      <div class="teachers-stat-value" id="statPending">0</div>
     </div>
-
-    <div class="summary-card">
-      <div class="summary-card-label" id="summaryApprovedLabel">Approved Teachers</div>
-      <div class="summary-card-value" id="summaryApprovedValue">0</div>
+    <div class="teachers-stat-card">
+      <div class="teachers-stat-label">Approved</div>
+      <div class="teachers-stat-value" id="statApproved">0</div>
     </div>
-
-    <div class="summary-card">
-      <div class="summary-card-label" id="summaryTotalLabel">Total Active Teachers</div>
-      <div class="summary-card-value" id="summaryTotalValue">0</div>
+    <div class="teachers-stat-card">
+      <div class="teachers-stat-label">Active</div>
+      <div class="teachers-stat-value" id="statActive">0</div>
     </div>
   </div>
 
-  <div id="alertMsg" class="alert" style="display:none;margin-bottom:16px"></div>
-
-  <section class="teachers-panel">
-    <div class="teachers-panel-topbar">
-      <div class="tabs">
-        <button class="tab-btn active" id="tabPending" type="button">
-          <span id="tabPendingLabel">Pending Approval</span>
-          <span class="tab-count" id="pendingCount">0</span>
-        </button>
-
-        <button class="tab-btn" id="tabAll" type="button">
-          <span id="tabAllLabel">All Teachers</span>
-          <span class="tab-count" id="allCount">0</span>
-        </button>
-      </div>
-
-      <div class="teachers-tools">
-        <div class="teachers-search">
-          <input id="teachersSearch" type="text" placeholder="Search teachers...">
-        </div>
+  <div class="teachers-toolbar-card">
+    <div class="teachers-actions-row">
+      <div class="teachers-actions-group">
+        <button class="btn btn-success btn-sm" id="approveAllBtn" onclick="approveAll()" data-i18n="approve_all">Approve All Pending</button>
+        <button class="btn btn-secondary btn-sm" id="refreshTeachersBtn" onclick="loadAll()" data-i18n="refresh">Refresh</button>
       </div>
     </div>
 
-    <div class="teachers-section" id="pendingSection">
-      <p class="teachers-section-note" id="inlineEditNotePending">Click Edit to modify any row directly inside the table.</p>
-      <div id="pendingLoading" class="loading-wrap" style="display:none">
-        <div class="spinner"></div>
-      </div>
-      <div id="pendingTableWrap"></div>
+    <div class="teachers-search-bar">
+      <input type="search" id="teacherSearchInput" placeholder="Search teachers..." autocomplete="off">
     </div>
 
-    <div class="teachers-section" id="allSection" style="display:none">
-      <p class="teachers-section-note" id="inlineEditNoteAll">Click Edit to modify any row directly inside the table.</p>
-      <div id="allLoading" class="loading-wrap" style="display:none">
-        <div class="spinner"></div>
-      </div>
-      <div id="allTableWrap"></div>
+    <div class="tabs">
+      <button class="tab-btn active" id="tabPending" type="button" onclick="showTab('pending')">
+        <span data-i18n="tab_pending">Pending Approval</span>
+        <span class="tab-badge" id="pendingCount">0</span>
+      </button>
+      <button class="tab-btn" id="tabAll" type="button" onclick="showTab('all')">
+        <span data-i18n="tab_all_teachers">All Teachers</span>
+      </button>
     </div>
-  </section>
+
+    <div id="alertMsg" class="alert" style="display:none;margin-bottom:16px"></div>
+
+    <section id="pendingSection">
+      <div id="pendingLoading" style="text-align:center;padding:32px"><div class="spinner"></div></div>
+      <div class="teachers-table-wrap" id="pendingTableWrap"></div>
+    </section>
+
+    <section id="allSection" style="display:none">
+      <div id="allLoading" style="text-align:center;padding:32px"><div class="spinner"></div></div>
+      <div class="teachers-table-wrap" id="allTableWrap"></div>
+    </section>
+  </div>
 </main>
-
-<div class="modal-backdrop" id="teacherModal">
-  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="teacherModalTitle">
-    <div class="modal-header">
-      <h3 id="teacherModalTitle">Add New Teacher</h3>
-      <p id="teacherModalSubtitle">Create a teacher directly from the admin panel.</p>
-    </div>
-
-    <form id="teacherForm">
-      <div class="modal-body">
-        <div class="form-field">
-          <label for="teacherName" id="teacherNameLabel">Teacher Name</label>
-          <input id="teacherName" type="text" maxlength="200" placeholder="Enter teacher name">
-        </div>
-
-        <div class="form-field">
-          <label for="teacherEmail" id="teacherEmailLabel">Email</label>
-          <input id="teacherEmail" type="email" maxlength="255" placeholder="Enter email address">
-        </div>
-
-        <div class="form-field">
-          <label for="teacherLanguage" id="teacherLanguageLabel">Preferred Language</label>
-          <select id="teacherLanguage">
-            <option value="ar" id="teacherLanguageOptionAr">Arabic</option>
-            <option value="en" id="teacherLanguageOptionEn">English</option>
-          </select>
-        </div>
-
-        <div class="form-field">
-          <label for="teacherStatus" id="teacherStatusLabel">Account Status</label>
-          <select id="teacherStatus">
-            <option value="approved" id="teacherStatusOptionApproved">Approved</option>
-            <option value="pending" id="teacherStatusOptionPending">Pending</option>
-          </select>
-        </div>
-
-        <div class="text-danger" id="teacherFormError"></div>
-      </div>
-
-      <div class="modal-footer">
-        <button class="btn btn-secondary btn-sm" id="cancelTeacherBtn" type="button">Cancel</button>
-        <button class="btn btn-primary btn-sm" id="saveTeacherBtn" type="submit">Add Teacher</button>
-      </div>
-    </form>
-  </div>
-</div>
-
-<div class="modal-backdrop" id="removeTeacherModal">
-  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="removeTeacherModalTitle">
-    <div class="modal-header">
-      <h3 id="removeTeacherModalTitle">Remove Teacher</h3>
-      <p id="removeTeacherModalText">This action will hide the teacher from active teacher lists.</p>
-    </div>
-
-    <div class="modal-body">
-      <div class="danger-zone" id="removeTeacherWarning">Are you sure you want to remove this teacher?</div>
-      <div>
-        <strong id="removeTeacherName">—</strong>
-      </div>
-    </div>
-
-    <div class="modal-footer">
-      <button class="btn btn-secondary btn-sm" id="cancelRemoveTeacherBtn" type="button">Cancel</button>
-      <button class="btn btn-danger btn-sm" id="confirmRemoveTeacherBtn" type="button">Remove Teacher</button>
-    </div>
-  </div>
-</div>
 
 <div class="toast-container" id="toastContainer"></div>
 
-<script src="js/auth.js?v=102"></script>
-<script src="js/i18n.js?v=102"></script>
-<script src="js/nav.js?v=102"></script>
-<script src="js/teachers.js?v=107"></script>
+<script src="js/auth.js?v=101"></script>
+<script src="js/i18n.js?v=101"></script>
+<script src="js/nav.js?v=101"></script>
+<script src="js/teachers.js?v=110"></script>
 <script>
   I18N.load(localStorage.getItem('firduty_lang') || 'ar').then(() => {
     initNav();

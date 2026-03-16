@@ -1,99 +1,155 @@
 /**
  * login.js — Admin login flow for Firduty.
  *
- * Login endpoint: POST /auth/admin/login/json  (JSON body)
- *   - The Swagger UI uses POST /auth/admin/login (OAuth2 form body)
- *   - The Admin Web UI uses /auth/admin/login/json to keep the request as JSON
- *
+ * Login endpoint: POST /auth/admin/login/json (JSON body)
  * Token validation: GET /auth/validate
- *   - Called on page load to auto-redirect if a valid token already exists
- *
  * Token storage: localStorage key 'firduty_token'
  */
 
-const API_BASE = window.API_BASE || localStorage.getItem('firduty_api') || 'https://naval-donnamarie-firduty-6e288803.koyeb.app';
+window.API_BASE = window.API_BASE || localStorage.getItem('firduty_api') || 'https://naval-donnamarie-firduty-6e288803.koyeb.app';
 
-// ── Auto-redirect if already authenticated ────────────────────────────────────
-(async function () {
-  const token = localStorage.getItem('firduty_token');
-  if (!token) return;
+function byId(id) {
+  return document.getElementById(id);
+}
 
-  try {
-    const res = await fetch(`${window.API_BASE}/auth/validate`, {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-    if (res.ok) {
-      window.location.href = 'dashboard.html';
-    } else {
-      // Token is expired or invalid — clear it so the form is shown clean
-      localStorage.removeItem('firduty_token');
-    }
-  } catch (_) {
-    // Network error — just show the login form, don't crash
+function setLoading(isLoading) {
+  const btn = byId('loginBtn');
+  const user = byId('username');
+  const pass = byId('password');
+
+  if (btn) {
+    btn.disabled = isLoading;
+    btn.textContent = isLoading ? (I18N?.t('loading') || 'Loading...') : (I18N?.t('sign_in') || 'Sign In');
+    btn.classList.toggle('is-loading', isLoading);
   }
-})();
 
-// ── Language toggle ───────────────────────────────────────────────────────────
-function toggleLang() {
+  if (user) user.disabled = isLoading;
+  if (pass) pass.disabled = isLoading;
+}
+
+function showError(msg) {
+  const el = byId('loginError');
+  if (!el) return;
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
+function clearError() {
+  const el = byId('loginError');
+  if (!el) return;
+  el.textContent = '';
+  el.style.display = 'none';
+}
+
+function updateLangBtn() {
+  const btn = byId('langBtn');
+  if (!btn) return;
+  btn.textContent = I18N.getLang() === 'ar' ? 'EN | عربي' : 'عربي | EN';
+}
+
+function updateDirFromLang() {
+  const lang = (typeof I18N !== 'undefined' && I18N.getLang()) || localStorage.getItem('firduty_lang') || 'ar';
+  document.documentElement.lang = lang;
+  document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr';
+}
+
+async function toggleLang() {
   const current = I18N.getLang();
-  I18N.load(current === 'ar' ? 'en' : 'ar');
-  _updateLangBtn();
+  await I18N.load(current === 'ar' ? 'en' : 'ar');
+  updateDirFromLang();
+  updateLangBtn();
 }
 
-function _updateLangBtn() {
-  const btn = document.getElementById('langBtn');
-  if (btn) btn.textContent = (I18N.getLang() === 'ar') ? 'EN' : 'عربي';
+function initPasswordToggle() {
+  const passwordInput = byId('password');
+  const toggleBtn = byId('togglePasswordBtn');
+  if (!passwordInput || !toggleBtn) return;
+
+  toggleBtn.addEventListener('click', () => {
+    const isHidden = passwordInput.type === 'password';
+    passwordInput.type = isHidden ? 'text' : 'password';
+    toggleBtn.textContent = isHidden ? 'Hide' : 'Show';
+    toggleBtn.setAttribute('aria-pressed', String(isHidden));
+    toggleBtn.setAttribute('aria-label', isHidden ? 'Hide password' : 'Show password');
+  });
 }
 
-// ── Login ─────────────────────────────────────────────────────────────────────
 async function doLogin() {
-  const username = document.getElementById('username').value.trim();
-  const password = document.getElementById('password').value;
-  const errorEl  = document.getElementById('loginError');
-  const btn      = document.getElementById('loginBtn');
+  const username = byId('username')?.value.trim() || '';
+  const password = byId('password')?.value || '';
 
-  if (errorEl) { errorEl.textContent = ''; errorEl.style.display = 'none'; }
+  clearError();
 
   if (!username || !password) {
-    _showError(I18N.t('invalid_credentials'));
+    showError(I18N.t('invalid_credentials'));
     return;
   }
 
-  if (btn) { btn.disabled = true; btn.textContent = I18N.t('loading'); }
+  setLoading(true);
 
   try {
     const res = await fetch(`${window.API_BASE}/auth/admin/login/json`, {
-      method:  'POST',
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ username, password }),
+      body: JSON.stringify({ username, password }),
     });
 
     if (res.ok) {
       const data = await res.json();
       localStorage.setItem('firduty_token', data.access_token);
       window.location.href = 'dashboard.html';
-    } else if (res.status === 401) {
-      _showError(I18N.t('invalid_credentials'));
+      return;
+    }
+
+    if (res.status === 401) {
+      showError(I18N.t('invalid_credentials'));
     } else {
-      _showError(I18N.t('error_generic'));
+      showError(I18N.t('error_generic'));
     }
   } catch (err) {
     console.error('[login] Network error:', err);
-    _showError(I18N.t('error_generic'));
+    showError(I18N.t('error_generic'));
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = I18N.t('sign_in'); }
+    setLoading(false);
   }
 }
 
-function _showError(msg) {
-  const el = document.getElementById('loginError');
-  if (el) { el.textContent = msg; el.style.display = 'block'; }
+async function validateExistingToken() {
+  const token = localStorage.getItem('firduty_token');
+  if (!token) return;
+
+  try {
+    const res = await fetch(`${window.API_BASE}/auth/validate`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (res.ok) {
+      window.location.href = 'dashboard.html';
+    } else {
+      localStorage.removeItem('firduty_token');
+    }
+  } catch (_) {
+    // ignore and keep form visible
+  }
 }
 
-// ── Allow Enter key to submit ─────────────────────────────────────────────────
-document.addEventListener('keydown', function (e) {
-  if (e.key === 'Enter') doLogin();
-});
+function bindEnterSubmit() {
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') doLogin();
+  });
+}
 
-// ── Init ──────────────────────────────────────────────────────────────────────
-_updateLangBtn();
+async function initLoginPage() {
+  updateDirFromLang();
+  updateLangBtn();
+  initPasswordToggle();
+  bindEnterSubmit();
+  byId('username')?.focus();
+  await validateExistingToken();
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initLoginPage);
+} else {
+  initLoginPage();
+}
