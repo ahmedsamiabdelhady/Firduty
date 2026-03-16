@@ -742,6 +742,9 @@ function initDragAndDrop() {
     new Sortable(list, {
       group: { name: 'teachers', pull: false, put: true },
       sort: false,
+      // Prevent dragging/reordering existing slot cards at all.
+      // We only allow dropping a cloned teacher from the sidebar into a fixed slot list.
+      handle: '.slot-never-drag-handle',
       animation: 150,
 
       onMove: function (evt) {
