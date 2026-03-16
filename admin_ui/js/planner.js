@@ -743,9 +743,18 @@ function initDragAndDrop() {
       group: { name: 'teachers', pull: false, put: true },
       animation: 150,
 
-      onMove: function () {
+      onMove: function (evt) {
         const col = list.closest('.location-column');
         if (!col || col.dataset.editable !== 'true') return false;
+
+        const related = evt.related;
+        if (related?.classList?.contains('slot-item')) {
+          list.dataset.dropTargetSlotIdx = related.dataset.slotIdx || '';
+          list.dataset.dropTargetFilled = related.classList.contains('slot-filled') ? 'true' : 'false';
+        } else {
+          list.dataset.dropTargetSlotIdx = '';
+          list.dataset.dropTargetFilled = 'false';
+        }
         return true;
       },
 
@@ -760,51 +769,71 @@ function initDragAndDrop() {
           return;
         }
 
-        const slId      = parseInt(list.dataset.slId, 10);
-        const teacherId = parseInt(evt.item.dataset.teacherId, 10);
+        const slId        = parseInt(list.dataset.slId, 10);
+        const teacherId   = parseInt(evt.item.dataset.teacherId, 10);
         const teacherName = evt.item.dataset.teacherName;
+        const targetSlotIdx = parseInt(list.dataset.dropTargetSlotIdx || '', 10);
+        const targetIsFilled = list.dataset.dropTargetFilled === 'true';
+
+        evt.item.parentNode && evt.item.parentNode.removeChild(evt.item);
+        delete list.dataset.dropTargetSlotIdx;
+        delete list.dataset.dropTargetFilled;
 
         if (isTeacherAssignedInSameShift(slId, teacherId)) {
           showToast(I18N.t('duplicate_teacher') || 'Teacher already assigned in this duty', 'error');
-          evt.item.parentNode && evt.item.parentNode.removeChild(evt.item);
           return;
         }
 
-        const filledSlots = Array.from(list.querySelectorAll('.slot-item.slot-filled'));
-        const emptySlot   = list.querySelector('.slot-item.slot-empty');
+        if (Number.isInteger(targetSlotIdx)) {
+          const targetSlotEl = list.querySelector(`[data-slot-idx="${targetSlotIdx}"]`);
+          if (targetSlotEl) {
+            const targetGradeClass = _getExistingGradeClass(slId, targetSlotIdx);
 
-        if (!emptySlot && filledSlots.length > 0) {
-          // All slots full — replace last filled slot
-          const targetSlot = filledSlots[filledSlots.length - 1];
-          const slotIdx    = parseInt(targetSlot.dataset.slotIdx, 10);
-          // Preserve existing grade_class for break duties
-          const existingGradeClass = _getExistingGradeClass(slId, slotIdx);
-          replaceTeacherInSlot(slId, slotIdx, teacherId, teacherName, isBreak, existingGradeClass);
-          evt.item.parentNode && evt.item.parentNode.removeChild(evt.item);
-          _refreshFillBar(slId);
-          showToast(I18N.t('teacher_replaced') || 'Teacher replaced');
-          return;
+            if (targetIsFilled) {
+              replaceTeacherInSlot(slId, targetSlotIdx, teacherId, teacherName, isBreak, targetGradeClass);
+              _refreshFillBar(slId);
+              showToast(I18N.t('teacher_replaced') || 'Teacher replaced');
+              return;
+            }
+
+            recordAssignment(slId, targetSlotIdx, teacherId, targetGradeClass);
+            targetSlotEl.outerHTML = renderSlot(slId, targetSlotIdx, {
+              teacher_id:   teacherId,
+              teacher_name: teacherName,
+              slot_index:   targetSlotIdx,
+              grade_class:  targetGradeClass,
+            }, isBreak, true);
+            _refreshFillBar(slId);
+            return;
+          }
         }
 
+        const emptySlot = list.querySelector('.slot-item.slot-empty');
         if (!emptySlot) {
+          const filledSlots = Array.from(list.querySelectorAll('.slot-item.slot-filled'));
+          if (filledSlots.length > 0) {
+            const fallbackSlot = filledSlots[filledSlots.length - 1];
+            const slotIdx = parseInt(fallbackSlot.dataset.slotIdx, 10);
+            const gradeClass = _getExistingGradeClass(slId, slotIdx);
+            replaceTeacherInSlot(slId, slotIdx, teacherId, teacherName, isBreak, gradeClass);
+            _refreshFillBar(slId);
+            showToast(I18N.t('teacher_replaced') || 'Teacher replaced');
+            return;
+          }
+
           showToast(I18N.t('no_empty_slot') || 'No empty slot available', 'error');
-          evt.item.parentNode && evt.item.parentNode.removeChild(evt.item);
           return;
         }
 
         const slotIdx = parseInt(emptySlot.dataset.slotIdx, 10);
-        // Preserve the pre-seeded grade_class for break duties
         const gradeClass = _getExistingGradeClass(slId, slotIdx);
         recordAssignment(slId, slotIdx, teacherId, gradeClass);
-
         emptySlot.outerHTML = renderSlot(slId, slotIdx, {
           teacher_id:   teacherId,
           teacher_name: teacherName,
           slot_index:   slotIdx,
           grade_class:  gradeClass,
         }, isBreak, true);
-
-        evt.item.parentNode && evt.item.parentNode.removeChild(evt.item);
         _refreshFillBar(slId);
       },
     });
