@@ -79,6 +79,7 @@
 <nav class="main-nav" id="mainNav" aria-label="Main navigation"></nav>
 
 <main class="main-content">
+
   <div class="week-controls">
     <label data-i18n="select_week">Select Week:</label>
     <input type="date" id="weekStartInput" onchange="onWeekSelected ? onWeekSelected() : loadWeek()">
@@ -96,6 +97,7 @@
   </div>
 
   <div class="planner-layout">
+
     <aside class="sidebar" id="teachersSidebar">
       <div class="teacher-panel-header">
         <div>
@@ -127,7 +129,6 @@
       </div>
 
       <div class="tabs" id="dayTabs"></div>
-
       <div id="mobilePlannerTargetPill" class="mobile-planner-target-pill" style="display:none"></div>
 
       <div id="dayPanels">
@@ -138,25 +139,26 @@
         </p>
       </div>
     </div>
+
   </div>
 </main>
 
 <div class="mobile-teacher-sheet-backdrop" id="mobileTeacherSheetBackdrop"></div>
 <div class="mobile-teacher-sheet" id="mobileTeacherSheet" aria-hidden="true">
   <div class="mobile-teacher-sheet-surface">
-  <div class="mobile-teacher-sheet-handle" id="mobileTeacherSheetHandle"></div>
-  <div class="mobile-teacher-sheet-header" id="mobileTeacherSheetHeader">
-    <div>
-      <h3 id="mobileTeacherSheetTitle" data-i18n="teachers">Teachers <span class="mobile-teacher-toggle-count" id="mobileTeacherCount">0</span></h3>
-      <p class="mobile-teacher-sheet-subtitle" id="mobileTeacherSheetSubtitle">Tap a slot to choose a teacher.</p>
+    <div class="mobile-teacher-sheet-handle" id="mobileTeacherSheetHandle"></div>
+    <div class="mobile-teacher-sheet-header" id="mobileTeacherSheetHeader">
+      <div>
+        <h3><span data-i18n="teachers">Teachers</span> <span class="mobile-teacher-toggle-count" id="mobileTeacherCount">0</span></h3>
+        <p class="mobile-teacher-sheet-subtitle">Tap a teacher to assign to the selected slot.</p>
+      </div>
+      <button class="btn btn-secondary btn-sm" id="mobileTeacherClose" type="button">Close</button>
     </div>
-    <button class="btn btn-secondary btn-sm" id="mobileTeacherClose" type="button">Close</button>
-  </div>
-  <div class="teacher-search-wrap mobile-teacher-search-wrap">
-    <input type="search" id="mobileTeacherSearchInput" class="teacher-search-input" placeholder="Search teacher..." autocomplete="off">
-  </div>
-  <div class="mobile-selected-hint" id="mobileSelectedHint" style="display:none"></div>
-  <div class="teacher-list teacher-list-mobile" id="mobileTeacherList"></div>
+    <div class="teacher-search-wrap mobile-teacher-search-wrap">
+      <input type="search" id="mobileTeacherSearchInput" class="teacher-search-input" placeholder="Search teacher..." autocomplete="off">
+    </div>
+    <div class="mobile-selected-hint" id="mobileSelectedHint" style="display:none"></div>
+    <div class="teacher-list teacher-list-mobile" id="mobileTeacherList"></div>
   </div>
 </div>
 
@@ -165,7 +167,7 @@
 <script src="js/i18n.js?v=101"></script>
 <script src="js/auth.js?v=101"></script>
 <script src="js/nav.js?v=101"></script>
-<script src="js/planner.js?v=110"></script>
+<script src="js/planner.js?v=111"></script>
 <script>
   I18N.load(localStorage.getItem('firduty_lang') || 'ar').then(() => {
     initNav();
