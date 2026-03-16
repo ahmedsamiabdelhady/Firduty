@@ -8,17 +8,20 @@
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">
   <link rel="apple-touch-icon" sizes="192x192" href="favicon-192x192.png">
-  <link rel="stylesheet" href="css/style.css?v=108">
+  <link rel="stylesheet" href="css/style.css?v=109">
 </head>
 <body class="login-page">
   <div class="login-wrapper">
+    <div class="login-bg-orb login-bg-orb-1" aria-hidden="true"></div>
+    <div class="login-bg-orb login-bg-orb-2" aria-hidden="true"></div>
+
     <div class="login-shell">
       <section class="login-brand-panel" aria-label="Firduty introduction">
         <div class="login-brand-badge">Firduty Admin</div>
         <img src="logo.png" alt="Firduty" class="login-logo login-logo-brand">
-        <h1 class="login-brand-title" data-i18n="app_title">Firduty</h1>
+        <h1 class="login-brand-title">Firduty</h1>
         <p class="login-brand-subtitle">
-          Manage duty planning, teacher approvals, and reports from one clean admin workspace.
+          Plan duties, approve teachers, and monitor weekly operations from one admin workspace.
         </p>
 
         <div class="login-brand-points">
@@ -26,7 +29,7 @@
             <span class="login-point-icon">📅</span>
             <div>
               <strong>Week Planner</strong>
-              <p>Build and update duty schedules quickly.</p>
+              <p>Build, update, and publish weekly duty schedules quickly.</p>
             </div>
           </div>
 
@@ -34,7 +37,7 @@
             <span class="login-point-icon">👩‍🏫</span>
             <div>
               <strong>Teachers</strong>
-              <p>Approve, manage, and organize staff records.</p>
+              <p>Approve registrations and manage teacher records with ease.</p>
             </div>
           </div>
 
@@ -42,7 +45,7 @@
             <span class="login-point-icon">📊</span>
             <div>
               <strong>Reports</strong>
-              <p>Track coverage, workload, and confirmations.</p>
+              <p>Track workload, confirmations, and school duty coverage.</p>
             </div>
           </div>
         </div>
@@ -61,13 +64,12 @@
           <p class="login-subtitle">Sign in to continue to the Firduty admin dashboard.</p>
         </div>
 
-        <div id="loginError" class="alert alert-danger" style="display:none"></div>
+        <div id="loginError" class="sr-only" aria-live="polite"></div>
 
         <form class="login-form" onsubmit="event.preventDefault(); doLogin();">
           <div class="form-group">
             <label for="username" data-i18n="username">Username</label>
             <div class="input-shell">
-              <span class="input-icon">@</span>
               <input type="text" id="username" data-i18n-placeholder="username" autocomplete="username" autocapitalize="off" spellcheck="false">
             </div>
           </div>
@@ -76,25 +78,33 @@
             <div class="login-label-row">
               <label for="password" data-i18n="password">Password</label>
             </div>
-            <div class="input-shell">
-              <span class="input-icon">•</span>
+            <div class="input-shell input-shell-password">
               <input type="password" id="password" data-i18n-placeholder="password" autocomplete="current-password">
-              <button class="password-toggle" type="button" id="togglePasswordBtn" aria-label="Show password" aria-pressed="false">
-                Show
+              <button class="password-toggle" type="button" id="togglePasswordBtn" aria-label="Show password" aria-pressed="false" title="Show password">
+                <span class="password-toggle-icon" aria-hidden="true">👁</span>
               </button>
             </div>
           </div>
 
+          <div class="login-options-row">
+            <label class="remember-me">
+              <input type="checkbox" id="rememberMe">
+              <span>Remember me</span>
+            </label>
+          </div>
+
           <button class="btn btn-primary login-submit-btn" id="loginBtn" type="submit" data-i18n="sign_in">
-            Sign In
+            <span class="login-btn-text">Sign In</span>
           </button>
         </form>
       </main>
     </div>
   </div>
 
+  <div class="toast-container login-toast-container" id="toastContainer" aria-live="polite" aria-atomic="true"></div>
+
   <script src="js/i18n.js"></script>
   <script src="js/auth.js"></script>
-  <script src="js/login.js?v=108"></script>
+  <script src="js/login.js?v=109"></script>
 </body>
 </html>
