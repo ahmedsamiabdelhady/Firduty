@@ -487,7 +487,7 @@ function renderLocationColumn(dayDate, sl, isEditable) {
 
   // Fill metrics
   const total  = sl.slots_count;
-  const filled = sl.assignments.filter(a => a.teacher_id != null).length;
+  const filled = sl.assignments.filter(a => getEffectiveAssignment(sl.id, a.slot_index, a).teacher_id != null).length;
   const pct    = total > 0 ? Math.round((filled / total) * 100) : 0;
   const colStatus = filled === 0 ? 'col-empty' : filled < total ? 'col-partial' : 'col-full';
 
@@ -662,7 +662,7 @@ function _refreshFillBar(slId) {
   const total  = isBreak
     ? list.querySelectorAll('.slot-item').length
     : parseInt(countEl?.textContent || '0', 10);
-  const filled = list.querySelectorAll('.slot-filled').length;
+  const filled = list.querySelectorAll('.slot-item.slot-filled').length;
   const pct    = total > 0 ? Math.round((filled / total) * 100) : 0;
 
   if (bar)   bar.style.width = `${pct}%`;
@@ -770,8 +770,8 @@ function initDragAndDrop() {
           return;
         }
 
-        const filledSlots = Array.from(list.querySelectorAll('.slot-item.filled'));
-        const emptySlot   = list.querySelector('.slot-item:not(.filled)');
+        const filledSlots = Array.from(list.querySelectorAll('.slot-item.slot-filled'));
+        const emptySlot   = list.querySelector('.slot-item.slot-empty');
 
         if (!emptySlot && filledSlots.length > 0) {
           // All slots full — replace last filled slot
