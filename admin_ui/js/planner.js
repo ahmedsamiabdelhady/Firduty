@@ -1050,13 +1050,42 @@ async function flushPendingChanges() {
   renderWeek();
 }
 
+function _getPlannerActionButton(actionName) {
+  return document.querySelector(`button[onclick="${actionName}()"]`);
+}
+
+function _setButtonBusy(btn, isBusy, busyText, fallbackText = '') {
+  if (!btn) return;
+
+  if (isBusy) {
+    if (!btn.dataset.originalText) {
+      btn.dataset.originalText = btn.textContent.trim();
+    }
+    btn.disabled = true;
+    btn.textContent = busyText;
+    btn.classList.add('is-busy');
+    return;
+  }
+
+  btn.disabled = false;
+  btn.classList.remove('is-busy');
+  btn.textContent = btn.dataset.originalText || fallbackText || btn.textContent;
+}
+
 async function saveDraft() {
   if (!currentWeekData) return;
+
+  const btn = _getPlannerActionButton('saveDraft');
+  _setButtonBusy(btn, true, I18N.t('saving') || 'Saving...');
+  showToast(I18N.t('saving') || 'Saving...', 'info');
+
   try {
     await flushPendingChanges();
-    showToast(I18N.t('success_saved'));
+    showToast(I18N.t('success_saved') || 'Draft saved successfully');
   } catch (err) {
     showToast(err.message || I18N.t('error_generic'), 'error');
+  } finally {
+    _setButtonBusy(btn, false, '', I18N.t('save_draft') || 'Save Draft');
   }
 }
 
