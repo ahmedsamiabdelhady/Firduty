@@ -741,6 +741,7 @@ function initDragAndDrop() {
 
     new Sortable(list, {
       group: { name: 'teachers', pull: false, put: true },
+      sort: false,
       animation: 150,
 
       onMove: function (evt) {
