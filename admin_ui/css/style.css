@@ -1050,19 +1050,177 @@ input:focus, select:focus, textarea:focus {
   color: var(--nav);
   font-weight: 600;
 }
-.teacher-list { max-height: 500px; overflow-y: auto; }
+.teacher-list {
+  max-height: min(58vh, 560px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.teacher-panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.teacher-panel-subtitle,
+.mobile-teacher-sheet-subtitle {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+.teacher-search-wrap {
+  margin-bottom: 12px;
+}
+.teacher-search-input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  padding: 10px 12px;
+  font-size: 0.84rem;
+  outline: none;
+}
+.teacher-search-input:focus {
+  border-color: var(--nav-light);
+  box-shadow: 0 0 0 3px rgba(79,161,204,0.16);
+  background: var(--white);
+}
+
 .teacher-list-item {
-  padding: 7px 10px;
-  border-radius: 6px;
-  margin-bottom: 4px;
+  padding: 9px 11px;
+  border-radius: 8px;
+  margin-bottom: 6px;
   background: var(--primary);
   color: var(--white);
   font-size: 0.82rem;
   cursor: grab;
   user-select: none;
-  transition: background 0.2s;
+  transition: background 0.2s, transform 0.15s, box-shadow 0.15s;
+  box-shadow: 0 1px 3px rgba(31,45,58,0.08);
 }
-.teacher-list-item:hover { background: var(--primary-dark); }
+.teacher-list-item:hover {
+  background: var(--primary-dark);
+  transform: translateY(-1px);
+}
+.teacher-list-item.teacher-selected {
+  background: var(--nav);
+  box-shadow: 0 0 0 2px rgba(46,125,167,0.22);
+}
+.teacher-list-item.teacher-hidden {
+  display: none;
+}
+
+
+.mobile-teacher-toggle,
+.mobile-teacher-sheet {
+  display: none;
+}
+
+.mobile-teacher-toggle {
+  position: fixed;
+  inset-inline: 16px;
+  bottom: max(14px, env(safe-area-inset-bottom));
+  z-index: 120;
+  border: none;
+  border-radius: 999px;
+  background: var(--nav);
+  color: var(--white);
+  box-shadow: 0 10px 24px rgba(31,45,58,0.22);
+  padding: 12px 16px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.mobile-teacher-toggle-label {
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+.mobile-teacher-toggle-count {
+  min-width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.18);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.mobile-teacher-sheet {
+  position: fixed;
+  inset-inline: 0;
+  bottom: 0;
+  z-index: 130;
+  background: var(--white);
+  border-top-left-radius: 18px;
+  border-top-right-radius: 18px;
+  box-shadow: 0 -12px 32px rgba(31,45,58,0.22);
+  padding: 10px 14px calc(18px + env(safe-area-inset-bottom));
+  transform: translateY(calc(100% - 64px));
+  transition: transform 0.22s ease;
+  max-height: min(76vh, 620px);
+}
+.mobile-teacher-sheet.is-open {
+  transform: translateY(0);
+}
+.mobile-teacher-sheet-handle {
+  width: 44px;
+  height: 5px;
+  background: var(--border);
+  border-radius: 999px;
+  margin: 0 auto 10px;
+}
+.mobile-teacher-sheet-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.mobile-teacher-search-wrap {
+  margin-bottom: 10px;
+}
+.mobile-selected-hint {
+  background: #eef7e0;
+  color: var(--success-dark);
+  border: 1px solid #cfe4a8;
+  border-radius: 10px;
+  padding: 9px 11px;
+  font-size: 0.82rem;
+  margin-bottom: 10px;
+}
+.teacher-list-mobile {
+  max-height: calc(76vh - 170px);
+}
+.slot-item.slot-mobile-target {
+  cursor: pointer;
+}
+.slot-item.slot-mobile-target-add {
+  border-color: var(--nav-light);
+  background: #eff6ff;
+  box-shadow: 0 0 0 2px rgba(79,161,204,0.16);
+}
+.slot-item.slot-mobile-target-replace {
+  border-color: #f59e0b;
+  background: #fff7ed;
+  box-shadow: 0 0 0 2px rgba(245,158,11,0.18);
+}
+.slot-item.slot-mobile-target-add .slot-drop-text::after {
+  content: ' • Tap to add';
+  font-weight: 700;
+}
+.slot-item.slot-mobile-target-replace .slot-drop-text::after {
+  content: ' • Tap to replace';
+  font-weight: 700;
+}
+.slot-item.slot-mobile-target-replace .teacher-name::after {
+  content: ' ↺';
+  color: #b45309;
+  font-weight: 700;
+}
 
 .planner-main { flex: 1; min-width: 0; }
 
@@ -1314,59 +1472,15 @@ input:focus, select:focus, textarea:focus {
 .slot-drop-icon { font-size: 1rem; line-height: 1; }
 .slot-drop-text { font-size: 0.75rem; color: var(--text-muted); }
 
-/* Drag-over feedback for fixed slots */
-body.planner-dragging-teacher .slots-list {
-  transition: background 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
-}
-
-body.planner-dragging-teacher .slots-list.drag-active {
-  background: rgba(79, 161, 204, 0.06);
-  border-radius: 10px;
-  box-shadow: inset 0 0 0 1px rgba(79, 161, 204, 0.15);
-}
-
-.slot-item.slot-drop-target-empty {
+/* Highlight on drag-over */
+.slots-list.sortable-drag-over .slot-empty {
   background: #eff6ff;
   border-color: var(--nav-light);
-  box-shadow: 0 0 0 3px rgba(79, 161, 204, 0.18);
 }
-.slot-item.slot-drop-target-empty .slot-drop-zone {
-  opacity: 1;
-}
+.slots-list.sortable-drag-over .slot-empty .slot-drop-zone { opacity: 0.85; }
 
-.slot-item.slot-drop-target-filled {
-  background: #fff7ed;
-  border-color: #fb923c;
-  box-shadow: 0 0 0 3px rgba(251, 146, 60, 0.18);
-}
-.slot-item.slot-drop-target-filled .teacher-name {
-  color: #9a3412;
-}
-
-.slots-list.drop-mode-add .slot-item.slot-drop-target-empty::after,
-.slots-list.drop-mode-replace .slot-item.slot-drop-target-filled::after {
-  content: attr(data-drop-label);
-  position: absolute;
-  inset-inline-end: 8px;
-  top: 6px;
-  font-size: 0.68rem;
-  font-weight: 700;
-  border-radius: 999px;
-  padding: 2px 8px;
-  line-height: 1.5;
-}
-
-.slots-list.drop-mode-add .slot-item.slot-drop-target-empty::after {
-  content: 'Add here';
-  background: #dbeafe;
-  color: #1d4ed8;
-}
-
-.slots-list.drop-mode-replace .slot-item.slot-drop-target-filled::after {
-  content: 'Replace';
-  background: #ffedd5;
-  color: #c2410c;
-}
+/* Sortable drag ghost */
+.slot-item.sortable-ghost { opacity: 0.35; }
 
 /* ─── Empty break slot — class identity is the slot label ───────────────── */
 .slot-break-empty {
