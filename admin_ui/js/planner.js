@@ -128,6 +128,7 @@ async function loadTeachers() {
     if (listEl) {
       listEl.innerHTML = allTeachers.map(t => `
         <div class="teacher-list-item"
+             draggable="true"
              data-teacher-id="${t.id}"
              data-teacher-name="${escHtml(t.name)}">
           ${escHtml(t.name)}
@@ -721,148 +722,189 @@ async function getApiErrorMessage(res, fallbackMessage) {
   }
 }
 
-function _resolveDropTargetSlot(list, evt) {
-  const draggedEl = evt?.item || null;
-  const originalEvent = evt?.originalEvent || evt?.originalEv || null;
+function _clearDropIndicators(scope = document) {
+  scope.querySelectorAll('.slots-list.drag-active, .slots-list.drop-mode-add, .slots-list.drop-mode-replace').forEach(el => {
+    el.classList.remove('drag-active', 'drop-mode-add', 'drop-mode-replace');
+  });
+  scope.querySelectorAll('.slot-item.slot-drop-target-empty, .slot-item.slot-drop-target-filled').forEach(el => {
+    el.classList.remove('slot-drop-target-empty', 'slot-drop-target-filled');
+  });
+}
 
-  if (draggedEl && originalEvent && Number.isFinite(originalEvent.clientX) && Number.isFinite(originalEvent.clientY)) {
-    const prevDisplay = draggedEl.style.display;
-    draggedEl.style.display = 'none';
-    const hitEl = document.elementFromPoint(originalEvent.clientX, originalEvent.clientY);
-    draggedEl.style.display = prevDisplay;
+function _getSlotDropState(slotEl) {
+  if (!slotEl) return null;
+  return slotEl.classList.contains('slot-filled') ? 'replace' : 'add';
+}
 
-    const hitSlot = hitEl?.closest?.('.slot-item');
-    if (hitSlot && hitSlot.parentElement === list) return hitSlot;
+function _markDropTarget(slotEl) {
+  _clearDropIndicators();
+  if (!slotEl) return;
+
+  const list = slotEl.closest('.slots-list');
+  if (!list) return;
+
+  const mode = _getSlotDropState(slotEl);
+  list.classList.add('drag-active');
+  list.classList.add(mode === 'replace' ? 'drop-mode-replace' : 'drop-mode-add');
+  slotEl.classList.add(mode === 'replace' ? 'slot-drop-target-filled' : 'slot-drop-target-empty');
+}
+
+function _pickFallbackSlot(list) {
+  return list.querySelector('.slot-item.slot-empty')
+      || list.querySelector('.slot-item.slot-filled')
+      || null;
+}
+
+function _extractDraggedTeacher(evt) {
+  const data = evt?.dataTransfer?.getData('application/json');
+  if (data) {
+    try {
+      const parsed = JSON.parse(data);
+      const teacherId = parseInt(parsed.teacherId, 10);
+      if (teacherId) {
+        return {
+          teacherId,
+          teacherName: parsed.teacherName || '',
+        };
+      }
+    } catch (_) {}
   }
 
-  if (draggedEl && Number.isInteger(evt?.newIndex)) {
-    const slots = Array.from(list.querySelectorAll('.slot-item')).filter(el => el !== draggedEl);
-    if (slots.length) {
-      const idx = Math.max(0, Math.min(evt.newIndex, slots.length - 1));
-      return slots[idx] || null;
+  const draggingEl = document.querySelector('.teacher-list-item.is-dragging');
+  if (draggingEl) {
+    const teacherId = parseInt(draggingEl.dataset.teacherId, 10);
+    if (teacherId) {
+      return {
+        teacherId,
+        teacherName: draggingEl.dataset.teacherName || '',
+      };
     }
   }
 
   return null;
 }
 
-function initDragAndDrop() {
-  const sidebar = byId('teacherList');
-  if (sidebar && typeof Sortable !== 'undefined' && !sidebar.dataset.sortableInit) {
-    new Sortable(sidebar, {
-      group: { name: 'teachers', pull: 'clone', put: false },
-      sort: false,
-      animation: 150,
-    });
-    sidebar.dataset.sortableInit = 'true';
+function _handleTeacherDrop(list, slotEl, dragged) {
+  const col     = list.closest('.location-column');
+  const dayDate = col?.dataset.day;
+  const day     = currentWeekData?.day_plans?.find(d => d.date === dayDate);
+
+  if (!day || !day.is_editable) {
+    showToast(I18N.t('day_locked') || 'Past days cannot be edited', 'error');
+    return;
   }
 
-  if (typeof Sortable === 'undefined') return;
+  const slId = parseInt(list.dataset.slId, 10);
+  if (!slId || !dragged?.teacherId) return;
 
-  document.querySelectorAll('.slots-list').forEach(list => {
-    if (list.dataset.sortableInit === 'true') return;
+  if (isTeacherAssignedInSameShift(slId, dragged.teacherId)) {
+    showToast(I18N.t('duplicate_teacher') || 'Teacher already assigned in this duty', 'error');
+    return;
+  }
 
-    const isBreak = list.dataset.dutyType === 'break';
+  const targetSlotEl = slotEl || _pickFallbackSlot(list);
+  if (!targetSlotEl) {
+    showToast(I18N.t('no_empty_slot') || 'No empty slot available', 'error');
+    return;
+  }
 
-    new Sortable(list, {
-      group: { name: 'teachers', pull: false, put: true },
-      sort: false,
-      // Prevent dragging/reordering existing slot cards at all.
-      // We only allow dropping a cloned teacher from the sidebar into a fixed slot list.
-      handle: '.slot-never-drag-handle',
-      animation: 150,
+  const isBreak = list.dataset.dutyType === 'break';
+  const targetSlotIdx = parseInt(targetSlotEl.dataset.slotIdx, 10);
+  const targetGradeClass = _getExistingGradeClass(slId, targetSlotIdx);
 
-      onMove: function (evt) {
-        const col = list.closest('.location-column');
-        if (!col || col.dataset.editable !== 'true') return false;
-        return true;
-      },
+  if (targetSlotEl.classList.contains('slot-filled')) {
+    replaceTeacherInSlot(slId, targetSlotIdx, dragged.teacherId, dragged.teacherName, isBreak, targetGradeClass);
+    _refreshFillBar(slId);
+    showToast(I18N.t('teacher_replaced') || 'Teacher replaced');
+    return;
+  }
 
-      onAdd: function (evt) {
-        const col     = list.closest('.location-column');
-        const dayDate = col?.dataset.day;
-        const day     = currentWeekData?.day_plans?.find(d => d.date === dayDate);
+  recordAssignment(slId, targetSlotIdx, dragged.teacherId, targetGradeClass);
+  targetSlotEl.outerHTML = renderSlot(slId, targetSlotIdx, {
+    teacher_id:   dragged.teacherId,
+    teacher_name: dragged.teacherName,
+    slot_index:   targetSlotIdx,
+    grade_class:  targetGradeClass,
+  }, isBreak, true);
+  _refreshFillBar(slId);
+}
 
-        if (!day || !day.is_editable) {
-          showToast(I18N.t('day_locked') || 'Past days cannot be edited', 'error');
-          evt.item.parentNode && evt.item.parentNode.removeChild(evt.item);
-          return;
-        }
+function initDragAndDrop() {
+  document.querySelectorAll('.teacher-list-item').forEach(item => {
+    if (item.dataset.dragInit === 'true') return;
 
-        const slId        = parseInt(list.dataset.slId, 10);
-        const teacherId   = parseInt(evt.item.dataset.teacherId, 10);
-        const teacherName = evt.item.dataset.teacherName;
+    item.setAttribute('draggable', 'true');
 
-        const targetSlotEl = _resolveDropTargetSlot(list, evt);
-
-        evt.item.parentNode && evt.item.parentNode.removeChild(evt.item);
-
-        if (isTeacherAssignedInSameShift(slId, teacherId)) {
-          showToast(I18N.t('duplicate_teacher') || 'Teacher already assigned in this duty', 'error');
-          return;
-        }
-
-        if (targetSlotEl) {
-          const targetSlotIdx = parseInt(targetSlotEl.dataset.slotIdx, 10);
-          const targetIsFilled = targetSlotEl.classList.contains('slot-filled');
-          const targetGradeClass = _getExistingGradeClass(slId, targetSlotIdx);
-
-          if (targetIsFilled) {
-            replaceTeacherInSlot(slId, targetSlotIdx, teacherId, teacherName, isBreak, targetGradeClass);
-            _refreshFillBar(slId);
-            showToast(I18N.t('teacher_replaced') || 'Teacher replaced');
-            return;
-          }
-
-          recordAssignment(slId, targetSlotIdx, teacherId, targetGradeClass);
-          targetSlotEl.outerHTML = renderSlot(slId, targetSlotIdx, {
-            teacher_id:   teacherId,
-            teacher_name: teacherName,
-            slot_index:   targetSlotIdx,
-            grade_class:  targetGradeClass,
-          }, isBreak, true);
-          _refreshFillBar(slId);
-          return;
-        }
-
-        const emptySlot = list.querySelector('.slot-item.slot-empty');
-        if (!emptySlot) {
-          const filledSlots = Array.from(list.querySelectorAll('.slot-item.slot-filled'));
-          if (filledSlots.length > 0) {
-            const fallbackSlot = filledSlots[filledSlots.length - 1];
-            const slotIdx = parseInt(fallbackSlot.dataset.slotIdx, 10);
-            const gradeClass = _getExistingGradeClass(slId, slotIdx);
-            replaceTeacherInSlot(slId, slotIdx, teacherId, teacherName, isBreak, gradeClass);
-            _refreshFillBar(slId);
-            showToast(I18N.t('teacher_replaced') || 'Teacher replaced');
-            return;
-          }
-
-          showToast(I18N.t('no_empty_slot') || 'No empty slot available', 'error');
-          return;
-        }
-
-        const slotIdx = parseInt(emptySlot.dataset.slotIdx, 10);
-        const gradeClass = _getExistingGradeClass(slId, slotIdx);
-        recordAssignment(slId, slotIdx, teacherId, gradeClass);
-        emptySlot.outerHTML = renderSlot(slId, slotIdx, {
-          teacher_id:   teacherId,
-          teacher_name: teacherName,
-          slot_index:   slotIdx,
-          grade_class:  gradeClass,
-        }, isBreak, true);
-        _refreshFillBar(slId);
-      },
+    item.addEventListener('dragstart', (evt) => {
+      const payload = JSON.stringify({
+        teacherId: item.dataset.teacherId,
+        teacherName: item.dataset.teacherName || item.textContent.trim(),
+      });
+      evt.dataTransfer.effectAllowed = 'copy';
+      evt.dataTransfer.setData('application/json', payload);
+      evt.dataTransfer.setData('text/plain', item.dataset.teacherId || '');
+      item.classList.add('is-dragging');
+      document.body.classList.add('planner-dragging-teacher');
     });
 
-    list.dataset.sortableInit = 'true';
+    item.addEventListener('dragend', () => {
+      item.classList.remove('is-dragging');
+      document.body.classList.remove('planner-dragging-teacher');
+      _clearDropIndicators();
+    });
+
+    item.dataset.dragInit = 'true';
+  });
+
+  document.querySelectorAll('.slots-list').forEach(list => {
+    if (list.dataset.dragDropInit === 'true') return;
+
+    const col = list.closest('.location-column');
+
+    list.addEventListener('dragover', (evt) => {
+      if (col?.dataset.editable !== 'true') return;
+      evt.preventDefault();
+      evt.dataTransfer.dropEffect = 'copy';
+
+      const slotEl = evt.target.closest('.slot-item');
+      if (slotEl && slotEl.parentElement === list) {
+        _markDropTarget(slotEl);
+      } else {
+        const fallback = _pickFallbackSlot(list);
+        _markDropTarget(fallback);
+      }
+    });
+
+    list.addEventListener('dragenter', (evt) => {
+      if (col?.dataset.editable !== 'true') return;
+      const slotEl = evt.target.closest('.slot-item');
+      if (slotEl && slotEl.parentElement === list) {
+        _markDropTarget(slotEl);
+      }
+    });
+
+    list.addEventListener('dragleave', (evt) => {
+      if (!list.contains(evt.relatedTarget)) {
+        _clearDropIndicators(list);
+      }
+    });
+
+    list.addEventListener('drop', (evt) => {
+      if (col?.dataset.editable !== 'true') return;
+      evt.preventDefault();
+
+      const dragged = _extractDraggedTeacher(evt);
+      const slotEl = evt.target.closest('.slot-item');
+      const targetSlot = slotEl && slotEl.parentElement === list ? slotEl : _pickFallbackSlot(list);
+
+      _handleTeacherDrop(list, targetSlot, dragged);
+      _clearDropIndicators();
+    });
+
+    list.dataset.dragDropInit = 'true';
   });
 }
 
-/**
- * Returns the pre-seeded grade_class for a break slot from currentWeekData.
- * For non-break slots returns null.
- */
 function _getExistingGradeClass(slId, slotIdx) {
   const found = findShiftLocationInCurrentWeek(slId);
   if (!found) return null;

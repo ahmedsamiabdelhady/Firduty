@@ -1314,15 +1314,59 @@ input:focus, select:focus, textarea:focus {
 .slot-drop-icon { font-size: 1rem; line-height: 1; }
 .slot-drop-text { font-size: 0.75rem; color: var(--text-muted); }
 
-/* Highlight on drag-over */
-.slots-list.sortable-drag-over .slot-empty {
+/* Drag-over feedback for fixed slots */
+body.planner-dragging-teacher .slots-list {
+  transition: background 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+body.planner-dragging-teacher .slots-list.drag-active {
+  background: rgba(79, 161, 204, 0.06);
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 1px rgba(79, 161, 204, 0.15);
+}
+
+.slot-item.slot-drop-target-empty {
   background: #eff6ff;
   border-color: var(--nav-light);
+  box-shadow: 0 0 0 3px rgba(79, 161, 204, 0.18);
 }
-.slots-list.sortable-drag-over .slot-empty .slot-drop-zone { opacity: 0.85; }
+.slot-item.slot-drop-target-empty .slot-drop-zone {
+  opacity: 1;
+}
 
-/* Sortable drag ghost */
-.slot-item.sortable-ghost { opacity: 0.35; }
+.slot-item.slot-drop-target-filled {
+  background: #fff7ed;
+  border-color: #fb923c;
+  box-shadow: 0 0 0 3px rgba(251, 146, 60, 0.18);
+}
+.slot-item.slot-drop-target-filled .teacher-name {
+  color: #9a3412;
+}
+
+.slots-list.drop-mode-add .slot-item.slot-drop-target-empty::after,
+.slots-list.drop-mode-replace .slot-item.slot-drop-target-filled::after {
+  content: attr(data-drop-label);
+  position: absolute;
+  inset-inline-end: 8px;
+  top: 6px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 2px 8px;
+  line-height: 1.5;
+}
+
+.slots-list.drop-mode-add .slot-item.slot-drop-target-empty::after {
+  content: 'Add here';
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.slots-list.drop-mode-replace .slot-item.slot-drop-target-filled::after {
+  content: 'Replace';
+  background: #ffedd5;
+  color: #c2410c;
+}
 
 /* ─── Empty break slot — class identity is the slot label ───────────────── */
 .slot-break-empty {
