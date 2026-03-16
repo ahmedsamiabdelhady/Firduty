@@ -21,6 +21,7 @@ let pendingSlots = {};         // key → { dayDate, shiftId, locationId, slotsC
 let selectedDate = null;       // the exact day chosen by admin in the date picker
 let teacherSearchTerm = '';
 let mobilePickerTarget = null;
+let mobileSheetDrag = null;
 let lang = () => I18N.getLang();
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
@@ -134,18 +135,24 @@ function openMobileTeacherSheet() {
   const sheet = byId('mobileTeacherSheet');
   const backdrop = byId('mobileTeacherSheetBackdrop');
   if (!sheet || !isMobilePlanner()) return;
+  if (mobileSheetDrag) mobileSheetDrag.reset();
+  sheet.style.transform = '';
   sheet.classList.add('is-open');
   sheet.setAttribute('aria-hidden', 'false');
   if (backdrop) backdrop.classList.add('is-open');
+  document.body.classList.add('mobile-sheet-open');
 }
 
 function closeMobileTeacherSheet(clearTarget = true) {
   const sheet = byId('mobileTeacherSheet');
   const backdrop = byId('mobileTeacherSheetBackdrop');
   if (!sheet) return;
+  if (mobileSheetDrag) mobileSheetDrag.reset();
+  sheet.style.transform = '';
   sheet.classList.remove('is-open');
   sheet.setAttribute('aria-hidden', 'true');
   if (backdrop) backdrop.classList.remove('is-open');
+  document.body.classList.remove('mobile-sheet-open');
   if (clearTarget) {
     mobilePickerTarget = null;
     updateTeacherTrayLabel();
@@ -181,6 +188,81 @@ function openMobileTeacherSheetForSlot(slId, slotIdx) {
   if (search) requestAnimationFrame(() => search.focus());
 }
 
+
+function updateMobilePlannerTargetPill() {
+  const pill = byId('mobilePlannerTargetPill');
+  if (!pill) return;
+  if (!isMobilePlanner() || !mobilePickerTarget) {
+    pill.style.display = 'none';
+    pill.textContent = '';
+    pill.className = 'mobile-planner-target-pill';
+    return;
+  }
+
+  pill.style.display = '';
+  pill.className = `mobile-planner-target-pill ${mobilePickerTarget.slotFilled ? 'is-replace' : 'is-add'}`;
+  pill.textContent = mobilePickerTarget.slotFilled
+    ? `Replace teacher • Slot ${mobilePickerTarget.slotNumber}`
+    : `Assign teacher • Slot ${mobilePickerTarget.slotNumber}`;
+}
+
+function bindMobileTeacherSheetDrag() {
+  const sheet = byId('mobileTeacherSheet');
+  const handle = byId('mobileTeacherSheetHandle');
+  const header = byId('mobileTeacherSheetHeader');
+  if (!sheet || !handle || handle.dataset.dragBound) return;
+
+  const dragStart = (evt) => {
+    if (!isMobilePlanner() || !sheet.classList.contains('is-open')) return;
+    const point = evt.touches ? evt.touches[0] : evt;
+    mobileSheetDrag = {
+      startY: point.clientY,
+      currentY: point.clientY,
+      dragging: true,
+      moved: 0,
+      reset() {
+        sheet.style.transition = '';
+        sheet.style.transform = '';
+      }
+    };
+    sheet.classList.add('is-dragging');
+    sheet.style.transition = 'none';
+  };
+
+  const dragMove = (evt) => {
+    if (!mobileSheetDrag?.dragging) return;
+    const point = evt.touches ? evt.touches[0] : evt;
+    mobileSheetDrag.currentY = point.clientY;
+    const delta = Math.max(0, point.clientY - mobileSheetDrag.startY);
+    mobileSheetDrag.moved = delta;
+    sheet.style.transform = `translateY(${delta}px)`;
+    if (delta > 0 && evt.cancelable) evt.preventDefault();
+  };
+
+  const dragEnd = () => {
+    if (!mobileSheetDrag?.dragging) return;
+    const moved = mobileSheetDrag.moved || 0;
+    sheet.classList.remove('is-dragging');
+    sheet.style.transition = '';
+    sheet.style.transform = '';
+    const shouldClose = moved > 110;
+    mobileSheetDrag.dragging = false;
+    if (shouldClose) {
+      closeMobileTeacherSheet(true);
+    }
+  };
+
+  [handle, header].forEach(el => {
+    el.addEventListener('touchstart', dragStart, { passive: true });
+    el.addEventListener('mousedown', dragStart);
+  });
+  window.addEventListener('touchmove', dragMove, { passive: false });
+  window.addEventListener('mousemove', dragMove);
+  window.addEventListener('touchend', dragEnd);
+  window.addEventListener('mouseup', dragEnd);
+  handle.dataset.dragBound = 'true';
+}
+
 function updateTeacherTrayLabel() {
   const title = byId('mobileTeacherSheetTitle');
   const subtitle = byId('mobileTeacherSheetSubtitle');
@@ -208,6 +290,7 @@ function updateTeacherTrayLabel() {
     }
   }
   if (count) count.textContent = String(filteredCount);
+  updateMobilePlannerTargetPill();
 }
 
 function renderTeacherLists() {
@@ -285,6 +368,8 @@ function bindTeacherPanelEvents() {
     backdrop.dataset.bound = 'true';
   }
 
+  bindMobileTeacherSheetDrag();
+
   if (!document.body.dataset.teacherDelegationBound) {
     document.addEventListener('click', (evt) => {
       const teacherEl = evt.target.closest('.teacher-list-item');
@@ -313,6 +398,7 @@ function bindTeacherPanelEvents() {
     window.addEventListener('resize', () => {
       if (!isMobilePlanner()) closeMobileTeacherSheet(true);
       renderTeacherLists();
+      updateMobilePlannerTargetPill();
     });
 
     document.body.dataset.teacherDelegationBound = 'true';

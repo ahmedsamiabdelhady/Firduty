@@ -1814,6 +1814,14 @@ input:focus, select:focus, textarea:focus {
   display: none;
 }
 
+.mobile-teacher-sheet {
+  display: none;
+}
+
+.mobile-planner-target-pill {
+  display: none;
+}
+
 .location-accordion {
   background: var(--white);
   border: 1px solid var(--border);
@@ -1983,40 +1991,151 @@ input:focus, select:focus, textarea:focus {
   .planner-main {
     width: 100%;
   }
+  body.mobile-sheet-open {
+    overflow: hidden;
+  }
   .mobile-teacher-sheet-backdrop {
     position: fixed;
     inset: 0;
     background: rgba(15, 23, 42, 0.28);
     z-index: 125;
+    opacity: 0;
+    transition: opacity 0.22s ease;
   }
   .mobile-teacher-sheet-backdrop.is-open {
     display: block;
+    opacity: 1;
   }
   .mobile-teacher-sheet {
+    position: fixed;
+    inset-inline: 0;
+    bottom: 0;
+    z-index: 130;
     display: block;
-    padding: 10px 14px calc(18px + env(safe-area-inset-bottom));
-    transform: translateY(100%);
+    transform: translateY(calc(100% + 16px));
+    transition: transform 0.26s ease, box-shadow 0.26s ease;
+    will-change: transform;
+    pointer-events: none;
+  }
+  .mobile-teacher-sheet.is-open {
+    transform: translateY(0);
+    pointer-events: auto;
+  }
+  .mobile-teacher-sheet.is-dragging {
+    transition: none;
+  }
+  .mobile-teacher-sheet-surface {
+    background: var(--white);
+    border-radius: 22px 22px 0 0;
+    box-shadow: 0 -14px 32px rgba(15, 23, 42, 0.18);
+    border-top: 1px solid rgba(214, 221, 232, 0.9);
+    padding: 8px 14px calc(16px + env(safe-area-inset-bottom));
     max-height: min(72vh, 560px);
+    min-height: 220px;
+    display: flex;
+    flex-direction: column;
+  }
+  .mobile-teacher-sheet-handle {
+    width: 46px;
+    height: 5px;
+    border-radius: 999px;
+    background: #cbd5e1;
+    margin: 4px auto 10px;
   }
   .mobile-teacher-sheet-header {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    display: flex;
     align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    background: var(--white);
+    padding-bottom: 10px;
   }
   .mobile-teacher-sheet-header > div {
     display: flex;
     flex-direction: column;
     gap: 4px;
+    min-width: 0;
   }
   .mobile-teacher-sheet-header h3 {
     display: flex;
     align-items: center;
     gap: 8px;
     margin: 0;
+    font-size: 1.02rem;
+  }
+  .mobile-teacher-sheet-subtitle {
+    color: var(--text-muted);
+    font-size: 0.84rem;
+    margin: 0;
+  }
+  .mobile-teacher-search-wrap {
+    position: sticky;
+    top: 56px;
+    z-index: 2;
+    background: var(--white);
+    padding-bottom: 10px;
+  }
+  .mobile-teacher-search-wrap .teacher-search-input {
+    min-height: 44px;
+    border-radius: 12px;
+  }
+  .mobile-selected-hint {
+    position: sticky;
+    top: 112px;
+    z-index: 1;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 9px 12px;
+    font-size: 0.82rem;
+    font-weight: 700;
+    margin-bottom: 10px;
+    width: fit-content;
+    max-width: 100%;
+    background: #f8fafc;
   }
   .teacher-list-mobile {
-    max-height: calc(72vh - 180px);
+    flex: 1;
+    min-height: 0;
     overflow-y: auto;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
+    padding-bottom: 4px;
+  }
+  .teacher-list-mobile .teacher-list-item {
+    margin-bottom: 8px;
+    min-height: 46px;
+    display: flex;
+    align-items: center;
+    border-radius: 12px;
+  }
+  .mobile-planner-target-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 8px 12px;
+    margin: 0 0 12px;
+    background: var(--white);
+    font-size: 0.82rem;
+    font-weight: 700;
+    box-shadow: var(--shadow);
+  }
+  .mobile-planner-target-pill.is-add {
+    color: #1d4ed8;
+    border-color: #bfdbfe;
+    background: #eff6ff;
+  }
+  .mobile-planner-target-pill.is-replace {
+    color: #b45309;
+    border-color: #fed7aa;
+    background: #fff7ed;
   }
   .locations-grid {
     gap: 10px;
