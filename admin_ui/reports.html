@@ -10,40 +10,291 @@
   <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">
   <link rel="apple-touch-icon" sizes="192x192" href="favicon-192x192.png">
   <style>
-    .report-header {
+    /* ── Period picker ─────────────────────────────────────────────────────── */
+    .rpt-controls {
+      background: var(--white);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow);
+      padding: 16px 20px;
+      margin-bottom: 20px;
       display: flex;
       align-items: center;
-      gap: 16px;
+      gap: 12px;
       flex-wrap: wrap;
-      background: var(--white);
-      padding: 16px 20px;
+    }
+    .rpt-period {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 1;
+      min-width: 240px;
+    }
+    .rpt-nav-btn {
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      border: 1.5px solid var(--border);
+      background: var(--bg);
+      cursor: pointer;
+      font-size: 1rem;
+      display: flex; align-items: center; justify-content: center;
+      transition: background 0.15s, border-color 0.15s;
+      flex-shrink: 0;
+    }
+    .rpt-nav-btn:hover { background: var(--nav); border-color: var(--nav); color: #fff; }
+    .rpt-month-label {
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--nav);
+      min-width: 160px;
+      text-align: center;
+    }
+    .rpt-actions { display: flex; gap: 8px; align-items: center; margin-inline-start: auto; flex-wrap: wrap; }
+    .rpt-icon-btn {
+      width: 36px; height: 36px;
       border-radius: var(--radius);
-      box-shadow: var(--shadow);
-      margin-bottom: 20px;
+      border: 1.5px solid var(--border);
+      background: var(--bg);
+      cursor: pointer;
+      font-size: 1rem;
+      display: flex; align-items: center; justify-content: center;
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
+      position: relative;
     }
-    .month-selector { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-    .summary-cards {
+    .rpt-icon-btn:hover { background: var(--nav); border-color: var(--nav); color: #fff; }
+    .rpt-icon-btn[title]:hover::after {
+      content: attr(title);
+      position: absolute;
+      bottom: calc(100% + 6px);
+      left: 50%; transform: translateX(-50%);
+      background: #1f2d3a;
+      color: #fff;
+      font-size: 0.72rem;
+      padding: 3px 8px;
+      border-radius: 4px;
+      white-space: nowrap;
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    /* ── Summary cards ─────────────────────────────────────────────────────── */
+    .rpt-summary {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-      gap: 14px;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 12px;
       margin-bottom: 20px;
     }
-    .summary-card { background: var(--white); border-radius: var(--radius); padding: 16px 20px; box-shadow: var(--shadow); text-align: center; }
-    .summary-card .card-value { font-size: 2rem; font-weight: 700; color: var(--primary); }
-    .summary-card .card-label { font-size: 0.82rem; color: var(--text-muted); margin-top: 4px; }
-    .rank-badge { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; font-weight: 700; font-size: 0.85rem; }
-    .rank-1 { background: #ffd700; color: #333; }
-    .rank-2 { background: #c0c0c0; color: #333; }
-    .rank-3 { background: #cd7f32; color: #fff; }
-    .rank-other { background: var(--border); color: var(--text-muted); }
-    .points-bar-wrap { width: 120px; }
-    .points-bar { height: 8px; border-radius: 4px; background: #e9ecef; overflow: hidden; }
-    .points-bar-fill { height: 100%; background: var(--primary); border-radius: 4px; transition: width 0.4s; }
-    .pill { display: inline-block; padding: 3px 9px; border-radius: 12px; font-size: 0.78rem; font-weight: 600; }
-    .pill-green  { background: #d4edda; color: #155724; }
-    .pill-yellow { background: #fff3cd; color: #856404; }
-    .pill-gray   { background: #f0f0f0; color: #888; }
-    .detail-table th, .detail-table td { font-size: 0.85rem; }
+    .rpt-card {
+      background: var(--white);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow);
+      padding: 16px 18px;
+      border-left: 4px solid var(--nav);
+      transition: box-shadow 0.2s, transform 0.15s;
+    }
+    .rpt-card:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
+    .rpt-card.green  { border-left-color: var(--primary); }
+    .rpt-card.orange { border-left-color: var(--warning); }
+    .rpt-card.purple { border-left-color: #7c3aed; }
+    .rpt-card-icon   { font-size: 1.3rem; margin-bottom: 6px; display: block; }
+    .rpt-card-val    { font-size: 1.9rem; font-weight: 700; color: var(--nav); line-height: 1; margin-bottom: 4px; }
+    .rpt-card.green  .rpt-card-val { color: var(--success-dark); }
+    .rpt-card.orange .rpt-card-val { color: #c05700; }
+    .rpt-card.purple .rpt-card-val { color: #6d28d9; }
+    .rpt-card-lbl    { font-size: 0.78rem; color: var(--text-muted); font-weight: 500; }
+
+    /* ── Podium (top 3) ────────────────────────────────────────────────────── */
+    .rpt-podium {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    @media (max-width: 560px) { .rpt-podium { grid-template-columns: 1fr; } }
+
+    .rpt-podium-card {
+      background: var(--white);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow);
+      padding: 18px 16px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+      transition: box-shadow 0.2s, transform 0.15s;
+      cursor: pointer;
+      border: 2px solid transparent;
+    }
+    .rpt-podium-card:hover { box-shadow: var(--shadow-md); transform: translateY(-2px); }
+    .rpt-podium-card.gold   { border-color: #f59e0b; background: linear-gradient(160deg, #fffbeb 0%, #fff 60%); }
+    .rpt-podium-card.silver { border-color: #9ca3af; background: linear-gradient(160deg, #f9fafb 0%, #fff 60%); }
+    .rpt-podium-card.bronze { border-color: #d97706; background: linear-gradient(160deg, #fff7ed 0%, #fff 60%); }
+
+    .rpt-podium-medal { font-size: 2rem; margin-bottom: 6px; display: block; }
+    .rpt-podium-name  { font-size: 0.95rem; font-weight: 700; color: var(--text); margin-bottom: 8px; }
+    .rpt-podium-pts   { font-size: 1.8rem; font-weight: 700; line-height: 1; margin-bottom: 2px; }
+    .rpt-podium-pts-lbl { font-size: 0.72rem; color: var(--text-muted); margin-bottom: 10px; display: block; }
+    .gold   .rpt-podium-pts { color: #d97706; }
+    .silver .rpt-podium-pts { color: #6b7280; }
+    .bronze .rpt-podium-pts { color: #b45309; }
+
+    .rpt-podium-pills { display: flex; justify-content: center; gap: 5px; flex-wrap: wrap; }
+    .rpt-pill { display: inline-flex; align-items: center; gap: 3px; padding: 2px 8px;
+                border-radius: 999px; font-size: 0.72rem; font-weight: 600; }
+    .rpt-pill-green  { background: #dcfce7; color: #166534; }
+    .rpt-pill-yellow { background: #fef9c3; color: #854d0e; }
+    .rpt-pill-gray   { background: #f3f4f6; color: #6b7280; }
+
+    /* ── Leaderboard table ─────────────────────────────────────────────────── */
+    .rpt-table-wrap {
+      background: var(--white);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .rpt-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+    }
+    .rpt-table thead th {
+      background: var(--bg);
+      padding: 10px 14px;
+      text-align: start;
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border-bottom: 2px solid var(--border);
+      white-space: nowrap;
+    }
+    .rpt-table tbody tr {
+      cursor: pointer;
+      transition: background 0.12s;
+      border-bottom: 1px solid var(--border);
+    }
+    .rpt-table tbody tr:last-child { border-bottom: none; }
+    .rpt-table tbody tr:hover { background: #f0f6fb; }
+    .rpt-table td { padding: 11px 14px; vertical-align: middle; }
+
+    /* Rank cell */
+    .rpt-rank {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 26px; height: 26px; border-radius: 50%;
+      font-weight: 700; font-size: 0.8rem;
+      background: var(--border); color: var(--text-muted);
+    }
+
+    /* Points progress inline */
+    .rpt-bar-wrap { display: flex; align-items: center; gap: 8px; }
+    .rpt-bar-track {
+      flex: 1; height: 7px; background: var(--bg);
+      border-radius: 999px; overflow: hidden; min-width: 60px;
+    }
+    .rpt-bar-fill {
+      height: 100%; border-radius: 999px;
+      background: var(--nav);
+      width: 0%;
+      transition: width 0.5s cubic-bezier(0.4,0,0.2,1);
+    }
+    .rpt-bar-pct { font-size: 0.72rem; color: var(--text-muted); min-width: 30px; text-align: end; }
+
+    /* Punctuality mini-pills inline */
+    .rpt-pt-row { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+
+    /* Loading row */
+    .rpt-loading-row td { text-align: center; padding: 32px; color: var(--text-muted); }
+
+    /* ── Empty / no-data state ──────────────────────────────────────────────── */
+    .rpt-empty {
+      text-align: center; padding: 72px 20px;
+      background: var(--white); border-radius: var(--radius-lg);
+      box-shadow: var(--shadow);
+    }
+    .rpt-empty-icon { font-size: 3rem; opacity: 0.3; margin-bottom: 12px; display: block; }
+    .rpt-empty-text { color: var(--text-muted); font-size: 0.92rem; }
+
+    /* ── Skeleton ───────────────────────────────────────────────────────────── */
+    .rpt-skel-row td { padding: 12px 14px; }
+    .rpt-skel-row .skel { border-radius: 6px; }
+
+    /* ── Modal ──────────────────────────────────────────────────────────────── */
+    .rpt-modal {
+      background: var(--white);
+      border-radius: var(--radius-lg);
+      width: 100%;
+      max-width: 640px;
+      max-height: 88vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 16px 48px rgba(31,45,58,0.22);
+      overflow: hidden;
+    }
+    .rpt-modal-header {
+      padding: 20px 24px 16px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .rpt-modal-teacher { font-size: 1.15rem; font-weight: 700; color: var(--nav); margin-bottom: 12px; }
+    .rpt-modal-stats {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+    }
+    .rpt-modal-stat { text-align: center; }
+    .rpt-modal-stat-val {
+      font-size: 1.4rem; font-weight: 700; color: var(--nav);
+      line-height: 1; margin-bottom: 3px; display: block;
+    }
+    .rpt-modal-stat-lbl { font-size: 0.7rem; color: var(--text-muted); }
+    .rpt-modal-close {
+      position: absolute; top: 14px; inset-inline-end: 16px;
+      width: 32px; height: 32px; border-radius: 50%;
+      border: none; background: var(--bg); cursor: pointer;
+      font-size: 1rem; display: flex; align-items: center; justify-content: center;
+      transition: background 0.15s;
+    }
+    .rpt-modal-close:hover { background: #fee2e2; color: var(--danger); }
+    .rpt-modal-body {
+      overflow-y: auto;
+      flex: 1;
+      padding: 0;
+    }
+    .rpt-detail-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+    }
+    .rpt-detail-table thead th {
+      background: var(--bg);
+      padding: 8px 16px;
+      text-align: start;
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      border-bottom: 1px solid var(--border);
+      position: sticky; top: 0;
+    }
+    .rpt-detail-table tbody tr { border-bottom: 1px solid var(--border); }
+    .rpt-detail-table tbody tr:last-child { border-bottom: none; }
+    .rpt-detail-table td { padding: 10px 16px; vertical-align: middle; }
+    .rpt-modal-footer {
+      padding: 12px 24px;
+      border-top: 1px solid var(--border);
+      display: flex; justify-content: flex-end;
+      flex-shrink: 0;
+    }
+
+    /* ── Point dot ──────────────────────────────────────────────────────────── */
+    .pt-dot {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 24px; height: 24px; border-radius: 50%;
+      font-size: 0.75rem; font-weight: 700;
+    }
+    .pt-2 { background: #dcfce7; color: #166534; }
+    .pt-1 { background: #fef9c3; color: #854d0e; }
+    .pt-0 { background: #fee2e2; color: #991b1b; }
   </style>
 </head>
 <body>
@@ -60,223 +311,341 @@
 
 <main class="main-content">
 
-  <!-- Controls -->
-  <div class="report-header">
-    <div class="month-selector">
-      <label data-i18n="year">Year:</label>
-      <input type="number" id="yearInput" min="2024" max="2099" style="width:90px">
-      <label data-i18n="month">Month:</label>
-      <select id="monthInput" style="width:140px"></select>
-      <button class="btn btn-primary btn-sm" onclick="loadReport()" data-i18n="load_report">Load</button>
+  <!-- Period picker -->
+  <div class="rpt-controls">
+    <div class="rpt-period">
+      <button class="rpt-nav-btn" onclick="shiftMonth(-1)" title="Previous month">‹</button>
+      <span class="rpt-month-label" id="periodLabel">—</span>
+      <button class="rpt-nav-btn" onclick="shiftMonth(1)" title="Next month">›</button>
     </div>
-    <div style="margin-inline-start:auto;display:flex;gap:8px;flex-wrap:wrap">
-      <button class="btn btn-secondary btn-sm" onclick="exportCSV()" data-i18n="export_csv">⬇ Export CSV</button>
-      <button class="btn btn-secondary btn-sm" onclick="rebuildCache()" data-i18n="rebuild_cache">↺ Rebuild Cache</button>
-    </div>
-  </div>
-
-  <!-- Summary Cards -->
-  <div class="summary-cards" id="summaryCards" style="display:none">
-    <div class="summary-card">
-      <div class="card-value" id="totalTeachers">—</div>
-      <div class="card-label" data-i18n="active_teachers">Active Teachers</div>
-    </div>
-    <div class="summary-card">
-      <div class="card-value" id="totalConfirmations">—</div>
-      <div class="card-label" data-i18n="total_confirmations">Total Confirmations</div>
-    </div>
-    <div class="summary-card">
-      <div class="card-value" id="totalPoints">—</div>
-      <div class="card-label" data-i18n="total_points_label">Total Points</div>
-    </div>
-    <div class="summary-card">
-      <div class="card-value" id="avgPoints">—</div>
-      <div class="card-label" data-i18n="avg_points">Avg Points/Teacher</div>
+    <div class="rpt-actions">
+      <button class="rpt-icon-btn" onclick="loadReport()" title="Refresh">↺</button>
+      <button class="rpt-icon-btn" onclick="exportCSV()" title="Export CSV">⬇</button>
+      <button class="rpt-icon-btn" onclick="rebuildCache()" title="Rebuild cache">⚙</button>
     </div>
   </div>
 
-  <!-- Leaderboard -->
-  <div id="reportContainer" style="display:none">
-    <div style="background:var(--white);border-radius:var(--radius);box-shadow:var(--shadow);overflow:auto">
-      <table class="data-table" id="reportTable">
-        <thead>
-          <tr>
-            <th data-i18n="rank">#</th>
-            <th data-i18n="teacher">Teacher</th>
-            <th data-i18n="total_points">Total Points</th>
-            <th data-i18n="confirmations">Confirmations</th>
-            <th data-i18n="on_time">On Time (2pts)</th>
-            <th data-i18n="late_1_5">Late 1–5min (1pt)</th>
-            <th data-i18n="no_points">No Points</th>
-            <th data-i18n="progress">Progress</th>
-            <th data-i18n="details">Details</th>
-          </tr>
-        </thead>
-        <tbody id="reportBody"></tbody>
-      </table>
-    </div>
-  </div>
-
-  <p id="noDataMsg" style="display:none;color:#999;text-align:center;margin-top:48px" data-i18n="no_report_data">
-    No data found for the selected month.
-  </p>
+  <!-- Dynamic content area -->
+  <div id="rptContent"></div>
 
 </main>
 
 <!-- Detail Modal -->
-<div class="modal-overlay hidden" id="detailModal">
-  <div class="modal" style="max-width:700px">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-      <h3 id="modalTitle" data-i18n="duty_details">Duty Details</h3>
-      <button class="btn-icon" onclick="closeModal()">✕</button>
+<div class="modal-overlay hidden" id="detailModal" onclick="if(event.target===this)closeModal()">
+  <div class="rpt-modal" style="position:relative">
+    <button class="rpt-modal-close" onclick="closeModal()">✕</button>
+    <div class="rpt-modal-header">
+      <div class="rpt-modal-teacher" id="modalTeacherName">—</div>
+      <div class="rpt-modal-stats" id="modalStats"></div>
     </div>
-    <div id="modalSummary" style="margin-bottom:12px;font-size:0.9rem;color:var(--text-muted)"></div>
-    <div style="overflow:auto;max-height:400px">
-      <table class="data-table detail-table" id="detailTable">
+    <div class="rpt-modal-body">
+      <table class="rpt-detail-table">
         <thead>
           <tr>
             <th data-i18n="date">Date</th>
             <th data-i18n="shift">Shift</th>
             <th data-i18n="location">Location</th>
-            <th data-i18n="shift_start">Start Time</th>
             <th data-i18n="confirmed_at">Confirmed At</th>
-            <th data-i18n="points">Points</th>
+            <th data-i18n="points">Pts</th>
           </tr>
         </thead>
         <tbody id="detailBody"></tbody>
       </table>
-      <p id="noDetailMsg" style="display:none;text-align:center;color:#999;padding:20px" data-i18n="no_confirmations">
+      <p id="noDetailMsg" style="display:none;text-align:center;color:var(--text-muted);padding:32px;font-size:0.88rem">
         No confirmations this month.
       </p>
     </div>
-    <div style="text-align:end;margin-top:16px">
-      <button class="btn btn-secondary" onclick="closeModal()" data-i18n="close">Close</button>
+    <div class="rpt-modal-footer">
+      <button class="btn btn-secondary btn-sm" onclick="closeModal()" data-i18n="close">Close</button>
     </div>
   </div>
 </div>
 
 <div class="toast-container" id="toastContainer"></div>
 
-<!-- Scripts — same order as every other page -->
 <script src="js/auth.js?v=101"></script>
 <script src="js/i18n.js?v=101"></script>
 <script src="js/nav.js?v=101"></script>
 <script>
-/* ─── Month Names ──────────────────────────────────────────────────────────── */
+
 const MONTHS_EN = ['January','February','March','April','May','June',
                    'July','August','September','October','November','December'];
 const MONTHS_AR = ['يناير','فبراير','مارس','أبريل','مايو','يونيو',
                    'يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
 
-function populateMonths() {
-  const sel = document.getElementById('monthInput');
-  const names = I18N.getLang() === 'ar' ? MONTHS_AR : MONTHS_EN;
-  sel.innerHTML = '';
-  names.forEach((name, i) => {
-    const opt = document.createElement('option');
-    opt.value = i + 1;
-    opt.textContent = name;
-    sel.appendChild(opt);
-  });
-}
+let _year, _month, _maxPts = 1, _reportData = null;
 
-/* ─── Init ──────────────────────────────────────────────────────────────────── */
-let reportData = null;
-let maxPoints  = 0;
+// ─── Bootstrap ────────────────────────────────────────────────────────────────
 
 async function init() {
   await I18N.load(localStorage.getItem('firduty_lang') || 'ar');
   initNav();
-  populateMonths();
   const now = new Date();
-  document.getElementById('yearInput').value  = now.getFullYear();
-  document.getElementById('monthInput').value = now.getMonth() + 1;
+  _year  = now.getFullYear();
+  _month = now.getMonth() + 1;
+  _updatePeriodLabel();
   await loadReport();
 }
 
-/* ─── Load Report ───────────────────────────────────────────────────────────── */
-async function loadReport() {
-  const year  = document.getElementById('yearInput').value;
-  const month = document.getElementById('monthInput').value;
-  document.getElementById('reportContainer').style.display = 'none';
-  document.getElementById('summaryCards').style.display    = 'none';
-  document.getElementById('noDataMsg').style.display       = 'none';
-
-  const res = await apiFetch(`/admin/reports/monthly-points?year=${year}&month=${month}`);
-  if (!res || !res.ok) { showToast(I18N.t('error_generic'), 'error'); return; }
-
-  const data = await res.json();
-  reportData = data;
-
-  if (!data.teachers || data.teachers.length === 0) {
-    document.getElementById('noDataMsg').style.display = 'block';
-    return;
-  }
-
-  maxPoints = Math.max(...data.teachers.map(t => t.total_points), 1);
-  renderSummaryCards(data);
-  renderTable(data.teachers);
-  document.getElementById('summaryCards').style.display    = 'grid';
-  document.getElementById('reportContainer').style.display = 'block';
+function _updatePeriodLabel() {
+  const ar   = I18N.getLang() === 'ar';
+  const mths = ar ? MONTHS_AR : MONTHS_EN;
+  document.getElementById('periodLabel').textContent = `${mths[_month - 1]} ${_year}`;
 }
 
-/* ─── Summary Cards ─────────────────────────────────────────────────────────── */
-function renderSummaryCards(data) {
-  const total = data.teachers.reduce((s, t) => s + t.total_points, 0);
-  const avg   = data.teachers.length ? Math.round(total / data.teachers.length) : 0;
-  document.getElementById('totalTeachers').textContent      = data.total_teachers;
-  document.getElementById('totalConfirmations').textContent = data.total_confirmations;
-  document.getElementById('totalPoints').textContent        = total;
-  document.getElementById('avgPoints').textContent          = avg;
+function shiftMonth(delta) {
+  _month += delta;
+  if (_month < 1)  { _month = 12; _year--; }
+  if (_month > 12) { _month = 1;  _year++; }
+  _updatePeriodLabel();
+  loadReport();
 }
 
-/* ─── Leaderboard Table ─────────────────────────────────────────────────────── */
-function renderTable(teachers) {
-  const tbody = document.getElementById('reportBody');
-  tbody.innerHTML = '';
-  teachers.forEach((t, idx) => {
-    const rank      = idx + 1;
-    const rankClass = rank <= 3 ? `rank-${rank}` : 'rank-other';
-    const barPct    = maxPoints > 0 ? Math.round((t.total_points / maxPoints) * 100) : 0;
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td><span class="rank-badge ${rankClass}">${rank}</span></td>
-      <td><strong>${t.teacher_name}</strong></td>
-      <td><strong style="font-size:1.1rem;color:var(--primary)">${t.total_points}</strong></td>
-      <td>${t.confirmations}</td>
-      <td><span class="pill pill-green">${t.on_time}</span></td>
-      <td><span class="pill pill-yellow">${t.late}</span></td>
-      <td><span class="pill pill-gray">${t.no_points}</span></td>
-      <td>
-        <div class="points-bar-wrap">
-          <div class="points-bar"><div class="points-bar-fill" style="width:${barPct}%"></div></div>
-          <small style="color:var(--text-muted)">${barPct}%</small>
-        </div>
-      </td>
-      <td><button class="btn btn-secondary btn-sm" onclick="openDetail(${t.teacher_id},'${t.teacher_name}')">${I18N.t('details')}</button></td>
-    `;
-    tbody.appendChild(tr);
+// ─── Count-up animation ───────────────────────────────────────────────────────
+
+function _countUp(el, target, dur = 600) {
+  if (!el) return;
+  const s = performance.now();
+  (function step(now) {
+    const t = Math.min((now - s) / dur, 1);
+    const e = 1 - Math.pow(1 - t, 3);
+    el.textContent = Math.round(target * e);
+    if (t < 1) requestAnimationFrame(step);
+  })(performance.now());
+}
+
+function _animateBars() {
+  requestAnimationFrame(() => {
+    document.querySelectorAll('[data-tw]').forEach(el => { el.style.width = el.dataset.tw; });
   });
 }
 
-/* ─── Detail Modal ──────────────────────────────────────────────────────────── */
-async function openDetail(teacherId, teacherName) {
-  const year  = document.getElementById('yearInput').value;
-  const month = document.getElementById('monthInput').value;
-  const isAr  = I18N.getLang() === 'ar';
+// ─── Load ─────────────────────────────────────────────────────────────────────
 
-  document.getElementById('detailModal').classList.remove('hidden');
-  document.getElementById('modalTitle').textContent = teacherName;
+async function loadReport() {
+  _renderSkeleton();
+  try {
+    const res = await apiFetch(`/admin/reports/monthly-points?year=${_year}&month=${_month}`);
+    if (!res || !res.ok) { _renderError(); return; }
+    const data = await res.json();
+    _reportData = data;
+    if (!data.teachers || data.teachers.length === 0) {
+      _renderEmpty();
+    } else {
+      _maxPts = Math.max(...data.teachers.map(t => t.total_points), 1);
+      _render(data);
+    }
+  } catch (e) {
+    console.error(e);
+    _renderError();
+  }
+}
+
+// ─── Skeleton ─────────────────────────────────────────────────────────────────
+
+function _renderSkeleton() {
+  document.getElementById('rptContent').innerHTML = `
+    <div class="rpt-summary" style="margin-bottom:20px">
+      ${[0,1,2,3].map(() => `<div class="rpt-card">
+        <div class="skel" style="height:14px;width:32px;margin-bottom:12px;border-radius:4px"></div>
+        <div class="skel skel-val"></div><div class="skel skel-lbl" style="margin-top:6px"></div>
+      </div>`).join('')}
+    </div>
+    <div class="rpt-table-wrap">
+      <table class="rpt-table">
+        <thead><tr>
+          <th style="width:44px">#</th>
+          <th>Teacher</th>
+          <th>Points</th>
+          <th>Punctuality</th>
+          <th>Progress</th>
+        </tr></thead>
+        <tbody>
+          ${[0,1,2,3,4,5].map(() => `<tr class="rpt-skel-row">
+            <td><div class="skel" style="height:26px;width:26px;border-radius:50%"></div></td>
+            <td><div class="skel" style="height:14px;width:120px"></div></td>
+            <td><div class="skel" style="height:14px;width:40px"></div></td>
+            <td><div class="skel" style="height:14px;width:100px"></div></td>
+            <td><div class="skel" style="height:7px;width:100%;border-radius:999px"></div></td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+// ─── Error / Empty ────────────────────────────────────────────────────────────
+
+function _renderError() {
+  document.getElementById('rptContent').innerHTML = `
+    <div class="rpt-empty">
+      <span class="rpt-empty-icon">⚠</span>
+      <p class="rpt-empty-text" style="color:var(--danger);font-weight:600">Failed to load report</p>
+      <button class="btn btn-primary btn-sm" style="margin-top:16px" onclick="loadReport()">Retry</button>
+    </div>`;
+}
+
+function _renderEmpty() {
+  const ar = I18N.getLang() === 'ar';
+  document.getElementById('rptContent').innerHTML = `
+    <div class="rpt-empty">
+      <span class="rpt-empty-icon">📭</span>
+      <p class="rpt-empty-text">${ar ? 'لا توجد بيانات لهذا الشهر' : 'No data found for this month'}</p>
+    </div>`;
+}
+
+// ─── Main render ──────────────────────────────────────────────────────────────
+
+function _render(data) {
+  const ar = I18N.getLang() === 'ar';
+  const total = data.teachers.reduce((s, t) => s + t.total_points, 0);
+  const totalConf = data.total_confirmations || data.teachers.reduce((s, t) => s + t.confirmations, 0);
+  const avg = data.teachers.length ? Math.round(total / data.teachers.length) : 0;
+  const topRate = _maxPts > 0 ? 100 : 0;
+
+  // Summary cards
+  const summaryHtml = `
+    <div class="rpt-summary">
+      <div class="rpt-card">
+        <span class="rpt-card-icon">👩‍🏫</span>
+        <div class="rpt-card-val" id="sc-teachers">0</div>
+        <div class="rpt-card-lbl">${ar ? 'المعلمون' : 'Teachers'}</div>
+      </div>
+      <div class="rpt-card green">
+        <span class="rpt-card-icon">✅</span>
+        <div class="rpt-card-val" id="sc-conf">0</div>
+        <div class="rpt-card-lbl">${ar ? 'التأكيدات' : 'Confirmations'}</div>
+      </div>
+      <div class="rpt-card purple">
+        <span class="rpt-card-icon">⭐</span>
+        <div class="rpt-card-val" id="sc-total">0</div>
+        <div class="rpt-card-lbl">${ar ? 'إجمالي النقاط' : 'Total Points'}</div>
+      </div>
+      <div class="rpt-card orange">
+        <span class="rpt-card-icon">📊</span>
+        <div class="rpt-card-val" id="sc-avg">0</div>
+        <div class="rpt-card-lbl">${ar ? 'متوسط النقاط' : 'Avg Points'}</div>
+      </div>
+    </div>`;
+
+  // Podium (top 3)
+  const medals   = ['🥇','🥈','🥉'];
+  const podiumCls = ['gold','silver','bronze'];
+  const top3 = data.teachers.slice(0, 3);
+  const podiumHtml = top3.length >= 1 ? `
+    <div class="rpt-podium" style="margin-bottom:20px">
+      ${top3.map((t, i) => `
+        <div class="rpt-podium-card ${podiumCls[i]}" onclick="openDetail(${t.teacher_id},'${_esc(t.teacher_name)}')">
+          <span class="rpt-podium-medal">${medals[i]}</span>
+          <div class="rpt-podium-name">${_esc(t.teacher_name)}</div>
+          <div class="rpt-podium-pts" data-cup="${i}">${t.total_points}</div>
+          <span class="rpt-podium-pts-lbl">${ar ? 'نقطة' : 'pts'}</span>
+          <div class="rpt-podium-pills">
+            <span class="rpt-pill rpt-pill-green">✓ ${t.on_time}</span>
+            <span class="rpt-pill rpt-pill-yellow">~ ${t.late}</span>
+            <span class="rpt-pill rpt-pill-gray">✕ ${t.no_points}</span>
+          </div>
+        </div>`).join('')}
+    </div>` : '';
+
+  // Leaderboard (rank 4+, or all if < 4)
+  const restTeachers = data.teachers.length > 3 ? data.teachers.slice(3) : data.teachers;
+  const showAll = data.teachers.length <= 3;
+
+  const tableRows = (showAll ? data.teachers : restTeachers).map((t, idx) => {
+    const rank = showAll ? idx + 1 : idx + 4;
+    const barPct = _maxPts > 0 ? Math.round(t.total_points / _maxPts * 100) : 0;
+    return `<tr onclick="openDetail(${t.teacher_id},'${_esc(t.teacher_name)}')">
+      <td><span class="rpt-rank">${rank}</span></td>
+      <td><strong>${_esc(t.teacher_name)}</strong></td>
+      <td><strong style="color:var(--nav)">${t.total_points}</strong></td>
+      <td>
+        <div class="rpt-pt-row">
+          <span class="rpt-pill rpt-pill-green">✓ ${t.on_time}</span>
+          <span class="rpt-pill rpt-pill-yellow">~ ${t.late}</span>
+          <span class="rpt-pill rpt-pill-gray">✕ ${t.no_points}</span>
+        </div>
+      </td>
+      <td>
+        <div class="rpt-bar-wrap">
+          <div class="rpt-bar-track">
+            <div class="rpt-bar-fill" style="width:0%" data-tw="${barPct}%"></div>
+          </div>
+          <span class="rpt-bar-pct">${barPct}%</span>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+
+  const tableHtml = `
+    <div class="rpt-table-wrap" style="${!showAll ? '' : 'margin-top:0'}">
+      <table class="rpt-table">
+        <thead><tr>
+          <th style="width:44px">#</th>
+          <th>${ar ? 'المعلم' : 'Teacher'}</th>
+          <th>${ar ? 'النقاط' : 'Points'}</th>
+          <th>${ar ? 'الالتزام' : 'Punctuality'}</th>
+          <th>${ar ? 'التقدم' : 'Progress'}</th>
+        </tr></thead>
+        <tbody>${tableRows}</tbody>
+      </table>
+    </div>`;
+
+  document.getElementById('rptContent').innerHTML =
+    summaryHtml + podiumHtml + (restTeachers.length > 0 || showAll ? tableHtml : '');
+
+  // Animate counters
+  _countUp(document.getElementById('sc-teachers'), data.teachers.length);
+  _countUp(document.getElementById('sc-conf'),     totalConf);
+  _countUp(document.getElementById('sc-total'),    total);
+  _countUp(document.getElementById('sc-avg'),      avg);
+  _animateBars();
+}
+
+// ─── Detail Modal ─────────────────────────────────────────────────────────────
+
+async function openDetail(teacherId, teacherName) {
+  const ar    = I18N.getLang() === 'ar';
+  const modal = document.getElementById('detailModal');
+  modal.classList.remove('hidden');
+  document.getElementById('modalTeacherName').textContent = teacherName;
+  document.getElementById('modalStats').innerHTML = `
+    <div class="rpt-modal-stat"><span class="rpt-modal-stat-val">…</span><span class="rpt-modal-stat-lbl">${ar?'النقاط':'Points'}</span></div>
+    <div class="rpt-modal-stat"><span class="rpt-modal-stat-val">…</span><span class="rpt-modal-stat-lbl">${ar?'في الوقت':'On Time'}</span></div>
+    <div class="rpt-modal-stat"><span class="rpt-modal-stat-val">…</span><span class="rpt-modal-stat-lbl">${ar?'متأخر':'Late'}</span></div>
+    <div class="rpt-modal-stat"><span class="rpt-modal-stat-val">…</span><span class="rpt-modal-stat-lbl">${ar?'فاتت':'Missed'}</span></div>`;
   document.getElementById('detailBody').innerHTML =
-    `<tr><td colspan="6" style="text-align:center">${I18N.t('loading')}</td></tr>`;
+    `<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--text-muted)">
+      <div class="spinner" style="margin:0 auto 8px;width:24px;height:24px;border-width:2px"></div>
+      ${ar?'جار التحميل…':'Loading…'}
+    </td></tr>`;
   document.getElementById('noDetailMsg').style.display = 'none';
 
-  const res = await apiFetch(`/admin/reports/monthly-points/${teacherId}?year=${year}&month=${month}`);
-  if (!res || !res.ok) { showToast(I18N.t('error_generic'), 'error'); closeModal(); return; }
+  const res = await apiFetch(`/admin/reports/monthly-points/${teacherId}?year=${_year}&month=${_month}`);
+  if (!res || !res.ok) { showToast(I18N.t('error_generic') || 'Error', 'error'); closeModal(); return; }
 
   const data = await res.json();
-  document.getElementById('modalSummary').textContent =
-    `${I18N.t('total_points')}: ${data.total_points} | ${I18N.t('confirmations')}: ${data.duties.length}`;
+
+  // Header stats
+  const onTime = data.duties.filter(d => d.points_earned === 2).length;
+  const late   = data.duties.filter(d => d.points_earned === 1).length;
+  const missed = data.duties.filter(d => d.points_earned === 0).length;
+  document.getElementById('modalStats').innerHTML = `
+    <div class="rpt-modal-stat">
+      <span class="rpt-modal-stat-val" style="color:var(--nav)">${data.total_points}</span>
+      <span class="rpt-modal-stat-lbl">${ar?'النقاط':'Points'}</span>
+    </div>
+    <div class="rpt-modal-stat">
+      <span class="rpt-modal-stat-val" style="color:var(--primary)">${onTime}</span>
+      <span class="rpt-modal-stat-lbl">${ar?'في الوقت':'On Time'}</span>
+    </div>
+    <div class="rpt-modal-stat">
+      <span class="rpt-modal-stat-val" style="color:var(--warning)">${late}</span>
+      <span class="rpt-modal-stat-lbl">${ar?'متأخر':'Late'}</span>
+    </div>
+    <div class="rpt-modal-stat">
+      <span class="rpt-modal-stat-val" style="color:var(--danger)">${missed}</span>
+      <span class="rpt-modal-stat-lbl">${ar?'فاتت':'Missed'}</span>
+    </div>`;
 
   const tbody = document.getElementById('detailBody');
   tbody.innerHTML = '';
@@ -284,19 +653,19 @@ async function openDetail(teacherId, teacherName) {
     document.getElementById('noDetailMsg').style.display = 'block';
     return;
   }
+
   data.duties.forEach(d => {
-    const locName   = isAr ? d.location_name_ar   : d.location_name_en;
-    const shiftName = isAr ? d.shift_name_ar       : d.shift_name_en;
-    const ptClass   = d.points_earned === 2 ? 'pill-green' : d.points_earned === 1 ? 'pill-yellow' : 'pill-gray';
+    const loc   = ar ? (d.location_name_ar || d.grade_class || '—') : (d.location_name_en || d.grade_class || '—');
+    const shift = ar ? d.shift_name_ar : d.shift_name_en;
+    const time  = d.confirmed_at_muscat ? d.confirmed_at_muscat.slice(11, 16) : '—';
+    const ptCls = d.points_earned === 2 ? 'pt-2' : d.points_earned === 1 ? 'pt-1' : 'pt-0';
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td>${d.date}</td>
-      <td>${shiftName}</td>
-      <td>${locName}</td>
-      <td>${d.shift_start.slice(0, 5)}</td>
-      <td>${d.confirmed_at_muscat.slice(11, 19)}</td>
-      <td><span class="pill ${ptClass}">${d.points_earned} pt</span></td>
-    `;
+      <td style="white-space:nowrap">${d.date}</td>
+      <td>${shift}</td>
+      <td style="color:var(--text-muted);font-size:0.82rem">${loc}</td>
+      <td style="white-space:nowrap">${time}</td>
+      <td><span class="pt-dot ${ptCls}">${d.points_earned}</span></td>`;
     tbody.appendChild(tr);
   });
 }
@@ -304,37 +673,38 @@ async function openDetail(teacherId, teacherName) {
 function closeModal() {
   document.getElementById('detailModal').classList.add('hidden');
 }
-document.getElementById('detailModal').addEventListener('click', function(e) {
-  if (e.target === this) closeModal();
-});
 
-/* ─── Export CSV ────────────────────────────────────────────────────────────── */
+// ─── Export / Rebuild ────────────────────────────────────────────────────────
+
 async function exportCSV() {
-  const year  = document.getElementById('yearInput').value;
-  const month = document.getElementById('monthInput').value;
-  const res = await apiFetch(`/admin/reports/monthly-points/export/csv?year=${year}&month=${month}`);
-  if (!res || !res.ok) { showToast(I18N.t('error_generic'), 'error'); return; }
+  const res = await apiFetch(`/admin/reports/monthly-points/export/csv?year=${_year}&month=${_month}`);
+  if (!res || !res.ok) { showToast(I18N.t('error_generic') || 'Error', 'error'); return; }
   const blob = await res.blob();
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href = url;
-  a.download = `firduty_points_${year}_${String(month).padStart(2,'0')}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
+  a.download = `firduty_points_${_year}_${String(_month).padStart(2,'0')}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
   URL.revokeObjectURL(url);
 }
 
-/* ─── Rebuild Cache ─────────────────────────────────────────────────────────── */
 async function rebuildCache() {
-  const year  = document.getElementById('yearInput').value;
-  const month = document.getElementById('monthInput').value;
-  const res = await apiFetch(`/admin/reports/monthly-points/rebuild?year=${year}&month=${month}`, { method: 'POST' });
-  if (res && res.ok) { showToast(I18N.t('success_saved')); await loadReport(); }
-  else showToast(I18N.t('error_generic'), 'error');
+  const res = await apiFetch(
+    `/admin/reports/monthly-points/rebuild?year=${_year}&month=${_month}`,
+    { method: 'POST' }
+  );
+  if (res && res.ok) { showToast(I18N.t('success_saved') || 'Done'); await loadReport(); }
+  else showToast(I18N.t('error_generic') || 'Error', 'error');
 }
 
-/* ─── Toast (uses global from auth.js scope isn't available — define locally) */
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function _esc(s) {
+  return String(s||'')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
 function showToast(msg, type = 'success') {
   const c = document.getElementById('toastContainer');
   if (!c) return;
@@ -345,7 +715,6 @@ function showToast(msg, type = 'success') {
   setTimeout(() => t.remove(), 3500);
 }
 
-/* ─── Bootstrap ─────────────────────────────────────────────────────────────── */
 init();
 </script>
 </body>
