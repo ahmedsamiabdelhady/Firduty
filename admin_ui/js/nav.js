@@ -1,21 +1,22 @@
 /**
  * nav.js — Shared navigation bar for all Firduty admin pages.
  *
- * Injects a unified <nav class="main-nav"> into #mainNav on every page.
- * Call initNav() after I18N has loaded so labels are translated.
+ * Renders floating pill-style buttons on the blue nav bar.
+ * Active page button is filled white; others are transparent with hover effect.
+ * No emojis — text labels only.
  *
- * Also applies RTL direction from stored language preference immediately,
- * before I18N loads, to prevent layout flash.
+ * Call initNav() after I18N has loaded so labels are translated.
+ * RTL direction is applied early from stored preference before I18N loads.
  */
 
 const NAV_PAGES = [
-  { href: 'dashboard.html', icon: '📊', key: 'dashboard',        fallback: 'Dashboard'     },
-  { href: 'planner.html',   icon: '📅', key: 'week_planner',     fallback: 'Week Planner'  },
-  { href: 'reports.html',   icon: '🏆', key: 'monthly_report',   fallback: 'Report'        },
-  { href: 'teachers.html',  icon: '👥', key: 'teacher_approval', fallback: 'Teachers', badge: true },
+  { href: 'dashboard.html', key: 'dashboard',        fallback: 'Dashboard'          },
+  { href: 'planner.html',   key: 'week_planner',     fallback: 'Week Planner'       },
+  { href: 'reports.html',   key: 'monthly_report',   fallback: 'Monthly Report'     },
+  { href: 'teachers.html',  key: 'teacher_approval', fallback: 'Teachers', badge: true },
 ];
 
-// Apply RTL immediately from stored preference (before I18N loads)
+// Apply RTL immediately from stored preference — prevents layout flash
 (function applyDirEarly() {
   const lang = localStorage.getItem('firduty_lang') || 'ar';
   document.documentElement.lang = lang;
@@ -31,36 +32,36 @@ function _renderNav() {
   const bar = document.getElementById('mainNav');
   if (!bar) return;
 
-  // Detect active page by filename
-  const current = window.location.pathname.split('/').pop() || 'dashboard.html';
+  // Detect active page — handles both "/dashboard.html" and "/dashboard" style URLs
+  const raw     = window.location.pathname.split('/').pop() || '';
+  const current = raw.replace(/\.html$/, '') || 'dashboard';
 
   bar.innerHTML = NAV_PAGES.map(p => {
-    const active = current === p.href;
-    const label  = (typeof I18N !== 'undefined' ? I18N.t(p.key) : '') || p.fallback;
+    const pageKey = p.href.replace(/\.html$/, '');
+    const active  = current === pageKey;
+    const label   = (typeof I18N !== 'undefined' ? I18N.t(p.key) : '') || p.fallback;
 
     return `
       <a href="${p.href}"
          class="nav-tab${active ? ' nav-tab-active' : ''}"
          aria-current="${active ? 'page' : ''}">
-        <span class="nav-tab-icon" aria-hidden="true">${p.icon}</span>
-        <span class="nav-tab-label">${label}</span>
+        ${label}
         ${p.badge ? `<span class="nav-badge" id="navBadgePending" style="display:none">0</span>` : ''}
       </a>`;
   }).join('');
 }
 
 async function _loadPendingBadge() {
-  // Only show badge on Teachers page or fetch count on all pages
   try {
     if (typeof apiFetch !== 'function') return;
     const res = await apiFetch('/teachers/pending');
     if (!res || !res.ok) return;
-    const data = await res.json();
+    const data  = await res.json();
     const count = Array.isArray(data) ? data.length : 0;
     const badge = document.getElementById('navBadgePending');
     if (badge && count > 0) {
-      badge.textContent = count > 99 ? '99+' : count;
-      badge.style.display = 'inline-flex';
+      badge.textContent    = count > 99 ? '99+' : count;
+      badge.style.display  = 'inline-flex';
     }
   } catch (_) { /* non-critical */ }
 }
