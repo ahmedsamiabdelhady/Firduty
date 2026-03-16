@@ -346,7 +346,10 @@ function _reliabilityCard(list) {
 
 // 6 — Workload balance
 function _balanceCard(balance, topTeachers) {
-  const teacherRows = topTeachers.map((t, i) => `
+  const teachers = topTeachers || [];
+  if (!teachers.length && !balance) return '';
+
+  const teacherRows = teachers.map((t, i) => `
     <tr>
       <td>${rankBadge(i)}</td>
       <td><strong>${t.teacher_name}</strong></td>
@@ -367,22 +370,24 @@ function _balanceCard(balance, topTeachers) {
   return `<div class="section-card">
     <h3 class="section-title">🏆 ${isAr()?'أكثر المعلمين نشاطاً':'Most Active This Week'}</h3>
     ${balanceHtml}
-    <table class="teacher-table" style="margin-top:10px">
+    ${teachers.length ? `<table class="teacher-table" style="margin-top:10px">
       <thead><tr>
         <th>#</th>
         <th>${isAr()?'المعلم':'Teacher'}</th>
         <th>${isAr()?'المناوبات':'Duties'}</th>
       </tr></thead>
       <tbody>${teacherRows}</tbody>
-    </table>
+    </table>` : `<p style="color:var(--text-muted);margin-top:12px;font-size:0.88rem">${isAr()?'لا توجد بيانات بعد':'No data yet'}</p>`}
   </div>`;
 }
 
 // 7 — No-duty chips (week + month)
 function _noDutyCard(weekList, monthList) {
-  const weekChips = weekList.map(t => `<span class="no-duty-chip">${t.teacher_name}</span>`).join('');
-  const monthChips = monthList
-    .filter(t => !weekList.find(w => w.teacher_id === t.teacher_id))
+  const wl = weekList  || [];
+  const ml = monthList || [];
+  const weekChips  = wl.map(t => `<span class="no-duty-chip">${t.teacher_name}</span>`).join('');
+  const monthChips = ml
+    .filter(t => !wl.find(w => w.teacher_id === t.teacher_id))
     .map(t => `<span class="no-duty-chip no-duty-chip-month">${t.teacher_name}</span>`).join('');
 
   if (!weekChips && !monthChips) return '';
@@ -400,16 +405,74 @@ function _noDutyCard(weekList, monthList) {
 
 // 8 — Warnings
 function _warningsCard(warnings) {
-  if (!warnings.length) return '';
+  const list = warnings || [];
+  if (!list.length) return '';
   return `<div class="section-card warn-card" style="margin-bottom:20px">
     <h3 class="section-title" style="margin-bottom:10px">⚠ ${_t('warnings','Warnings')}</h3>
-    <ul class="warn-list">${warnings.map(w => `<li>${w}</li>`).join('')}</ul>
+    <ul class="warn-list">${list.map(w => `<li>${w}</li>`).join('')}</ul>
   </div>`;
+}
+
+// ─── API response normaliser ──────────────────────────────────────────────────
+// Maps old field names → new ones so the frontend works whether the old or new
+// backend is deployed. Also sets safe defaults for every array/object field.
+
+function _normalise(data) {
+  return {
+    // scalars
+    total_active_teachers:  data.total_active_teachers  ?? 0,
+    total_locations:        data.total_locations        ?? 0,
+    total_shifts:           data.total_shifts            ?? 0,
+    pending_teachers_count: data.pending_teachers_count ?? 0,
+    month:                  data.month  ?? new Date().getMonth() + 1,
+    year:                   data.year   ?? new Date().getFullYear(),
+
+    // week meta
+    current_week_status:  data.current_week_status  ?? null,
+    next_week_status:     data.next_week_status      ?? null,
+    current_week_version: data.current_week_version  ?? null,
+
+    // per-day arrays (new backend) — fall back to empty so grids show "no plan"
+    current_week_days: data.current_week_days ?? [],
+    next_week_days:    data.next_week_days    ?? [],
+
+    // today (new backend only — gracefully absent on old backend)
+    today: data.today ?? null,
+
+    // unpublished list
+    unpublished_days: data.unpublished_days ?? [],
+
+    // monthly stats — old backend doesn't return this, show zeroes
+    monthly_stats: data.monthly_stats ?? {
+      total_assigned: 0, confirmed: 0, on_time: 0, late: 0,
+      missed: 0, confirmation_rate: 0,
+    },
+
+    // teacher arrays — support both old and new field names
+    top_teachers: data.top_teachers
+      ?? data.top_teachers_this_week   // old name
+      ?? [],
+
+    teacher_reliability: data.teacher_reliability ?? [],
+
+    teachers_without_duties_week: data.teachers_without_duties_week
+      ?? data.teachers_without_duties_this_week  // old name
+      ?? [],
+
+    zero_duty_teachers_month: data.zero_duty_teachers_month ?? [],
+
+    // workload balance (new backend only)
+    workload_balance: data.workload_balance ?? null,
+
+    // warnings
+    warnings: data.warnings ?? [],
+  };
 }
 
 // ─── Main render ──────────────────────────────────────────────────────────────
 
-function renderDashboard(data) {
+function renderDashboard(rawData) {
+  const data = _normalise(rawData);
   const root = document.getElementById('dashContent');
 
   root.innerHTML =
