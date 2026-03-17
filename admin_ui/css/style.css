@@ -329,15 +329,15 @@ input:focus, select:focus, textarea:focus {
 .break-col-title { color: #7c3aed; font-weight: 600; }
 
 /* ─── Location columns ───────────────────────────────────────────────────── */
-.locations-grid { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; }
+.locations-grid { display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-start; }
 .location-column {
   background: var(--white);
   border: 1.5px solid var(--border);
   border-radius: var(--radius);
   padding: 12px;
+  flex: 1 1 200px;   /* grow and shrink, ideal width 200px */
+  max-width: 300px;  /* never wider than 300px per column */
   min-width: 180px;
-  flex: 1;
-  max-width: 260px;
   box-shadow: var(--shadow);
 }
 .location-column-header {
@@ -561,21 +561,58 @@ input:focus, select:focus, textarea:focus {
 .bottom-sheet-empty { font-size: 0.85rem; color: #999; text-align: center; padding: 20px 0; }
 
 /* ─── Responsive ─────────────────────────────────────────────────────────── */
-@media (max-width: 768px) {
-  .planner-layout  { flex-direction: column; }
-  .sidebar         { width: 100%; position: static; }
-  .locations-grid  { flex-direction: column; }
-  .location-column { max-width: 100%; }
 
-  /* Slots become tappable on mobile */
-  .slot-item { cursor: pointer; -webkit-tap-highlight-color: rgba(46,125,167,0.12); }
-  .slot-item:active { opacity: 0.75; }
+/*
+ * Breakpoint strategy:
+ *  ≤ 860px  (tablet) : sidebar stacks on top; location columns stay 2-per-row via flex-wrap
+ *  ≤ 520px  (phone)  : location columns become full-width; teacher list becomes block
+ */
 
-  /* Week controls stack */
-  .week-controls { flex-direction: column; align-items: flex-start; gap: 8px; }
-  .week-controls > div[style] { margin-inline-start: 0 !important; width: 100%; }
+@media (max-width: 860px) {
+  /* Stack sidebar above main content */
+  .planner-layout { flex-direction: column; }
+  .sidebar        { width: 100%; position: static; }
 
-  /* Toast above bottom-sheet */
+  /* Teacher list: wrap items horizontally so they don't look like long green bars */
+  .teacher-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    max-height: none;
+    overflow-y: visible;
+  }
+  .teacher-list-item {
+    flex: 1 1 160px;
+    max-width: 240px;
+    cursor: grab;
+  }
+
+  /* Location columns: still side-by-side (2–3 per row is fine at tablet) */
+  /* Do NOT force flex-direction: column here — let flex-wrap handle it */
+  .location-column { max-width: calc(50% - 8px); }
+
+  /* Week controls wrap */
+  .week-controls { flex-wrap: wrap; gap: 8px; }
+  .week-controls > div[style] { margin-inline-start: 0 !important; }
+
+  /* Toast stays visible above any bottom sheet */
   .toast-container { bottom: 80px; right: 12px; left: 12px; align-items: stretch; }
   .toast { min-width: unset; }
+}
+
+@media (max-width: 520px) {
+  /* Narrow phone: everything single-column */
+  .location-column { max-width: 100%; min-width: 0; }
+  .locations-grid  { gap: 10px; }
+
+  /* Teacher list back to block on tiny screens */
+  .teacher-list   { display: block; }
+  .teacher-list-item { max-width: 100%; flex: none; }
+
+  /* Bigger tap targets */
+  .slot-item { cursor: pointer; -webkit-tap-highlight-color: rgba(46,125,167,0.12); min-height: 48px; }
+  .slot-item:active { opacity: 0.75; }
+
+  /* Week controls fully stacked */
+  .week-controls { flex-direction: column; align-items: flex-start; }
 }

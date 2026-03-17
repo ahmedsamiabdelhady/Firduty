@@ -5,165 +5,330 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Firduty — Teachers</title>
   <link rel="stylesheet" href="css/style.css">
-  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="icon" type="image/x-icon"    href="favicon.ico">
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">
   <link rel="apple-touch-icon" sizes="192x192" href="favicon-192x192.png">
-</head>
-<body class="teachers-page">
+  <style>
+    /* ── Page-specific overrides ──────────────────────────────────────────── */
+    .teachers-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+      padding: 14px 20px;
+      background: var(--white);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+    .teachers-toolbar h2 {
+      flex: 1;
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: var(--text);
+      margin: 0;
+    }
 
+    /* Teacher table */
+    .teacher-table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--white);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      font-size: 0.9rem;
+    }
+    .teacher-table th {
+      background: var(--primary);
+      color: var(--white);
+      padding: 11px 14px;
+      text-align: start;
+      font-weight: 600;
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    .teacher-table td {
+      padding: 11px 14px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+    .teacher-table tr:last-child td { border-bottom: none; }
+    .teacher-table tr:hover td { background: #f8f9fa; }
+
+    /* Status badges */
+    .badge {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 12px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .badge-pending  { background: #fff3cd; color: #856404; }
+    .badge-approved { background: #d1e7dd; color: #0a5c36; }
+
+    /* Empty state */
+    .empty-state {
+      text-align: center;
+      padding: 48px 24px;
+      color: var(--text-muted);
+      background: var(--white);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+    .empty-state .empty-icon { font-size: 3rem; margin-bottom: 12px; }
+    .empty-state p { font-size: 0.95rem; }
+
+    /* Tabs (page-level) */
+    .page-tabs {
+      display: flex;
+      gap: 4px;
+      border-bottom: 2px solid var(--border);
+      margin-bottom: 20px;
+    }
+    .page-tab-btn {
+      padding: 9px 20px;
+      border: none;
+      background: none;
+      cursor: pointer;
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      border-bottom: 3px solid transparent;
+      margin-bottom: -2px;
+      transition: color .15s, border-color .15s;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-weight: 500;
+    }
+    .page-tab-btn.active {
+      color: var(--primary);
+      border-bottom-color: var(--primary);
+      font-weight: 600;
+    }
+    .pending-count-badge {
+      background: var(--danger);
+      color: #fff;
+      border-radius: 10px;
+      padding: 1px 7px;
+      font-size: 0.72rem;
+      font-weight: 700;
+    }
+
+    /* ── Add/Remove Teacher MODAL ─────────────────────────────────────────── */
+    .t-modal-overlay {
+      position: fixed; inset: 0;
+      background: rgba(31,45,58,0.55);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 1000;
+    }
+    .t-modal-overlay.hidden { display: none; }
+
+    .t-modal {
+      background: var(--white);
+      border-radius: var(--radius-lg);
+      padding: 28px;
+      width: 100%;
+      max-width: 460px;
+      box-shadow: 0 12px 40px rgba(31,45,58,0.22);
+      animation: modalIn 0.18s ease;
+    }
+    @keyframes modalIn {
+      from { opacity: 0; transform: translateY(-14px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .t-modal h3 {
+      margin-bottom: 20px;
+      color: var(--nav);
+      font-size: 1.05rem;
+      font-weight: 700;
+    }
+    .t-modal .form-group { margin-bottom: 14px; }
+    .t-modal .form-group label {
+      display: block;
+      margin-bottom: 5px;
+      font-size: 0.83rem;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+    .t-modal .form-group input,
+    .t-modal .form-group select {
+      width: 100%;
+      padding: 9px 11px;
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius);
+      font-size: 0.9rem;
+      background: var(--white);
+      color: var(--text);
+      font-family: inherit;
+    }
+    .t-modal .form-group input:focus,
+    .t-modal .form-group select:focus {
+      outline: none;
+      border-color: var(--nav-light);
+      box-shadow: 0 0 0 3px rgba(79,161,204,0.18);
+    }
+    .t-modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 22px;
+    }
+
+    /* Remove modal warning */
+    .remove-warning {
+      background: #fff3cd;
+      border: 1px solid #ffc107;
+      border-radius: var(--radius);
+      padding: 12px 14px;
+      font-size: 0.88rem;
+      color: #7a5000;
+      margin-bottom: 16px;
+    }
+    .remove-teacher-name {
+      font-weight: 700;
+      color: var(--danger);
+    }
+
+    @media (max-width: 600px) {
+      .teachers-toolbar { flex-direction: column; align-items: flex-start; }
+      .teacher-table { font-size: 0.82rem; }
+      .teacher-table th, .teacher-table td { padding: 8px 10px; }
+      .t-modal { padding: 20px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Auth guard (instant, before scripts load) ──────────────────────────── -->
+<script>
+  if (!localStorage.getItem('firduty_token')) {
+    window.location.replace('login.html');
+  }
+</script>
+
+<!-- ── Header ───────────────────────────────────────────────────────────────── -->
 <header class="app-header">
-  <h1><img src="logo.png" alt="Firduty" class="header-logo">Firduty</h1>
+  <h1>
+    <img src="logo.png" alt="Firduty" width="32" height="32">
+    <span data-i18n="app_title">Firduty</span>
+  </h1>
   <div class="header-actions">
-    <button class="btn btn-lang btn-sm" onclick="I18N.toggle().then(()=>location.reload())">عربي | EN</button>
+    <button class="btn btn-lang btn-sm"
+            data-lang-toggle
+            onclick="I18N.toggle().then(()=>location.reload())">عربي | EN</button>
     <button class="btn btn-lang btn-sm" onclick="logout()" data-i18n="logout">Logout</button>
   </div>
 </header>
 
-<nav class="main-nav" id="mainNav" aria-label="Main navigation"></nav>
+<!-- ── Main ─────────────────────────────────────────────────────────────────── -->
+<main class="main-content">
 
-<main class="main-content teachers-shell">
-  <section class="teachers-hero">
-    <div>
-      <h2>Teachers</h2>
-      <p>Review registrations, edit teacher records, export data, and manage approvals.</p>
-    </div>
-    <div class="teachers-actions">
-      <button class="btn btn-success btn-sm" type="button" onclick="openAddTeacherModal()">+ Add New Teacher</button>
-      <button class="btn btn-success btn-sm" id="approveAllBtn" type="button" onclick="approveAll()">Approve All Pending</button>
-      <button class="btn btn-secondary btn-sm" type="button" onclick="exportTeachersCSV()">Export CSV</button>
-      <button class="btn btn-secondary btn-sm" type="button" onclick="loadAll()">Refresh</button>
-    </div>
-  </section>
+  <!-- Navigation -->
+  <nav class="nav-bar">
+    <a class="nav-btn"        href="dashboard.html" data-i18n="dashboard">Dashboard</a>
+    <a class="nav-btn"        href="planner.html"   data-i18n="week_planner">Week Planner</a>
+    <a class="nav-btn"        href="reports.html"   data-i18n="monthly_report">Monthly Report</a>
+    <a class="nav-btn active" href="teachers.html"  data-i18n="teacher_approval">Teachers</a>
+  </nav>
 
+  <!-- Toolbar -->
+  <div class="teachers-toolbar">
+    <h2 data-i18n="teacher_approval">Teacher Approval</h2>
+    <button class="btn btn-primary btn-sm" onclick="openAddModal()">
+      + <span data-i18n="add_teacher">Add Teacher</span>
+    </button>
+    <button class="btn btn-success btn-sm" id="approveAllBtn" onclick="approveAll()">
+      <span data-i18n="approve_all">Approve All Pending</span>
+    </button>
+    <button class="btn btn-secondary btn-sm" onclick="loadAll()" data-i18n="refresh">Refresh</button>
+  </div>
+
+  <!-- Alert -->
   <div id="alertMsg" class="alert" style="display:none;margin-bottom:16px"></div>
 
-  <section class="teachers-stats-grid">
-    <article class="teacher-stat-card">
-      <span class="teacher-stat-label">Pending</span>
-      <strong class="teacher-stat-value" id="summaryPendingValue">0</strong>
-    </article>
-    <article class="teacher-stat-card">
-      <span class="teacher-stat-label">Approved</span>
-      <strong class="teacher-stat-value" id="summaryApprovedValue">0</strong>
-    </article>
-    <article class="teacher-stat-card">
-      <span class="teacher-stat-label">Active</span>
-      <strong class="teacher-stat-value" id="summaryTotalValue">0</strong>
-    </article>
-  </section>
+  <!-- Tabs -->
+  <div class="page-tabs">
+    <button class="page-tab-btn active" id="tabPending" onclick="showTab('pending')">
+      <span data-i18n="tab_pending">Pending Approval</span>
+      <span id="pendingCount" class="pending-count-badge" style="display:none"></span>
+    </button>
+    <button class="page-tab-btn" id="tabAll" onclick="showTab('all')">
+      <span data-i18n="tab_all_teachers">All Teachers</span>
+    </button>
+  </div>
 
-  <section class="teachers-page-panel">
-    <div class="teachers-page-toolbar">
-      <div class="teachers-search-wrap-wide">
-        <input type="search" id="teacherSearchInput" class="teacher-search-input" placeholder="Search teachers..." autocomplete="off">
-      </div>
-      <div class="teacher-tabbar" role="tablist" aria-label="Teacher tabs">
-        <button class="teacher-tab active" id="tabPending" type="button" onclick="setTab('pending')" aria-selected="true">
-          Pending Approval <span class="teacher-tab-count" id="pendingCount">0</span>
-        </button>
-        <button class="teacher-tab" id="tabAll" type="button" onclick="setTab('all')" aria-selected="false">
-          All Teachers <span class="teacher-tab-count" id="allCount">0</span>
-        </button>
-      </div>
+  <!-- Pending section -->
+  <div id="pendingSection">
+    <div id="pendingLoading" style="text-align:center;padding:40px">
+      <div class="spinner"></div>
     </div>
+    <div id="pendingTableWrap"></div>
+  </div>
 
-    <div class="teachers-bulkbar" id="teachersBulkbar" style="display:none">
-      <span><strong id="selectedCount">0</strong> selected</span>
-      <div class="teachers-bulkbar-actions">
-        <button class="btn btn-danger btn-sm" type="button" onclick="confirmBulkDelete()">Delete Selected</button>
-        <button class="btn btn-secondary btn-sm" type="button" onclick="clearSelection()">Clear</button>
-      </div>
+  <!-- All teachers section -->
+  <div id="allSection" style="display:none">
+    <div id="allLoading" style="text-align:center;padding:40px">
+      <div class="spinner"></div>
     </div>
+    <div id="allTableWrap"></div>
+  </div>
 
-    <div id="pendingSection" class="teachers-section">
-      <div id="pendingLoading" style="text-align:center;padding:32px"><div class="spinner"></div></div>
-      <div id="pendingTableWrap"></div>
-    </div>
-
-    <div id="allSection" class="teachers-section" style="display:none">
-      <div id="allLoading" style="text-align:center;padding:32px"><div class="spinner"></div></div>
-      <div id="allTableWrap"></div>
-    </div>
-  </section>
 </main>
 
-<div class="modal-backdrop" id="teacherModalBackdrop" aria-hidden="true">
-  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="teacherModalTitle">
-    <div class="modal-header">
-      <div>
-        <h3 id="teacherModalTitle">Add Teacher</h3>
-        <p>Create a teacher record directly from the admin dashboard.</p>
-      </div>
-      <button class="modal-close" type="button" onclick="closeAddTeacherModal()">×</button>
-    </div>
-    <div class="modal-body">
-      <div class="form-error" id="teacherFormError" style="display:none"></div>
-      <div class="form-field">
-        <label for="teacherNameInput">Name</label>
-        <input id="teacherNameInput" type="text" autocomplete="off">
-      </div>
-      <div class="form-field">
-        <label for="teacherEmailInput">Email</label>
-        <input id="teacherEmailInput" type="email" autocomplete="off">
-      </div>
-      <div class="form-grid">
-        <div class="form-field">
-          <label for="teacherLanguageInput">Language</label>
-          <select id="teacherLanguageInput">
-            <option value="ar">Arabic</option>
-            <option value="en">English</option>
-          </select>
-        </div>
-        <div class="form-field">
-          <label for="teacherStatusInput">Status</label>
-          <select id="teacherStatusInput">
-            <option value="approved">Approved</option>
-            <option value="pending">Pending</option>
-          </select>
-        </div>
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-secondary" type="button" onclick="closeAddTeacherModal()">Cancel</button>
-      <button class="btn btn-success" id="saveTeacherModalBtn" type="button" onclick="createTeacher()">Save Teacher</button>
-    </div>
-  </div>
-</div>
-
-<div class="modal-backdrop" id="deleteTeacherBackdrop" aria-hidden="true">
-  <div class="modal-card modal-card-danger" role="dialog" aria-modal="true" aria-labelledby="deleteTeacherTitle">
-    <div class="modal-header">
-      <div>
-        <h3 id="deleteTeacherTitle">Remove Teacher</h3>
-        <p id="deleteTeacherSubtitle">This will deactivate the selected teacher records and remove them from active lists.</p>
-      </div>
-      <button class="modal-close" type="button" onclick="closeDeleteModal()">×</button>
-    </div>
-    <div class="modal-body">
-      <div class="danger-summary">
-        <strong id="deleteTeacherName">Teacher</strong>
-        <span id="deleteTeacherEmail">—</span>
-      </div>
-      <div class="form-error" id="deleteTeacherError" style="display:none"></div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-secondary" type="button" onclick="closeDeleteModal()">Cancel</button>
-      <button class="btn btn-danger" id="confirmDeleteBtn" type="button" onclick="deleteQueuedTeachers()">Remove</button>
-    </div>
-  </div>
-</div>
-
+<!-- ── Toast container ───────────────────────────────────────────────────────── -->
 <div class="toast-container" id="toastContainer"></div>
 
-<script src="js/auth.js?v=120"></script>
-<script src="js/i18n.js?v=120"></script>
-<script src="js/nav.js?v=120"></script>
-<script src="js/teachers.js?v=120"></script>
-<script>
-  I18N.load(localStorage.getItem('firduty_lang') || 'ar').then(() => {
-    initNav();
-  });
-</script>
+<!-- ── Add Teacher Modal ─────────────────────────────────────────────────────── -->
+<div class="t-modal-overlay hidden" id="addTeacherModal" onclick="onModalOverlayClick(event,'addTeacherModal')">
+  <div class="t-modal">
+    <h3 data-i18n="add_teacher">Add Teacher</h3>
+    <div class="form-group">
+      <label data-i18n="name">Name</label>
+      <input type="text" id="addName" autocomplete="off">
+    </div>
+    <div class="form-group">
+      <label data-i18n="email">Email</label>
+      <input type="email" id="addEmail" autocomplete="off">
+    </div>
+    <div class="form-group">
+      <label data-i18n="language">Language</label>
+      <select id="addLang">
+        <option value="ar" data-i18n="arabic">Arabic</option>
+        <option value="en" data-i18n="english">English</option>
+      </select>
+    </div>
+    <div class="t-modal-actions">
+      <button class="btn btn-secondary btn-sm" onclick="closeAddModal()" data-i18n="cancel">Cancel</button>
+      <button class="btn btn-primary btn-sm" id="addSaveBtn" onclick="saveNewTeacher()">
+        <span data-i18n="save">Save Teacher</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Remove Teacher Modal ───────────────────────────────────────────────────── -->
+<div class="t-modal-overlay hidden" id="removeTeacherModal" onclick="onModalOverlayClick(event,'removeTeacherModal')">
+  <div class="t-modal">
+    <h3 data-i18n="delete">Deactivate Teacher</h3>
+    <div class="remove-warning">
+      ⚠️ This will deactivate <span id="removeTeacherName" class="remove-teacher-name"></span>.
+      They will no longer appear in the planner or receive notifications.
+    </div>
+    <input type="hidden" id="removeTeacherId">
+    <div class="t-modal-actions">
+      <button class="btn btn-secondary btn-sm" onclick="closeRemoveModal()" data-i18n="cancel">Cancel</button>
+      <button class="btn btn-danger btn-sm" id="removeConfirmBtn" onclick="confirmRemoveTeacher()">
+        <span data-i18n="delete">Deactivate</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<script src="js/i18n.js?v=3"></script>
+<script src="js/auth.js?v=3"></script>
+<script src="js/teachers.js?v=3"></script>
 </body>
 </html>

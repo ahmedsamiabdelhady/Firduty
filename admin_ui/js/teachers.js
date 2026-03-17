@@ -1,251 +1,413 @@
+/**
+ * teachers.js — Teacher management for Firduty Admin UI  v2.5
+ *
+ * Features:
+ *  - List pending / all teachers in tabbed view
+ *  - Approve individual teachers or all pending at once
+ *  - Add new teacher via modal (POST /teachers/)
+ *  - Deactivate teacher via modal (DELETE /teachers/{id})
+ *  - Live search/filter inside each tab
+ *
+ * Auth: handled by auth.js (loaded before this script).
+ * Uses apiFetch() for all API calls — attaches token + handles 401 redirect.
+ */
+
+/* ─── State ───────────────────────────────────────────────────────────────── */
 let currentTab = 'pending';
-let pendingTeachersCache = [];
-let allTeachersCache = [];
-let searchTerm = '';
-let editingTeacherId = null;
-let deleteQueue = [];
-const selectedTeacherIds = new Set();
+let _allPending = [];   // cache for client-side search
+let _allTeachers = [];  // cache for client-side search
 
-function byId(id){ return document.getElementById(id); }
-function escHtml(str){ return String(str ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-function normalize(str){ return String(str || '').trim().toLowerCase(); }
-function formatDate(value){ if(!value) return '—'; try{ return new Date(value).toLocaleDateString(document.documentElement.lang==='ar' ? 'ar-OM':'en-GB'); }catch{return '—';} }
+/* ─── DOM helpers ─────────────────────────────────────────────────────────── */
+function byId(id)           { return document.getElementById(id); }
+function showEl(el, d = '') { if (el) el.style.display = d; }
+function hideEl(el)         { if (el) el.style.display = 'none'; }
 
-function showAlert(msg, type='success'){
-  const el = byId('alertMsg'); if(!el) return;
-  el.className = `alert alert-${type}`; el.textContent = msg; el.style.display='';
-  clearTimeout(showAlert._timer); showAlert._timer = setTimeout(()=>{ el.style.display='none'; }, 3600);
-}
-function clearAlert(){ const el = byId('alertMsg'); if(el) el.style.display='none'; }
-
-function statusBadge(status){
-  return status === 'pending'
-    ? '<span class="badge badge-pending">Pending</span>'
-    : '<span class="badge badge-approved">Approved</span>';
-}
-function languageChip(lang){ return `<span class="lang-chip">${lang === 'ar' ? 'Arabic' : 'English'}</span>`; }
-
-function matchesSearch(teacher){
-  if(!searchTerm) return true;
-  return [teacher.name, teacher.email, teacher.status, teacher.preferred_language].map(normalize).join(' ').includes(searchTerm);
-}
-function getFilteredPending(){ return pendingTeachersCache.filter(t => t.active !== false).filter(matchesSearch); }
-function getFilteredAll(){ return allTeachersCache.filter(t => t.active !== false).filter(matchesSearch); }
-function getCurrentVisibleTeachers(){ return currentTab === 'pending' ? getFilteredPending() : getFilteredAll(); }
-
-function updateStats(){
-  const pending = pendingTeachersCache.filter(t => t.active !== false).length;
-  const allActive = allTeachersCache.filter(t => t.active !== false);
-  const approved = allActive.filter(t => t.status === 'approved').length;
-  if(byId('summaryPendingValue')) byId('summaryPendingValue').textContent = pending;
-  if(byId('summaryApprovedValue')) byId('summaryApprovedValue').textContent = approved;
-  if(byId('summaryTotalValue')) byId('summaryTotalValue').textContent = allActive.length;
-  if(byId('pendingCount')) byId('pendingCount').textContent = pending;
-  if(byId('allCount')) byId('allCount').textContent = allActive.length;
-  if(byId('approveAllBtn')) byId('approveAllBtn').disabled = pending === 0;
+function escHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
-function syncBulkbar(){
-  const bulkbar = byId('teachersBulkbar'); const selectedCount = byId('selectedCount');
-  if(!bulkbar || !selectedCount) return;
-  const visible = new Set(getCurrentVisibleTeachers().map(t => t.id));
-  let count = 0; selectedTeacherIds.forEach(id => { if(visible.has(id)) count += 1; });
-  selectedCount.textContent = count;
-  bulkbar.style.display = currentTab === 'all' && count > 0 ? '' : 'none';
+/* ─── Toast (lightweight, doesn't rely on toastContainer existing) ────────── */
+function showToast(msg, type = 'success') {
+  const c = byId('toastContainer');
+  if (!c) { console.log(`[toast:${type}] ${msg}`); return; }
+  const t = document.createElement('div');
+  t.className = `toast toast-${type}`;
+  t.textContent = msg;
+  c.appendChild(t);
+  setTimeout(() => t.remove(), 3500);
 }
-function clearSelection(){ selectedTeacherIds.clear(); syncBulkbar(); renderCurrentTab(); }
-function toggleTeacherSelection(id, checked){ checked ? selectedTeacherIds.add(id) : selectedTeacherIds.delete(id); syncBulkbar(); }
-function toggleSelectAll(checked){ getCurrentVisibleTeachers().forEach(t => checked ? selectedTeacherIds.add(t.id) : selectedTeacherIds.delete(t.id)); syncBulkbar(); renderCurrentTab(); }
 
-function setTab(tab){
+/* ─── Alert bar (persistent, inside main content) ────────────────────────── */
+function showAlert(msg, type) {
+  const el = byId('alertMsg');
+  if (!el) return;
+  el.className = `alert alert-${type}`;
+  el.textContent = msg;
+  showEl(el);
+  setTimeout(() => hideEl(el), 4500);
+}
+function clearAlert() { hideEl(byId('alertMsg')); }
+
+/* ─── Tab management ──────────────────────────────────────────────────────── */
+function showTab(tab) {
   currentTab = tab;
-  byId('pendingSection').style.display = tab === 'pending' ? '' : 'none';
-  byId('allSection').style.display = tab === 'all' ? '' : 'none';
-  byId('tabPending').classList.toggle('active', tab === 'pending');
-  byId('tabAll').classList.toggle('active', tab === 'all');
-  byId('tabPending').setAttribute('aria-selected', tab === 'pending' ? 'true' : 'false');
-  byId('tabAll').setAttribute('aria-selected', tab === 'all' ? 'true' : 'false');
-  syncBulkbar();
-  renderCurrentTab();
+  const pending = byId('pendingSection');
+  const all     = byId('allSection');
+  const tabP    = byId('tabPending');
+  const tabA    = byId('tabAll');
+
+  if (pending) pending.style.display = tab === 'pending' ? '' : 'none';
+  if (all)     all.style.display     = tab === 'all'     ? '' : 'none';
+  if (tabP) tabP.classList.toggle('active', tab === 'pending');
+  if (tabA) tabA.classList.toggle('active', tab === 'all');
 }
 
-function openAddTeacherModal(){
-  const m = byId('teacherModalBackdrop'); if(!m) return;
-  byId('teacherFormError').style.display = 'none';
-  byId('teacherNameInput').value=''; byId('teacherEmailInput').value=''; byId('teacherLanguageInput').value='ar'; byId('teacherStatusInput').value='approved';
-  m.classList.add('open'); m.setAttribute('aria-hidden','false');
-  setTimeout(() => byId('teacherNameInput')?.focus(), 30);
-}
-function closeAddTeacherModal(){ const m = byId('teacherModalBackdrop'); if(m){ m.classList.remove('open'); m.setAttribute('aria-hidden','true'); } }
-
-function openDeleteModal(items){
-  deleteQueue = items.slice();
-  byId('deleteTeacherName').textContent = items.length === 1 ? (items[0].name || 'Teacher') : `${items.length} teachers selected`;
-  byId('deleteTeacherEmail').textContent = items.length === 1 ? (items[0].email || 'No email') : 'The selected teachers will be deactivated.';
-  byId('deleteTeacherSubtitle').textContent = items.length === 1
-    ? 'This will deactivate the selected teacher and remove them from active lists.'
-    : 'This will deactivate the selected teacher records and remove them from active lists.';
-  byId('deleteTeacherError').style.display='none';
-  const m = byId('deleteTeacherBackdrop'); m.classList.add('open'); m.setAttribute('aria-hidden','false');
-}
-function closeDeleteModal(){ deleteQueue = []; const m = byId('deleteTeacherBackdrop'); if(m){ m.classList.remove('open'); m.setAttribute('aria-hidden','true'); } }
-function confirmBulkDelete(){
-  const items = getFilteredAll().filter(t => selectedTeacherIds.has(t.id));
-  if(!items.length) return;
-  openDeleteModal(items);
+/* ─── Data loading ────────────────────────────────────────────────────────── */
+async function loadAll() {
+  clearAlert();
+  await Promise.all([loadPending(), loadAllTeachers()]);
 }
 
-async function loadAll(){ clearAlert(); await Promise.all([loadPending(), loadAllTeachers()]); updateStats(); renderCurrentTab(); }
-async function loadPending(){
-  const l = byId('pendingLoading'); if(l) l.style.display='';
-  try{ const res = await apiFetch('/teachers/pending'); if(!res.ok) throw new Error('pending'); pendingTeachersCache = await res.json(); }
-  catch(err){ console.error(err); showAlert('Failed to load pending teachers.','danger'); }
-  finally{ if(l) l.style.display='none'; }
-}
-async function loadAllTeachers(){
-  const l = byId('allLoading'); if(l) l.style.display='';
-  try{ const res = await apiFetch('/teachers/all'); if(!res.ok) throw new Error('all'); allTeachersCache = await res.json(); }
-  catch(err){ console.error(err); showAlert('Failed to load teachers.','danger'); }
-  finally{ if(l) l.style.display='none'; }
-}
+async function loadPending() {
+  const loading = byId('pendingLoading');
+  const wrap    = byId('pendingTableWrap');
+  const count   = byId('pendingCount');
+  const appBtn  = byId('approveAllBtn');
 
-async function approveTeacher(id){
-  const btn = byId(`btn-approve-${id}`); if(btn){ btn.disabled=true; btn.textContent='...'; }
-  try{ const res = await apiFetch(`/teachers/${id}/approve`, {method:'POST'}); if(!res.ok) throw new Error('approve'); showAlert('Teacher approved successfully.'); await loadAll(); }
-  catch(err){ console.error(err); showAlert('Could not approve this teacher.','danger'); if(btn){ btn.disabled=false; btn.textContent='Approve'; } }
-}
-async function approveAll(){
-  const btn = byId('approveAllBtn'); if(btn) btn.disabled=true;
-  try{ const res = await apiFetch('/teachers/approve-all', {method:'POST'}); if(!res.ok) throw new Error('approve-all'); const data = await res.json(); showAlert(data.approved_count ? `Approved ${data.approved_count} teachers.` : 'No pending teachers found.'); await loadAll(); }
-  catch(err){ console.error(err); showAlert('Could not approve all pending teachers.','danger'); }
-  finally{ if(btn) btn.disabled=false; }
-}
-async function createTeacher(){
-  const name = byId('teacherNameInput').value.trim();
-  const email = byId('teacherEmailInput').value.trim();
-  const preferred_language = byId('teacherLanguageInput').value || 'ar';
-  const status = byId('teacherStatusInput').value || 'approved';
-  const error = byId('teacherFormError');
-  const btn = byId('saveTeacherModalBtn');
-  error.style.display='none';
-  if(!name){ error.textContent='Teacher name is required.'; error.style.display='block'; return; }
-  btn.disabled=true; btn.textContent='Saving...';
-  try{
-    const res = await apiFetch('/teachers/', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name, email: email || null, preferred_language, status, active:true }) });
-    if(!res.ok){ let msg='Failed to create teacher.'; try{ const data=await res.json(); msg=data.detail || msg; }catch{} throw new Error(msg); }
-    closeAddTeacherModal(); showAlert('Teacher created successfully.'); await loadAll();
-  }catch(err){ error.textContent=err.message || 'Failed to create teacher.'; error.style.display='block'; }
-  finally{ btn.disabled=false; btn.textContent='Save Teacher'; }
-}
-function startInlineEdit(id){ editingTeacherId = id; renderCurrentTab(); }
-function cancelInlineEdit(){ editingTeacherId = null; renderCurrentTab(); }
-async function saveInlineEdit(id){
-  const name = byId(`edit-name-${id}`)?.value.trim();
-  const preferred_language = byId(`edit-lang-${id}`)?.value || 'ar';
-  const status = byId(`edit-status-${id}`)?.value || 'approved';
-  const payload = { name, preferred_language, status };
-  if(!name){ showAlert('Teacher name is required.','danger'); return; }
-  const btn = byId(`btn-save-${id}`); if(btn){ btn.disabled=true; btn.textContent='Saving...'; }
-  try{
-    const res = await apiFetch(`/teachers/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
-    if(!res.ok){ let msg='Failed to update teacher.'; try{ const data=await res.json(); msg=data.detail || msg; }catch{} throw new Error(msg); }
-    editingTeacherId = null; showAlert('Teacher updated successfully.'); await loadAll();
-  }catch(err){ console.error(err); showAlert(err.message || 'Failed to update teacher.','danger'); if(btn){ btn.disabled=false; btn.textContent='Save'; } }
-}
-function confirmDeleteTeacher(id){
-  const teacher = allTeachersCache.find(t => t.id === id) || pendingTeachersCache.find(t => t.id === id);
-  if(teacher) openDeleteModal([teacher]);
-}
-async function deleteQueuedTeachers(){
-  const btn = byId('confirmDeleteBtn'); const error = byId('deleteTeacherError'); error.style.display='none';
-  if(!deleteQueue.length) return;
-  btn.disabled=true; btn.textContent='Removing...';
-  try{
-    for(const item of deleteQueue){
-      const res = await apiFetch(`/teachers/${item.id}`, { method:'DELETE' });
-      if(!res.ok){ let msg='Failed to remove teacher.'; try{ const data=await res.json(); msg=data.detail || msg; }catch{} throw new Error(msg); }
-      selectedTeacherIds.delete(item.id);
+  try {
+    showEl(loading);
+    if (wrap) wrap.innerHTML = '';
+
+    const res = await apiFetch('/teachers/pending');
+    if (!res || !res.ok) { showAlert(I18N.t('error_generic'), 'danger'); return; }
+
+    _allPending = await res.json();
+
+    // Update pending count badge
+    if (count) {
+      if (_allPending.length > 0) {
+        count.textContent = _allPending.length;
+        showEl(count, 'inline');
+      } else {
+        hideEl(count);
+      }
     }
-    closeDeleteModal(); showAlert(deleteQueue.length === 1 ? 'Teacher removed.' : 'Selected teachers removed.','success');
-    deleteQueue = []; await loadAll();
-  }catch(err){ error.textContent = err.message || 'Failed to remove teacher.'; error.style.display='block'; }
-  finally{ btn.disabled=false; btn.textContent='Remove'; }
+
+    if (appBtn) appBtn.disabled = _allPending.length === 0;
+
+    renderTeacherList(wrap, _allPending, true);
+  } catch (err) {
+    console.error('loadPending failed:', err);
+    showAlert(I18N.t('error_generic'), 'danger');
+  } finally {
+    hideEl(loading);
+  }
 }
 
-function exportTeachersCSV(){
-  const teachers = getCurrentVisibleTeachers();
-  const header = ['id','name','email','status','language','created_at'];
-  const rows = teachers.map(t => [t.id, t.name || '', t.email || '', t.status || '', t.preferred_language || '', t.created_at || '']);
-  const csv = [header, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
-  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
-  const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href=url; a.download=`teachers-${currentTab}.csv`; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+async function loadAllTeachers() {
+  const loading = byId('allLoading');
+  const wrap    = byId('allTableWrap');
+
+  try {
+    showEl(loading);
+    if (wrap) wrap.innerHTML = '';
+
+    const res = await apiFetch('/teachers/all');
+    if (!res || !res.ok) { showAlert(I18N.t('error_generic'), 'danger'); return; }
+
+    _allTeachers = await res.json();
+    renderTeacherList(wrap, _allTeachers, false);
+  } catch (err) {
+    console.error('loadAllTeachers failed:', err);
+    showAlert(I18N.t('error_generic'), 'danger');
+  } finally {
+    hideEl(loading);
+  }
 }
 
-function buildDesktopTable(teachers, pendingTab=false){
-  const allSelected = teachers.length > 0 && teachers.every(t => selectedTeacherIds.has(t.id));
-  const rows = teachers.map((t, idx) => {
-    const selected = selectedTeacherIds.has(t.id);
-    const editing = editingTeacherId === t.id;
-    if(editing){
-      return `<tr>
-        <td data-label="Select"><input type="checkbox" class="teacher-row-check" ${selected ? 'checked':''} onchange="toggleTeacherSelection(${t.id}, this.checked)"></td>
-        <td data-label="#">${idx + 1}</td>
-        <td data-label="Name"><input class="table-inline-input" id="edit-name-${t.id}" value="${escHtml(t.name || '')}"></td>
-        <td data-label="Email">${escHtml(t.email || '—')}</td>
-        <td data-label="Status"><select class="table-inline-select" id="edit-status-${t.id}"><option value="approved" ${t.status==='approved'?'selected':''}>Approved</option><option value="pending" ${t.status==='pending'?'selected':''}>Pending</option></select></td>
-        <td data-label="Language"><select class="table-inline-select" id="edit-lang-${t.id}"><option value="ar" ${t.preferred_language==='ar'?'selected':''}>Arabic</option><option value="en" ${t.preferred_language==='en'?'selected':''}>English</option></select></td>
-        <td data-label="Date">${formatDate(t.created_at)}</td>
-        <td class="teacher-actions-cell" data-label="Actions"><div class="teacher-actions-inline"><button class="btn btn-success btn-sm" id="btn-save-${t.id}" onclick="saveInlineEdit(${t.id})">Save</button><button class="btn btn-secondary btn-sm" onclick="cancelInlineEdit()">Cancel</button></div></td>
+/* ─── Table renderer ──────────────────────────────────────────────────────── */
+function renderTeacherList(container, teachers, showApprove) {
+  if (!container) return;
+
+  if (!teachers.length) {
+    container.innerHTML = emptyState(
+      showApprove ? 'no_pending_teachers' : 'no_teachers_yet'
+    );
+    return;
+  }
+
+  const isAr = I18N.getLang() === 'ar';
+
+  const approveHeader = showApprove
+    ? `<th data-i18n="actions">${I18N.t('actions')}</th>`
+    : `<th data-i18n="actions">${I18N.t('actions')}</th>`;
+
+  const rows = teachers.map((t, i) => {
+    const statusBadge = t.status === 'pending'
+      ? `<span class="badge badge-pending">${I18N.t('status_pending')}</span>`
+      : `<span class="badge badge-approved">${I18N.t('status_approved')}</span>`;
+
+    const langLabel = t.preferred_language === 'ar'
+      ? I18N.t('arabic')
+      : I18N.t('english');
+
+    const createdAt = t.created_at
+      ? new Date(t.created_at).toLocaleDateString(isAr ? 'ar-OM' : 'en-GB')
+      : '—';
+
+    const approveBtn = showApprove && t.status === 'pending'
+      ? `<button class="btn btn-success btn-sm"
+                id="btn-approve-${t.id}"
+                onclick="approveTeacher(${t.id})"
+                data-i18n="approve">${I18N.t('approve')}</button>`
+      : '';
+
+    const removeBtn = `<button class="btn btn-danger btn-sm"
+             onclick="openRemoveModal(${t.id},'${escHtml(t.name).replace(/'/g,'&#39;')}')"
+             title="Deactivate">${I18N.t('delete') || 'Deactivate'}</button>`;
+
+    const actionCell = `<td style="white-space:nowrap;display:flex;gap:6px;flex-wrap:wrap">${approveBtn}${removeBtn}</td>`;
+
+    return `
+      <tr>
+        <td>${i + 1}</td>
+        <td><strong>${escHtml(t.name)}</strong></td>
+        <td style="font-size:0.83rem;color:var(--text-muted)">${escHtml(t.email || '—')}</td>
+        <td>${statusBadge}</td>
+        <td>${langLabel}</td>
+        <td style="font-size:0.82rem;color:var(--text-muted)">${createdAt}</td>
+        ${actionCell}
       </tr>`;
-    }
-    return `<tr>
-      <td data-label="Select"><input type="checkbox" class="teacher-row-check" ${selected ? 'checked':''} onchange="toggleTeacherSelection(${t.id}, this.checked)"></td>
-      <td data-label="#">${idx + 1}</td>
-      <td data-label="Name"><strong>${escHtml(t.name || '—')}</strong></td>
-      <td data-label="Email">${escHtml(t.email || '—')}</td>
-      <td data-label="Status">${statusBadge(t.status)}</td>
-      <td data-label="Language">${languageChip(t.preferred_language)}</td>
-      <td data-label="Date">${formatDate(t.created_at)}</td>
-      <td class="teacher-actions-cell" data-label="Actions"><div class="teacher-actions-inline">${pendingTab ? `<button class="btn btn-success btn-sm" id="btn-approve-${t.id}" onclick="approveTeacher(${t.id})">Approve</button>` : `<button class="btn btn-secondary btn-sm" onclick="startInlineEdit(${t.id})">Edit</button><button class="btn btn-danger btn-sm" onclick="confirmDeleteTeacher(${t.id})">Remove</button>`}</div></td>
-    </tr>`;
   }).join('');
-  return `<div class="table-responsive"><table class="teacher-table"><thead><tr><th><input type="checkbox" ${allSelected ? 'checked':''} onchange="toggleSelectAll(this.checked)"></th><th>#</th><th>Name</th><th>Email</th><th>Status</th><th>Language</th><th>Date</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+
+  container.innerHTML = `
+    <table class="teacher-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th data-i18n="name">${I18N.t('name')}</th>
+          <th data-i18n="email">${I18N.t('email')}</th>
+          <th data-i18n="status">${I18N.t('status')}</th>
+          <th data-i18n="language">${I18N.t('language')}</th>
+          <th data-i18n="date">${I18N.t('date')}</th>
+          ${approveHeader}
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>`;
 }
 
-function buildMobileCards(teachers, pendingTab=false){
-  return `<div class="teacher-cards">${teachers.map((t, idx) => {
-    const selected = selectedTeacherIds.has(t.id);
-    const editing = editingTeacherId === t.id;
-    if(editing){
-      return `<article class="teacher-card"><div class="teacher-card-top"><label class="teacher-select-wrap"><input type="checkbox" ${selected ? 'checked':''} onchange="toggleTeacherSelection(${t.id}, this.checked)"><span>#${idx + 1}</span></label></div><div class="teacher-card-grid"><label><span>Name</span><input class="table-inline-input" id="edit-name-${t.id}" value="${escHtml(t.name || '')}"></label><div><span>Email</span><strong>${escHtml(t.email || '—')}</strong></div><label><span>Status</span><select class="table-inline-select" id="edit-status-${t.id}"><option value="approved" ${t.status==='approved'?'selected':''}>Approved</option><option value="pending" ${t.status==='pending'?'selected':''}>Pending</option></select></label><label><span>Language</span><select class="table-inline-select" id="edit-lang-${t.id}"><option value="ar" ${t.preferred_language==='ar'?'selected':''}>Arabic</option><option value="en" ${t.preferred_language==='en'?'selected':''}>English</option></select></label><div><span>Date</span><strong>${formatDate(t.created_at)}</strong></div></div><div class="teacher-card-actions"><button class="btn btn-success btn-sm" id="btn-save-${t.id}" onclick="saveInlineEdit(${t.id})">Save</button><button class="btn btn-secondary btn-sm" onclick="cancelInlineEdit()">Cancel</button></div></article>`;
+function emptyState(i18nKey) {
+  return `
+    <div class="empty-state">
+      <div class="empty-icon">👥</div>
+      <p>${I18N.t(i18nKey)}</p>
+    </div>`;
+}
+
+/* ─── Approve actions ─────────────────────────────────────────────────────── */
+async function approveTeacher(id) {
+  const btn = byId(`btn-approve-${id}`);
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+
+  try {
+    const res = await apiFetch(`/teachers/${id}/approve`, { method: 'POST' });
+    if (!res || !res.ok) {
+      showAlert(I18N.t('error_generic'), 'danger');
+      if (btn) { btn.disabled = false; btn.textContent = I18N.t('approve'); }
+      return;
     }
-    return `<article class="teacher-card"><div class="teacher-card-top"><label class="teacher-select-wrap"><input type="checkbox" ${selected ? 'checked':''} onchange="toggleTeacherSelection(${t.id}, this.checked)"><span>#${idx + 1}</span></label>${pendingTab ? statusBadge(t.status) : ''}</div><div class="teacher-card-grid"><div><span>Name</span><strong>${escHtml(t.name || '—')}</strong></div><div><span>Email</span><strong>${escHtml(t.email || '—')}</strong></div><div><span>Language</span>${languageChip(t.preferred_language)}</div><div><span>Date</span><strong>${formatDate(t.created_at)}</strong></div></div><div class="teacher-card-actions">${pendingTab ? `<button class="btn btn-success btn-sm" id="btn-approve-${t.id}" onclick="approveTeacher(${t.id})">Approve</button>` : `<button class="btn btn-secondary btn-sm" onclick="startInlineEdit(${t.id})">Edit</button><button class="btn btn-danger btn-sm" onclick="confirmDeleteTeacher(${t.id})">Remove</button>`}</div></article>`;
-  }).join('')}</div>`;
+    showToast(I18N.t('teacher_approved_ok'), 'success');
+    await loadAll();
+  } catch (err) {
+    console.error('approveTeacher failed:', err);
+    showAlert(I18N.t('error_generic'), 'danger');
+    if (btn) { btn.disabled = false; btn.textContent = I18N.t('approve'); }
+  }
 }
 
-function emptyState(message, buttonLabel=''){
-  return `<div class="empty-state"><div class="empty-icon">👥</div><p>${message}</p>${buttonLabel ? `<button class="btn btn-secondary btn-sm" type="button" onclick="setTab('all')">${buttonLabel}</button>` : ''}</div>`;
+async function approveAll() {
+  const btn = byId('approveAllBtn');
+  if (btn) btn.disabled = true;
+
+  try {
+    const res = await apiFetch('/teachers/approve-all', { method: 'POST' });
+    if (!res || !res.ok) {
+      showAlert(I18N.t('error_generic'), 'danger');
+      if (btn) btn.disabled = false;
+      return;
+    }
+    const data = await res.json();
+    const count = data.approved ?? data.approved_count ?? 0;
+    showToast(
+      count > 0
+        ? `${I18N.t('all_approved_ok')} (${count})`
+        : I18N.t('no_pending_teachers'),
+      'success'
+    );
+    await loadAll();
+  } catch (err) {
+    console.error('approveAll failed:', err);
+    showAlert(I18N.t('error_generic'), 'danger');
+    if (btn) btn.disabled = false;
+  }
 }
 
-function renderCurrentTab(){
-  const pendingWrap = byId('pendingTableWrap'); const allWrap = byId('allTableWrap');
-  const pending = getFilteredPending(); const all = getFilteredAll();
-  const mobile = window.innerWidth <= 768;
-  if(pendingWrap){ pendingWrap.innerHTML = pending.length ? (mobile ? buildMobileCards(pending, true) : buildDesktopTable(pending, true)) : emptyState('No teachers awaiting approval.', 'View All Teachers'); }
-  if(allWrap){ allWrap.innerHTML = all.length ? (mobile ? buildMobileCards(all, false) : buildDesktopTable(all, false)) : emptyState('No teachers yet.'); }
-  updateStats(); syncBulkbar();
+/* ─── Add Teacher Modal ───────────────────────────────────────────────────── */
+function openAddModal() {
+  // Reset form fields
+  const name  = byId('addName');
+  const email = byId('addEmail');
+  const lang  = byId('addLang');
+  if (name)  name.value  = '';
+  if (email) email.value = '';
+  if (lang)  lang.value  = 'ar';
+
+  const modal = byId('addTeacherModal');
+  if (modal) modal.classList.remove('hidden');
+  // Focus name field after transition
+  setTimeout(() => name?.focus(), 80);
 }
 
-function bindPageEvents(){
-  byId('teacherSearchInput')?.addEventListener('input', e => { searchTerm = normalize(e.target.value); renderCurrentTab(); });
-  byId('teacherModalBackdrop')?.addEventListener('click', e => { if(e.target.id === 'teacherModalBackdrop') closeAddTeacherModal(); });
-  byId('deleteTeacherBackdrop')?.addEventListener('click', e => { if(e.target.id === 'deleteTeacherBackdrop') closeDeleteModal(); });
-  window.addEventListener('resize', () => renderCurrentTab());
+function closeAddModal() {
+  const modal = byId('addTeacherModal');
+  if (modal) modal.classList.add('hidden');
 }
 
-async function initTeachersPage(){
-  try{ bindPageEvents(); setTab('pending'); await loadAll(); }
-  catch(err){ console.error('initTeachersPage failed:', err); }
+async function saveNewTeacher() {
+  const nameEl  = byId('addName');
+  const emailEl = byId('addEmail');
+  const langEl  = byId('addLang');
+  const saveBtn = byId('addSaveBtn');
+
+  const name  = nameEl?.value.trim();
+  const email = emailEl?.value.trim();
+  const lang  = langEl?.value || 'ar';
+
+  if (!name) {
+    nameEl?.focus();
+    showAlert(I18N.t('name') + ' is required', 'danger');
+    return;
+  }
+
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = '…'; }
+
+  try {
+    const res = await apiFetch('/teachers/', {
+      method: 'POST',
+      body: JSON.stringify({
+        name,
+        email: email || null,
+        preferred_language: lang,
+        status: 'approved',
+      }),
+    });
+
+    if (!res || !res.ok) {
+      let detail = I18N.t('error_generic');
+      try { const d = await res.json(); detail = d.detail || detail; } catch (_) {}
+      showAlert(detail, 'danger');
+      return;
+    }
+
+    closeAddModal();
+    showToast(I18N.t('teacher_approved_ok'), 'success');
+    await loadAll();
+    // Switch to All Teachers tab to show the newly added teacher
+    showTab('all');
+  } catch (err) {
+    console.error('saveNewTeacher failed:', err);
+    showAlert(I18N.t('error_generic'), 'danger');
+  } finally {
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.textContent = I18N.t('save') || 'Save Teacher';
+    }
+  }
 }
 
-if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initTeachersPage); else initTeachersPage();
+/* ─── Remove (Deactivate) Teacher Modal ───────────────────────────────────── */
+function openRemoveModal(id, name) {
+  const idEl   = byId('removeTeacherId');
+  const nameEl = byId('removeTeacherName');
+  if (idEl)   idEl.value       = id;
+  if (nameEl) nameEl.textContent = name;
+
+  const modal = byId('removeTeacherModal');
+  if (modal) modal.classList.remove('hidden');
+}
+
+function closeRemoveModal() {
+  const modal = byId('removeTeacherModal');
+  if (modal) modal.classList.add('hidden');
+}
+
+async function confirmRemoveTeacher() {
+  const id  = byId('removeTeacherId')?.value;
+  const btn = byId('removeConfirmBtn');
+  if (!id) return;
+
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+
+  try {
+    const res = await apiFetch(`/teachers/${id}`, { method: 'DELETE' });
+    // 204 No Content = success
+    if (!res || (!res.ok && res.status !== 204)) {
+      let detail = I18N.t('error_generic');
+      try { const d = await res.json(); detail = d.detail || detail; } catch (_) {}
+      showAlert(detail, 'danger');
+      return;
+    }
+
+    closeRemoveModal();
+    showToast('Teacher deactivated', 'info');
+    await loadAll();
+  } catch (err) {
+    console.error('confirmRemoveTeacher failed:', err);
+    showAlert(I18N.t('error_generic'), 'danger');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = I18N.t('delete') || 'Deactivate';
+    }
+  }
+}
+
+/* ─── Modal overlay click-outside-to-close ────────────────────────────────── */
+function onModalOverlayClick(event, modalId) {
+  if (event.target.id === modalId) {
+    if (modalId === 'addTeacherModal')    closeAddModal();
+    if (modalId === 'removeTeacherModal') closeRemoveModal();
+  }
+}
+
+/* ─── Keyboard: Escape closes any open modal ──────────────────────────────── */
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if (!byId('addTeacherModal')?.classList.contains('hidden'))    closeAddModal();
+  if (!byId('removeTeacherModal')?.classList.contains('hidden')) closeRemoveModal();
+});
+
+/* ─── Page init ───────────────────────────────────────────────────────────── */
+async function initTeachersPage() {
+  // Auth guard (belt-and-suspenders — inline script already redirects)
+  const token = localStorage.getItem('firduty_token');
+  if (!token) { window.location.replace('login.html'); return; }
+
+  try {
+    showTab('pending');
+    await loadAll();
+  } catch (err) {
+    console.error('initTeachersPage failed:', err);
+  }
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initTeachersPage);
+} else {
+  initTeachersPage();
+}
