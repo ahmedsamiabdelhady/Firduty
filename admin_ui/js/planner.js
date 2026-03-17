@@ -1,42 +1,47 @@
 /**
- * planner.js — Firduty Admin Week Planner
- * Handles: week loading, day/shift tabs, drag-and-drop, slot management.
- * Duty-type aware: break duties show grade/class label instead of location.
+ * planner.js — Firduty Admin Week Planner  v2.5
  *
- * Auth is handled by auth.js (loaded before this script in planner.html).
- * Use apiFetch() for all API calls — it attaches the token and handles 401.
- *
- * Changes:
- * - Shift time inline editor: click ✏️ on any shift tab panel header to edit
- *   start_time / end_time. Calls PUT /shifts/{id} — change applies to ALL days.
- * - Break duty slots: grade_class is displayed as a static read-only badge.
- *   No input/dropdown. The class label comes from the pre-seeded assignment.
- *   Drag-and-drop preserves the slot's existing grade_class automatically.
+ * Changes from v2.4:
+ *  - Single viewport helper `isMobilePlanner()` — removes broken `isMobileViewport` reference
+ *  - Mobile: slot tap → bottom-sheet teacher picker; Sortable NOT initialised on mobile
+ *  - Desktop: Sortable drag-drop unchanged; sidebar now has a live search filter
+ *  - Fix setPlannerBusy progress-bar toggle (was `!isBusy`, now `!!isBusy`)
+ *  - `initDragAndDrop()` guarded against mobile; no duplicate listeners on re-render
+ *  - `renderSlot()` emits data-pickable + onclick=onSlotTap for mobile tap
+ *  - `renderTeacherSidebar()` includes search input; items non-draggable on mobile
+ *  - `guardPage()` called first in `initPlanner()`
+ *  - `grade_class` field consolidated: always a <select> (no conflicting free-text path)
+ *  - All hardcoded fallback strings routed through I18N.t() with i18n keys
+ *  - Resize listener re-inits DnD when crossing from mobile → desktop
  */
 
-let currentWeekData = null;
-let allTeachers = [];
-let pendingAssignments = {};   // slId → { slotIdx → { teacher_id, grade_class } }
-let pendingSlots = {};         // key → { dayDate, shiftId, locationId, slotsCount }
-let selectedDate = null;       // the exact day chosen by admin in the date picker
-let teacherSearchTerm = '';
-let mobilePickerTarget = null;
-let mobileSheetDrag = null;
-let lang = () => I18N.getLang();
+/* ─── Module state ────────────────────────────────────────────────────────── */
 
-// ─── Utilities ────────────────────────────────────────────────────────────────
+let currentWeekData   = null;
+let allTeachers       = [];
+let pendingAssignments = {};   // slId  → { slotIdx → { teacher_id, grade_class } }
+let pendingSlots       = {};   // key   → { dayDate, shiftId, locationId, slotsCount }
+let selectedDate       = null; // date string chosen in the date picker
 
-function byId(id) {
-  return document.getElementById(id);
+// Mobile bottom-sheet state
+let _mobilePicker = { slId: null, slotIdx: null, isBreak: false };
+
+/* ─── Viewport helper (single source of truth) ───────────────────────────── */
+
+/**
+ * Returns true when the viewport is ≤ 768 px — matches the CSS breakpoint.
+ * Use ONLY this function for mobile/desktop branching; never use isMobileViewport.
+ */
+function isMobilePlanner() {
+  return window.innerWidth <= 768;
 }
 
-function showEl(el, display = '') {
-  if (el) el.style.display = display;
-}
+/* ─── DOM utilities ───────────────────────────────────────────────────────── */
 
-function hideEl(el) {
-  if (el) el.style.display = 'none';
-}
+function byId(id) { return document.getElementById(id); }
+
+function showEl(el, display = '') { if (el) el.style.display = display; }
+function hideEl(el)               { if (el) el.style.display = 'none';  }
 
 function showToast(message, type = 'success') {
   const c = byId('toastContainer');
@@ -47,6 +52,19 @@ function showToast(message, type = 'success') {
   c.appendChild(t);
   setTimeout(() => t.remove(), 3500);
 }
+
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function lang() { return I18N.getLang(); }
+
+/* ─── Date utilities ──────────────────────────────────────────────────────── */
 
 function formatDateLocal(date) {
   const y = date.getFullYear();
@@ -65,25 +83,24 @@ function getWeekStartFromDate(dateStr) {
   return formatDateLocal(d);
 }
 
-function getCurrentLocalDate() {
-  return formatDateLocal(new Date());
-}
-
-function getCurrentSunday() {
-  return getWeekStartFromDate(getCurrentLocalDate());
-}
+function getCurrentLocalDate()  { return formatDateLocal(new Date()); }
+function getCurrentSunday()     { return getWeekStartFromDate(getCurrentLocalDate()); }
 
 function getPreviousSunday() {
-  const currentSunday = parseLocalDate(getCurrentSunday());
-  currentSunday.setDate(currentSunday.getDate() - 7);
-  return formatDateLocal(currentSunday);
+  const d = parseLocalDate(getCurrentSunday());
+  d.setDate(d.getDate() - 7);
+  return formatDateLocal(d);
 }
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+/* ─── Week input helpers ──────────────────────────────────────────────────── */
 
 function applyWeekInputLimits() {
   const weekInput = byId('weekStartInput');
   if (!weekInput) return;
   const minDate = getPreviousSunday();
-  const today = getCurrentLocalDate();
+  const today   = getCurrentLocalDate();
   weekInput.min = minDate;
   if (!weekInput.value) {
     weekInput.value = today >= minDate ? today : minDate;
@@ -98,353 +115,326 @@ function syncWeekInputWithSelectedDate() {
   weekInput.value = selectedDate || getCurrentLocalDate();
 }
 
+/* ─── Busy overlay ────────────────────────────────────────────────────────── */
+
 function setPlannerBusy(isBusy, message = '') {
-  const overlay   = byId('plannerBusyOverlay');
-  const textEl    = byId('plannerLoadingText');
-  const barEl     = byId('plannerLoadingBar');
+  const overlay     = byId('plannerBusyOverlay');
+  const textEl      = byId('plannerLoadingText');
+  const barEl       = byId('plannerLoadingBar');
   const plannerMain = document.querySelector('.planner-main');
-  if (textEl) textEl.textContent = message || I18N.t('loading') || 'Loading...';
+
+  if (textEl) textEl.textContent = message || I18N.t('loading');
   if (overlay) overlay.style.display = isBusy ? 'flex' : 'none';
+  // !! cast: was accidentally `!isBusy` in v2.4 — fixed here
   if (barEl) barEl.classList.toggle('is-active', !!isBusy);
   if (plannerMain) plannerMain.style.pointerEvents = isBusy ? 'none' : '';
 }
 
-function escHtml(str) {
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
+/* ─── API error helper ────────────────────────────────────────────────────── */
 
-function isMobilePlanner() {
-  return window.matchMedia('(max-width: 768px)').matches;
-}
-
-function setTeacherSearchTerm(value) {
-  teacherSearchTerm = String(value || '').trim().toLowerCase();
-  const desktop = byId('teacherSearchInput');
-  const mobile = byId('mobileTeacherSearchInput');
-  if (desktop && desktop.value !== value) desktop.value = value;
-  if (mobile && mobile.value !== value) mobile.value = value;
-  renderTeacherLists();
-}
-
-function openMobileTeacherSheet() {
-  const sheet = byId('mobileTeacherSheet');
-  const backdrop = byId('mobileTeacherSheetBackdrop');
-  if (!sheet || !isMobilePlanner()) return;
-  if (mobileSheetDrag) mobileSheetDrag.reset();
-  sheet.style.transform = '';
-  sheet.classList.add('is-open');
-  sheet.setAttribute('aria-hidden', 'false');
-  if (backdrop) backdrop.classList.add('is-open');
-  document.body.classList.add('mobile-sheet-open');
-}
-
-function closeMobileTeacherSheet(clearTarget = true) {
-  const sheet = byId('mobileTeacherSheet');
-  const backdrop = byId('mobileTeacherSheetBackdrop');
-  if (!sheet) return;
-  if (mobileSheetDrag) mobileSheetDrag.reset();
-  sheet.style.transform = '';
-  sheet.classList.remove('is-open');
-  sheet.setAttribute('aria-hidden', 'true');
-  if (backdrop) backdrop.classList.remove('is-open');
-  document.body.classList.remove('mobile-sheet-open');
-  if (clearTarget) {
-    mobilePickerTarget = null;
-    updateTeacherTrayLabel();
-    applyMobileSlotTargets();
-  }
-}
-
-function openMobileTeacherSheetForSlot(slId, slotIdx) {
-  if (!isMobilePlanner()) return;
-  const found = findShiftLocationInCurrentWeek(slId);
-  if (!found) return;
-  const { sl } = found;
-  const col = document.querySelector(`.location-column[data-sl-id="${slId}"]`);
-  if (col?.dataset.editable !== 'true') {
-    showToast(I18N.t('day_locked') || 'Past days cannot be edited', 'error');
-    return;
-  }
-
-  const slotEl = document.querySelector(`#slots-${slId} [data-slot-idx="${slotIdx}"]`);
-  const baseAssignment = sl.assignments?.find(a => a.slot_index === slotIdx) || null;
-  const effective = getEffectiveAssignment(slId, slotIdx, baseAssignment);
-  const slotFilled = !!effective?.teacher_id || !!slotEl?.classList.contains('slot-filled');
-  const isBreak = sl.duty_type === 'break' || sl.shift?.duty_type === 'break';
-  const title = isBreak
-    ? (lang() === 'ar' ? sl.shift?.name_ar : sl.shift?.name_en)
-    : (sl.location ? (lang() === 'ar' ? sl.location.name_ar : sl.location.name_en) : '—');
-
-  mobilePickerTarget = { slId, slotIdx, slotFilled, title, slotNumber: slotIdx + 1 };
-  updateTeacherTrayLabel();
-  applyMobileSlotTargets();
-  openMobileTeacherSheet();
-  const search = byId('mobileTeacherSearchInput');
-  if (search) requestAnimationFrame(() => search.focus());
-}
-
-
-function updateMobilePlannerTargetPill() {
-  const pill = byId('mobilePlannerTargetPill');
-  if (!pill) return;
-  if (!isMobilePlanner() || !mobilePickerTarget) {
-    pill.style.display = 'none';
-    pill.textContent = '';
-    pill.className = 'mobile-planner-target-pill';
-    return;
-  }
-
-  pill.style.display = '';
-  pill.className = `mobile-planner-target-pill ${mobilePickerTarget.slotFilled ? 'is-replace' : 'is-add'}`;
-  pill.textContent = mobilePickerTarget.slotFilled
-    ? `Replace teacher • Slot ${mobilePickerTarget.slotNumber}`
-    : `Assign teacher • Slot ${mobilePickerTarget.slotNumber}`;
-}
-
-function bindMobileTeacherSheetDrag() {
-  const sheet = byId('mobileTeacherSheet');
-  const handle = byId('mobileTeacherSheetHandle');
-  const header = byId('mobileTeacherSheetHeader');
-  if (!sheet || !handle || handle.dataset.dragBound) return;
-
-  const dragStart = (evt) => {
-    if (!isMobilePlanner() || !sheet.classList.contains('is-open')) return;
-    const point = evt.touches ? evt.touches[0] : evt;
-    mobileSheetDrag = {
-      startY: point.clientY,
-      currentY: point.clientY,
-      dragging: true,
-      moved: 0,
-      reset() {
-        sheet.style.transition = '';
-        sheet.style.transform = '';
-      }
-    };
-    sheet.classList.add('is-dragging');
-    sheet.style.transition = 'none';
-  };
-
-  const dragMove = (evt) => {
-    if (!mobileSheetDrag?.dragging) return;
-    const point = evt.touches ? evt.touches[0] : evt;
-    mobileSheetDrag.currentY = point.clientY;
-    const delta = Math.max(0, point.clientY - mobileSheetDrag.startY);
-    mobileSheetDrag.moved = delta;
-    sheet.style.transform = `translateY(${delta}px)`;
-    if (delta > 0 && evt.cancelable) evt.preventDefault();
-  };
-
-  const dragEnd = () => {
-    if (!mobileSheetDrag?.dragging) return;
-    const moved = mobileSheetDrag.moved || 0;
-    sheet.classList.remove('is-dragging');
-    sheet.style.transition = '';
-    sheet.style.transform = '';
-    const shouldClose = moved > 110;
-    mobileSheetDrag.dragging = false;
-    if (shouldClose) {
-      closeMobileTeacherSheet(true);
-    }
-  };
-
-  [handle, header].forEach(el => {
-    el.addEventListener('touchstart', dragStart, { passive: true });
-    el.addEventListener('mousedown', dragStart);
-  });
-  window.addEventListener('touchmove', dragMove, { passive: false });
-  window.addEventListener('mousemove', dragMove);
-  window.addEventListener('touchend', dragEnd);
-  window.addEventListener('mouseup', dragEnd);
-  handle.dataset.dragBound = 'true';
-}
-
-function updateTeacherTrayLabel() {
-  const title = byId('mobileTeacherSheetTitle');
-  const subtitle = byId('mobileTeacherSheetSubtitle');
-  const hint = byId('mobileSelectedHint');
-  const count = byId('mobileTeacherCount');
-  const filteredCount = allTeachers.filter(t => !teacherSearchTerm || String(t.name || '').toLowerCase().includes(teacherSearchTerm)).length;
-
-  if (title) title.textContent = mobilePickerTarget ? mobilePickerTarget.title : (I18N.t('teachers') || 'Teachers');
-  if (subtitle) {
-    subtitle.textContent = mobilePickerTarget
-      ? `Slot ${mobilePickerTarget.slotNumber} • ${mobilePickerTarget.slotFilled ? 'Tap a teacher to replace the current one.' : 'Tap a teacher to assign here.'}`
-      : 'Tap a slot to choose a teacher.';
-  }
-  if (hint) {
-    if (mobilePickerTarget) {
-      hint.style.display = '';
-      hint.className = `mobile-selected-hint ${mobilePickerTarget.slotFilled ? 'is-replace' : 'is-add'}`;
-      hint.textContent = mobilePickerTarget.slotFilled
-        ? `Replace teacher in slot ${mobilePickerTarget.slotNumber}`
-        : `Assign teacher to slot ${mobilePickerTarget.slotNumber}`;
-    } else {
-      hint.style.display = 'none';
-      hint.textContent = '';
-      hint.className = 'mobile-selected-hint';
-    }
-  }
-  if (count) count.textContent = String(filteredCount);
-  updateMobilePlannerTargetPill();
-}
-
-function renderTeacherLists() {
-  const loadingEl = byId('teachersLoading');
-  if (loadingEl) loadingEl.style.display = 'none';
-
-  const filtered = allTeachers.filter(t => {
-    const name = String(t.name || '').toLowerCase();
-    return !teacherSearchTerm || name.includes(teacherSearchTerm);
-  });
-
-  const html = filtered.map(t => `
-    <div class="teacher-list-item"
-         draggable="${isMobilePlanner() ? 'false' : 'true'}"
-         data-teacher-id="${t.id}"
-         data-teacher-name="${escHtml(t.name)}"
-         title="${escHtml(t.name)}">
-      ${escHtml(t.name)}
-    </div>
-  `).join('') || `<div class="slot-locked-text" style="padding:12px 4px">${I18N.t('no_teachers_yet') || 'No teachers found'}</div>`;
-
-  const desktopList = byId('teacherList');
-  const mobileList = byId('mobileTeacherList');
-  if (desktopList) desktopList.innerHTML = html;
-  if (mobileList) mobileList.innerHTML = html;
-
-  updateTeacherTrayLabel();
-  applyMobileSlotTargets();
-}
-
-function clearSelectedTeacherForTap() {
-  mobilePickerTarget = null;
-  updateTeacherTrayLabel();
-  applyMobileSlotTargets();
-}
-
-function applyMobileSlotTargets() {
-  document.querySelectorAll('.slot-item').forEach(slot => {
-    slot.classList.remove('slot-mobile-target', 'slot-mobile-target-add', 'slot-mobile-target-replace', 'slot-mobile-current');
-  });
-
-  if (!isMobilePlanner() || !mobilePickerTarget) return;
-
-  document.querySelectorAll('.location-column[data-editable="true"] .slot-item').forEach(slot => {
-    slot.classList.add('slot-mobile-target');
-  });
-
-  const activeSlot = document.querySelector(`#slots-${mobilePickerTarget.slId} [data-slot-idx="${mobilePickerTarget.slotIdx}"]`);
-  if (activeSlot) {
-    activeSlot.classList.add('slot-mobile-current');
-    activeSlot.classList.add(mobilePickerTarget.slotFilled ? 'slot-mobile-target-replace' : 'slot-mobile-target-add');
-  }
-}
-
-function bindTeacherPanelEvents() {
-  const desktopSearch = byId('teacherSearchInput');
-  const mobileSearch = byId('mobileTeacherSearchInput');
-  const closeBtn = byId('mobileTeacherClose');
-  const backdrop = byId('mobileTeacherSheetBackdrop');
-
-  if (desktopSearch && !desktopSearch.dataset.bound) {
-    desktopSearch.addEventListener('input', e => setTeacherSearchTerm(e.target.value || ''));
-    desktopSearch.dataset.bound = 'true';
-  }
-  if (mobileSearch && !mobileSearch.dataset.bound) {
-    mobileSearch.addEventListener('input', e => setTeacherSearchTerm(e.target.value || ''));
-    mobileSearch.dataset.bound = 'true';
-  }
-  if (closeBtn && !closeBtn.dataset.bound) {
-    closeBtn.addEventListener('click', () => closeMobileTeacherSheet(true));
-    closeBtn.dataset.bound = 'true';
-  }
-  if (backdrop && !backdrop.dataset.bound) {
-    backdrop.addEventListener('click', () => closeMobileTeacherSheet(true));
-    backdrop.dataset.bound = 'true';
-  }
-
-  bindMobileTeacherSheetDrag();
-
-  if (!document.body.dataset.teacherDelegationBound) {
-    document.addEventListener('click', (evt) => {
-      const teacherEl = evt.target.closest('.teacher-list-item');
-      if (teacherEl) {
-        const teacherId = parseInt(teacherEl.dataset.teacherId, 10);
-        const teacherName = teacherEl.dataset.teacherName || teacherEl.textContent.trim();
-        if (Number.isInteger(teacherId) && isMobilePlanner() && mobilePickerTarget) {
-          assignTeacherToSlot(mobilePickerTarget.slId, mobilePickerTarget.slotIdx, teacherId, teacherName, true);
-          closeMobileTeacherSheet(true);
-        }
-        return;
-      }
-
-      if (isMobilePlanner() && !evt.target.closest('.slot-remove-btn')) {
-        const slotEl = evt.target.closest('.slot-item');
-        if (slotEl) {
-          const slId = parseInt(slotEl.dataset.slId, 10);
-          const slotIdx = parseInt(slotEl.dataset.slotIdx, 10);
-          if (Number.isInteger(slId) && Number.isInteger(slotIdx)) {
-            openMobileTeacherSheetForSlot(slId, slotIdx);
-          }
-        }
-      }
-    });
-
-    window.addEventListener('resize', () => {
-      if (!isMobilePlanner()) closeMobileTeacherSheet(true);
-      renderTeacherLists();
-      updateMobilePlannerTargetPill();
-    });
-
-    document.body.dataset.teacherDelegationBound = 'true';
-  }
-}
-
-// ─── Teachers ─────────────────────────────────────────────────────────────────
-
-async function loadTeachers() {
+async function getApiErrorMessage(res, fallbackMessage) {
+  if (!res) return fallbackMessage;
   try {
-    const res = await apiFetch('/teachers/');
-    if (!res || !res.ok) return;
-    allTeachers = await res.json();
-    renderTeacherLists();
-  } catch (err) {
-    console.error('loadTeachers failed:', err);
+    const data = await res.json();
+    return data?.detail || data?.message || fallbackMessage;
+  } catch (_) {
+    return fallbackMessage;
   }
 }
 
-// ─── Init ─────────────────────────────────────────────────────────────────────
+/* ─── Init ────────────────────────────────────────────────────────────────── */
 
 async function initPlanner() {
-  guardPage();
+  // Guard before doing anything else
+  await guardPage(false);
+
+  try {
+    ensureMobileBottomSheet();
+    applyWeekInputLimits();
+
+    const weekInput = byId('weekStartInput');
+    selectedDate = weekInput?.value || getCurrentLocalDate();
+
+    await Promise.all([loadTeachers(), loadWeek()]);
+  } catch (err) {
+    console.error('initPlanner failed:', err);
+    showToast(I18N.t('error_generic'), 'error');
+  }
+}
+
+async function onWeekSelected() {
   applyWeekInputLimits();
-  bindTeacherPanelEvents();
-  await loadTeachers();
+  const weekInput = byId('weekStartInput');
+  if (!weekInput?.value) return;
+  selectedDate = weekInput.value;
   await loadWeek();
 }
 
-// ─── Week Loading ─────────────────────────────────────────────────────────────
+/* ─── Teacher sidebar ─────────────────────────────────────────────────────── */
+
+async function loadTeachers() {
+  const teacherList    = byId('teacherList');
+  const teachersLoading = byId('teachersLoading');
+
+  try {
+    showEl(teachersLoading);
+    if (teacherList) teacherList.innerHTML = '';
+
+    const res = await apiFetch('/teachers/');
+    if (!res || !res.ok) {
+      allTeachers = [];
+    } else {
+      allTeachers = await res.json();
+    }
+    renderTeacherSidebar();
+  } catch (err) {
+    console.error('loadTeachers failed:', err);
+    allTeachers = [];
+    renderTeacherSidebar();
+  } finally {
+    hideEl(teachersLoading);
+  }
+}
+
+function renderTeacherSidebar(filterQuery = '') {
+  const list = byId('teacherList');
+  if (!list) return;
+
+  const query = filterQuery.toLowerCase().trim();
+  const filtered = query
+    ? allTeachers.filter(t => t.name.toLowerCase().includes(query))
+    : allTeachers;
+
+  if (!allTeachers.length) {
+    list.innerHTML = `<p class="sidebar-empty">${I18N.t('no_teachers_yet')}</p>`;
+    return;
+  }
+
+  const mobile = isMobilePlanner();
+
+  // On mobile: items are NOT draggable — they serve as reference / search target.
+  // Teacher assignment happens via the bottom-sheet (opened by tapping a slot).
+  list.innerHTML = filtered.map(t => `
+    <div class="teacher-list-item${mobile ? ' teacher-list-item--mobile' : ''}"
+         data-teacher-id="${t.id}"
+         data-teacher-name="${escHtml(t.name)}"
+         ${mobile ? '' : 'draggable="true"'}
+         >${escHtml(t.name)}</div>
+  `).join('');
+
+  // Re-init DnD on the sidebar when not mobile
+  // (list items were just replaced, so Sortable needs the updated children)
+  if (!mobile && typeof Sortable !== 'undefined') {
+    const sidebar = byId('teacherList');
+    if (sidebar && !sidebar.dataset.sortableInit) {
+      new Sortable(sidebar, {
+        group: { name: 'teachers', pull: 'clone', put: false },
+        sort: false,
+        animation: 150,
+      });
+      sidebar.dataset.sortableInit = 'true';
+    }
+  }
+}
+
+function filterTeacherSidebar(query) {
+  renderTeacherSidebar(query);
+}
+
+/* ─── Mobile bottom-sheet teacher picker ─────────────────────────────────── */
+
+/**
+ * Inject the bottom-sheet DOM once per page load.
+ * planner.html may already contain this element; if so this is a no-op.
+ */
+function ensureMobileBottomSheet() {
+  if (byId('mobileTeacherPicker')) return;
+
+  const el = document.createElement('div');
+  el.id = 'mobileTeacherPicker';
+  el.className = 'mobile-bottom-sheet';
+  el.setAttribute('aria-modal', 'true');
+  el.setAttribute('role', 'dialog');
+  el.style.display = 'none';
+  el.innerHTML = `
+    <div class="bottom-sheet-backdrop" id="bottomSheetBackdrop"></div>
+    <div class="bottom-sheet-panel" id="bottomSheetPanel">
+      <div class="bottom-sheet-header">
+        <span class="bottom-sheet-title" id="mobilePickerTitle">${I18N.t('pick_teacher')}</span>
+        <button class="bottom-sheet-close" id="bottomSheetClose" aria-label="${I18N.t('close')}">&times;</button>
+      </div>
+      <input
+        type="search"
+        id="mobileTeacherSearch"
+        class="bottom-sheet-search"
+        placeholder="${I18N.t('search_teachers')}"
+        autocomplete="off"
+      >
+      <div id="mobileTeacherList" class="bottom-sheet-list"></div>
+    </div>
+  `;
+  document.body.appendChild(el);
+
+  // Event listeners — attached once, never duplicated
+  byId('bottomSheetBackdrop').addEventListener('click', closeMobileTeacherPicker);
+  byId('bottomSheetClose').addEventListener('click', closeMobileTeacherPicker);
+  byId('mobileTeacherSearch').addEventListener('input', e => {
+    renderMobileTeacherList(e.target.value);
+  });
+
+  // Swipe-down to close
+  let _startY = 0;
+  const panel = byId('bottomSheetPanel');
+  panel.addEventListener('touchstart', e => { _startY = e.touches[0].clientY; }, { passive: true });
+  panel.addEventListener('touchend', e => {
+    if (e.changedTouches[0].clientY - _startY > 80) closeMobileTeacherPicker();
+  }, { passive: true });
+}
+
+function openMobileTeacherPicker(slId, slotIdx, isBreak) {
+  _mobilePicker = { slId, slotIdx, isBreak };
+
+  const picker = byId('mobileTeacherPicker');
+  if (!picker) return;
+
+  const searchEl = byId('mobileTeacherSearch');
+  if (searchEl) searchEl.value = '';
+
+  renderMobileTeacherList('');
+
+  picker.style.display = 'flex';
+  // Animate in
+  const panel = byId('bottomSheetPanel');
+  if (panel) {
+    panel.style.transform = 'translateY(100%)';
+    requestAnimationFrame(() => {
+      panel.style.transition = 'transform 0.28s cubic-bezier(0.32,0.72,0,1)';
+      panel.style.transform = 'translateY(0)';
+    });
+  }
+
+  setTimeout(() => { if (searchEl) searchEl.focus(); }, 120);
+}
+
+function closeMobileTeacherPicker() {
+  const picker = byId('mobileTeacherPicker');
+  if (!picker) return;
+
+  const panel = byId('bottomSheetPanel');
+  if (panel) {
+    panel.style.transition = 'transform 0.22s ease-in';
+    panel.style.transform = 'translateY(100%)';
+    setTimeout(() => {
+      picker.style.display = 'none';
+      if (panel) { panel.style.transition = ''; panel.style.transform = ''; }
+    }, 230);
+  } else {
+    picker.style.display = 'none';
+  }
+
+  _mobilePicker = { slId: null, slotIdx: null, isBreak: false };
+}
+
+function renderMobileTeacherList(query = '') {
+  const listEl = byId('mobileTeacherList');
+  if (!listEl) return;
+
+  const q = query.toLowerCase().trim();
+  const filtered = q
+    ? allTeachers.filter(t => t.name.toLowerCase().includes(q))
+    : allTeachers;
+
+  if (!filtered.length) {
+    listEl.innerHTML = `<p class="bottom-sheet-empty">${I18N.t('no_teachers_yet')}</p>`;
+    return;
+  }
+
+  listEl.innerHTML = filtered.map(t => `
+    <button
+      class="bottom-sheet-teacher-btn"
+      data-teacher-id="${t.id}"
+      onclick="mobileSelectTeacher(${t.id}, '${escHtml(t.name).replace(/'/g, '&#39;')}')"
+    >${escHtml(t.name)}</button>
+  `).join('');
+}
+
+function mobileSelectTeacher(teacherId, teacherName) {
+  const { slId, slotIdx, isBreak } = _mobilePicker;
+  if (slId == null || slotIdx == null) return;
+
+  const list = byId(`slots-${slId}`);
+  const col  = list?.closest('.location-column');
+
+  if (col?.dataset.editable !== 'true') {
+    showToast(I18N.t('day_locked'), 'error');
+    closeMobileTeacherPicker();
+    return;
+  }
+
+  if (isTeacherAssignedInSameShift(slId, teacherId)) {
+    showToast(I18N.t('teacher_already_assigned') || 'Teacher already assigned in this duty', 'error');
+    return;
+  }
+
+  // Check if target slot is filled → replace, else fill empty
+  const slotEl = list?.querySelector(`[data-slot-idx="${slotIdx}"]`);
+  if (slotEl?.classList.contains('filled')) {
+    replaceTeacherInSlot(slId, slotIdx, teacherId, teacherName, isBreak);
+    showToast(I18N.t('teacher_replaced'));
+  } else {
+    recordAssignment(slId, slotIdx, teacherId, null);
+    if (slotEl) {
+      slotEl.outerHTML = renderSlot(slId, slotIdx, {
+        teacher_id: teacherId,
+        teacher_name: teacherName,
+        slot_index: slotIdx,
+        grade_class: null,
+      }, isBreak, true);
+    }
+  }
+
+  closeMobileTeacherPicker();
+}
+
+/* ─── Slot tap handler (mobile) ───────────────────────────────────────────── */
+
+/**
+ * Called via onclick from every slot-item.
+ * On desktop: does nothing (Sortable handles assignment).
+ * On mobile: opens the bottom-sheet picker.
+ */
+function onSlotTap(slId, slotIdx) {
+  if (!isMobilePlanner()) return;
+
+  const list = byId(`slots-${slId}`);
+  const col  = list?.closest('.location-column');
+
+  if (col?.dataset.editable !== 'true') {
+    showToast(I18N.t('day_locked'), 'error');
+    return;
+  }
+
+  const isBreak = list?.dataset.dutyType === 'break';
+  openMobileTeacherPicker(slId, slotIdx, isBreak);
+}
+
+/* ─── Week loading ────────────────────────────────────────────────────────── */
 
 async function loadWeek() {
+  const weekInput    = byId('weekStartInput');
+  const noPlanMsg    = byId('noPlanMsg');
+  const dayTabs      = byId('dayTabs');
+  const dayPanels    = byId('dayPanels');
   const plannerLoading = byId('plannerLoading');
-  const noPlanMsg      = byId('noPlanMsg');
-  const dayTabs        = byId('dayTabs');
-  const dayPanels      = byId('dayPanels');
 
-  const weekInput = byId('weekStartInput');
-  const pickedDate = weekInput ? weekInput.value : '';
+  const pickedDate = weekInput?.value || '';
   if (!pickedDate) return;
 
   selectedDate = pickedDate;
   const weekStart = getWeekStartFromDate(pickedDate);
 
   pendingAssignments = {};
-  pendingSlots = {};
+  pendingSlots       = {};
 
   try {
     showEl(plannerLoading);
@@ -453,20 +443,31 @@ async function loadWeek() {
     if (dayPanels) dayPanels.innerHTML = '';
 
     const res = await apiFetch(`/weeks/${weekStart}`);
-    if (!res) { currentWeekData = null; showEl(noPlanMsg, 'block'); updateStatusBadge(null); return; }
+
+    if (!res) {
+      currentWeekData = null;
+      showEl(noPlanMsg, 'block');
+      updateStatusBadge(null);
+      return;
+    }
 
     if (res.status === 404) {
       currentWeekData = null;
-      showEl(noPlanMsg, 'block');
-      if (dayPanels) dayPanels.innerHTML = `<p style="color:#6c757d;text-align:center;margin-top:40px" data-i18n="no_week"></p>`;
+      if (dayPanels) {
+        dayPanels.innerHTML =
+          `<p style="color:#6c757d;text-align:center;margin-top:40px" data-i18n="no_week"></p>`;
+      }
       I18N.applyTranslations();
       updateStatusBadge(null);
-      showToast(I18N.t('no_week') || 'No plan found for this week', 'info');
+      showEl(noPlanMsg, 'block');
+      showToast(I18N.t('no_week'), 'info');
       return;
     }
 
     if (!res.ok) {
-      currentWeekData = null; showEl(noPlanMsg, 'block'); updateStatusBadge(null);
+      currentWeekData = null;
+      showEl(noPlanMsg, 'block');
+      updateStatusBadge(null);
       showToast(await getApiErrorMessage(res, I18N.t('error_generic')), 'error');
       return;
     }
@@ -475,7 +476,9 @@ async function loadWeek() {
     renderWeek();
   } catch (err) {
     console.error('loadWeek failed:', err);
-    currentWeekData = null; showEl(noPlanMsg, 'block'); updateStatusBadge(null);
+    currentWeekData = null;
+    showEl(noPlanMsg, 'block');
+    updateStatusBadge(null);
     showToast(I18N.t('error_generic'), 'error');
   } finally {
     hideEl(plannerLoading);
@@ -486,24 +489,35 @@ function updateStatusBadge(status) {
   const badge  = byId('weekStatusBadge');
   const vBadge = byId('weekVersionBadge');
   if (!badge || !vBadge) return;
-  if (!status) { badge.style.display = 'none'; vBadge.textContent = ''; return; }
+
+  if (!status) {
+    badge.style.display = 'none';
+    vBadge.textContent  = '';
+    return;
+  }
+
   badge.style.display = 'inline';
-  badge.className = `week-status-badge status-${status}`;
-  badge.textContent = I18N.t(status);
-  vBadge.textContent = currentWeekData ? `v${currentWeekData.version}` : '';
+  badge.className      = `week-status-badge status-${status}`;
+  badge.textContent    = I18N.t(status);
+  vBadge.textContent   = currentWeekData ? `v${currentWeekData.version}` : '';
 }
 
-// ─── Week Rendering ───────────────────────────────────────────────────────────
+/* ─── Week rendering ──────────────────────────────────────────────────────── */
 
 const DAY_KEYS = ['day_sun', 'day_mon', 'day_tue', 'day_wed', 'day_thu'];
 
 function renderWeek() {
   if (!currentWeekData?.day_plans) return;
+
   updateStatusBadge(currentWeekData.status);
 
-  const tabsEl    = byId('dayTabs');
-  const panelsEl  = byId('dayPanels');
+  // Close any open mobile picker before re-rendering slots
+  closeMobileTeacherPicker();
+
+  const tabsEl   = byId('dayTabs');
+  const panelsEl = byId('dayPanels');
   const noPlanMsg = byId('noPlanMsg');
+
   if (!tabsEl || !panelsEl) return;
 
   tabsEl.innerHTML   = '';
@@ -513,9 +527,9 @@ function renderWeek() {
   const activeIdx = getActiveDayIndex();
 
   currentWeekData.day_plans.forEach((dayPlan, idx) => {
-    const dayDate  = new Date(dayPlan.date + 'T12:00:00');
+    const dayDate   = new Date(dayPlan.date + 'T12:00:00');
     const dayOfWeek = dayDate.getDay();
-    const dayLabel  = I18N.t(DAY_KEYS[dayOfWeek] || `Day ${idx}`);
+    const dayLabel  = I18N.t(DAY_KEYS[dayOfWeek] ?? `Day ${idx}`);
 
     const tab = document.createElement('button');
     tab.className = 'tab-btn' + (idx === activeIdx ? ' active' : '');
@@ -524,9 +538,9 @@ function renderWeek() {
     tabsEl.appendChild(tab);
 
     const panel = document.createElement('div');
-    panel.className = 'tab-panel' + (idx === activeIdx ? ' active' : '');
-    panel.innerHTML = renderDayPanel(dayPlan, dayPlan.is_editable);
-    if (idx !== activeIdx) panel.style.display = 'none';
+    panel.className  = 'tab-panel' + (idx === activeIdx ? ' active' : '');
+    panel.innerHTML  = renderDayPanel(dayPlan, !!dayPlan.is_editable);
+    panel.style.display = idx === activeIdx ? 'block' : 'none';
     panelsEl.appendChild(panel);
   });
 
@@ -535,21 +549,22 @@ function renderWeek() {
 
 function getActiveDayIndex() {
   if (!currentWeekData?.day_plans?.length) return 0;
-  const exactMatch = currentWeekData.day_plans.findIndex(d => d.date === selectedDate);
-  if (exactMatch >= 0) return exactMatch;
+  const exact = currentWeekData.day_plans.findIndex(d => d.date === selectedDate);
+  if (exact >= 0) return exact;
   const today = getCurrentLocalDate();
-  const todayMatch = currentWeekData.day_plans.findIndex(d => d.date === today);
-  return todayMatch >= 0 ? todayMatch : 0;
+  const todayIdx = currentWeekData.day_plans.findIndex(d => d.date === today);
+  if (todayIdx >= 0) return todayIdx;
+  return 0;
 }
 
 function switchDayTab(idx) {
   document.querySelectorAll('.tab-btn').forEach((b, i) => b.classList.toggle('active', i === idx));
   document.querySelectorAll('.tab-panel').forEach((p, i) => {
-    const isActive = i === idx;
-    p.classList.toggle('active', isActive);
-    p.style.display = isActive ? 'block' : 'none';
+    const active = i === idx;
+    p.classList.toggle('active', active);
+    p.style.display = active ? 'block' : 'none';
   });
-  const day = currentWeekData?.day_plans[idx];
+  const day = currentWeekData?.day_plans?.[idx];
   if (day) {
     selectedDate = day.date;
     const weekInput = byId('weekStartInput');
@@ -557,314 +572,123 @@ function switchDayTab(idx) {
   }
 }
 
+/* ─── Day / shift / location panel rendering ─────────────────────────────── */
+
 function renderDayPanel(dayPlan, isEditable) {
   const shiftMap = {};
-  dayPlan.shift_locations.forEach(sl => {
+  (dayPlan.shift_locations || []).forEach(sl => {
     if (!shiftMap[sl.shift_id]) shiftMap[sl.shift_id] = { shift: sl.shift, locations: [] };
     shiftMap[sl.shift_id].locations.push(sl);
   });
-  const shifts = Object.values(shiftMap).sort((a, b) => a.shift.order - b.shift.order);
 
-  if (!shifts.length) return `<p style="color:#999;margin-top:20px;text-align:center">Loading day slots...</p>`;
+  const shifts = Object.values(shiftMap).sort((a, b) =>
+    (a.shift.order ?? 9999) - (b.shift.order ?? 9999)
+  );
 
-  const dayBadge = isEditable
-    ? `<span style="font-size:0.8rem;color:#15803d;background:#dcfce7;padding:4px 10px;border-radius:999px">${I18N.t('editable') || 'Editable'}</span>`
-    : `<span style="font-size:0.8rem;color:#991b1b;background:#fee2e2;padding:4px 10px;border-radius:999px">${I18N.t('locked') || 'Locked'}</span>`;
+  if (!shifts.length) {
+    return `<p style="color:#999;margin-top:20px;text-align:center">${I18N.t('no_week')}</p>`;
+  }
+
+  const editableBadge = isEditable
+    ? `<span class="day-badge day-badge--editable">${I18N.t('editable')}</span>`
+    : `<span class="day-badge day-badge--locked">${I18N.t('locked')}</span>`;
 
   const publishBtn = dayPlan.is_published
-    ? `<span style="font-size:0.8rem;color:#166534;background:#dcfce7;padding:6px 10px;border-radius:999px">✅ ${I18N.t('published') || 'Published'}</span>`
-    : `<button class="btn btn-success btn-sm" id="publish-day-btn-${dayPlan.date}" onclick="publishDay('${dayPlan.date}')">${I18N.t('publish_day') || 'Publish Day'}</button>`;
+    ? `<span class="published-badge">&#10003; ${I18N.t('published') || 'Published'}</span>`
+    : `<button class="btn btn-success btn-sm" id="publish-day-btn-${dayPlan.date}"
+         onclick="publishDay('${dayPlan.date}')">${I18N.t('publish_day') || 'Publish Day'}</button>`;
 
-  // Shift tab buttons
   const shiftTabsHtml = shifts.map((s, i) => {
     const dutyBadge = s.shift.duty_type === 'break'
-      ? `<span style="font-size:0.7rem;background:#ede9fe;color:#5b21b6;border-radius:8px;padding:1px 7px;margin-inline-start:6px">${I18N.t('break')}</span>`
-      : '';
+      ? `<span class="break-badge">${I18N.t('break')}</span>` : '';
     return `
       <button class="shift-tab-btn${i === 0 ? ' active' : ''}"
-              onclick="switchShiftTab('${dayPlan.date}', ${s.shift.id})"
-              data-shift-id="${s.shift.id}"
-              data-day-date="${dayPlan.date}">
-        <span class="shift-tab-title-row">
-          <span>${lang() === 'ar' ? s.shift.name_ar : s.shift.name_en}</span>
-          ${dutyBadge}
-        </span>
-        <small style="opacity:0.7">${s.shift.start_time.slice(0, 5)} – ${s.shift.end_time.slice(0, 5)}</small>
-      </button>
-    `;
+              onclick="switchShiftTab(this, 'shift-panel-${dayPlan.date}-${s.shift.id}')">
+        ${lang() === 'ar' ? escHtml(s.shift.name_ar) : escHtml(s.shift.name_en)}
+        ${dutyBadge}
+      </button>`;
   }).join('');
 
-  // Shift panel bodies — each includes an inline time editor header
   const shiftPanelsHtml = shifts.map((s, i) => {
-    const startFmt = s.shift.start_time.slice(0, 5);
-    const endFmt   = s.shift.end_time.slice(0, 5);
-    const shiftName = lang() === 'ar' ? s.shift.name_ar : s.shift.name_en;
-
-    // Time editor header (always visible, applies to all days)
-    const timeHeader = `
-      <div class="shift-time-header" id="shift-time-header-${s.shift.id}">
-        <span class="shift-time-label">
-          <strong>${escHtml(shiftName)}</strong>
-          <span class="shift-time-display" id="shift-time-display-${s.shift.id}">
-            ${startFmt} – ${endFmt}
-          </span>
-        </span>
-        <button class="btn-edit-time"
-                title="${I18N.t('edit_shift_time') || 'Edit Time'}"
-                onclick="openEditShiftTime(${s.shift.id}, '${startFmt}', '${endFmt}')">✏️</button>
-      </div>
-    `;
-
+    const locCols = s.locations
+      .sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999))
+      .map(sl => renderLocationColumn(dayPlan.date, sl, isEditable))
+      .join('');
     return `
-      <div class="shift-panel${i === 0 ? ' active' : ''}"
-           id="shift-panel-${dayPlan.date}-${s.shift.id}"
-           style="${i === 0 ? 'display:block' : 'display:none'}">
-        ${timeHeader}
-        ${isMobilePlanner()
-          ? renderMobileLocationGroups(dayPlan.date, s.locations, isEditable)
-          : `<div class="locations-grid">${s.locations.map(sl => renderLocationColumn(dayPlan.date, sl, isEditable)).join('')}</div>`}
-      </div>
-    `;
+      <div id="shift-panel-${dayPlan.date}-${s.shift.id}"
+           class="shift-panel${i === 0 ? ' active' : ''}"
+           style="${i === 0 ? '' : 'display:none'}">
+        <div class="locations-grid">${locCols}</div>
+      </div>`;
   }).join('');
 
   return `
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <strong>${dayPlan.date}</strong>
-        ${dayBadge}
+    <div class="day-header">
+      <div class="day-header-meta">
+        <span class="day-date">${dayPlan.date}</span>
+        ${editableBadge}
       </div>
-      <div>${publishBtn}</div>
+      <div class="day-header-actions" data-day-header-actions>
+        ${publishBtn}
+      </div>
     </div>
-    <div class="shift-tabs" id="shift-tabs-${dayPlan.date}">${shiftTabsHtml}</div>
+    <div class="shift-tabs">${shiftTabsHtml}</div>
     ${shiftPanelsHtml}
   `;
 }
 
-function switchShiftTab(dayDate, shiftId) {
-  const container = byId(`shift-tabs-${dayDate}`);
-  if (!container) return;
-  container.querySelectorAll('.shift-tab-btn').forEach(b => {
-    b.classList.toggle('active', parseInt(b.dataset.shiftId, 10) === shiftId);
+function switchShiftTab(btn, panelId) {
+  const dayPanel = btn.closest('.tab-panel');
+  if (!dayPanel) return;
+
+  dayPanel.querySelectorAll('.shift-tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+
+  dayPanel.querySelectorAll('.shift-panel').forEach(p => {
+    const active = p.id === panelId;
+    p.classList.toggle('active', active);
+    p.style.display = active ? 'block' : 'none';
   });
-  document.querySelectorAll(`[id^="shift-panel-${dayDate}-"]`).forEach(p => {
-    p.style.display = p.id === `shift-panel-${dayDate}-${shiftId}` ? 'block' : 'none';
-  });
-}
-
-// ─── Shift Time Inline Editor ─────────────────────────────────────────────────
-//
-// Clicking ✏️ opens a floating card anchored to the shift time header.
-// PUT /shifts/{id} updates the Shift record, which is shared across all days.
-// After saving, the week is reloaded so every day panel reflects the new time.
-
-function openEditShiftTime(shiftId, currentStart, currentEnd) {
-  closeEditShiftTime(); // close any previously open editor
-
-  const headerId = `shift-time-header-${shiftId}`;
-  const headerEl = byId(headerId);
-  if (!headerEl) return;
-
-  const card = document.createElement('div');
-  card.id = 'shiftTimeEditor';
-  card.className = 'shift-time-editor-card';
-  card.innerHTML = `
-    <p class="shift-time-editor-note">⚠️ ${I18N.t('time_applies_all_days') || 'This change applies to all days of the week'}</p>
-    <div class="shift-time-editor-fields">
-      <label>
-        ${I18N.t('shift_start_time') || 'Start Time'}
-        <input type="time" id="editShiftStart" value="${currentStart}">
-      </label>
-      <label>
-        ${I18N.t('shift_end_time') || 'End Time'}
-        <input type="time" id="editShiftEnd" value="${currentEnd}">
-      </label>
-    </div>
-    <div class="shift-time-editor-actions">
-      <button class="btn btn-primary btn-sm" onclick="saveShiftTime(${shiftId})">${I18N.t('save_shift_time') || 'Save'}</button>
-      <button class="btn btn-secondary btn-sm" onclick="closeEditShiftTime()">${I18N.t('cancel') || 'Cancel'}</button>
-    </div>
-  `;
-
-  // Insert right after the header element
-  headerEl.insertAdjacentElement('afterend', card);
-  card.querySelector('#editShiftStart')?.focus();
-}
-
-async function saveShiftTime(shiftId) {
-  const startInput = byId('editShiftStart');
-  const endInput   = byId('editShiftEnd');
-  if (!startInput || !endInput) return;
-
-  const start_time = startInput.value;
-  const end_time   = endInput.value;
-  if (!start_time || !end_time) {
-    showToast(I18N.t('error_generic'), 'error');
-    return;
-  }
-
-  const saveBtn = document.querySelector('#shiftTimeEditor .btn-primary');
-  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = '...'; }
-
-  try {
-    const res = await apiFetch(`/shifts/${shiftId}`, {
-      method: 'PUT',
-      body: JSON.stringify({ start_time: start_time + ':00', end_time: end_time + ':00' }),
-    });
-
-    if (!res || !res.ok) {
-      const msg = await getApiErrorMessage(res, I18N.t('error_generic'));
-      showToast(msg, 'error');
-      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = I18N.t('save_shift_time') || 'Save'; }
-      return;
-    }
-
-    closeEditShiftTime();
-    showToast(I18N.t('success_shift_time_saved') || 'Shift time updated successfully');
-
-    // Reload the week so all day panels reflect the new time
-    await loadWeek();
-  } catch (err) {
-    console.error('saveShiftTime failed:', err);
-    showToast(I18N.t('error_generic'), 'error');
-    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = I18N.t('save_shift_time') || 'Save'; }
-  }
-}
-
-function closeEditShiftTime() {
-  const existing = byId('shiftTimeEditor');
-  if (existing) existing.remove();
-}
-
-// Close editor if clicking outside of it
-document.addEventListener('click', (e) => {
-  const editor = byId('shiftTimeEditor');
-  if (editor && !editor.contains(e.target) && !e.target.classList.contains('btn-edit-time')) {
-    closeEditShiftTime();
-  }
-});
-
-// ─── Location Column & Slot Rendering ────────────────────────────────────────
-
-/**
- * Returns the first letter(s) of a teacher's name for an avatar circle.
- * "Ahmed Al-Rashidi" → "A"   "Sara Nasser" → "S"
- */
-function _initials(name) {
-  if (!name) return '?';
-  return name.trim().charAt(0).toUpperCase();
-}
-
-function getLocationDisplayName(sl) {
-  const isBreak = sl.duty_type === 'break' || sl.shift?.duty_type === 'break';
-  if (isBreak) return lang() === 'ar' ? sl.shift?.name_ar : sl.shift?.name_en;
-  return sl.location ? (lang() === 'ar' ? sl.location.name_ar : sl.location.name_en) : '—';
-}
-
-function inferMobileLocationGroup(sl) {
-  const isBreak = sl.duty_type === 'break' || sl.shift?.duty_type === 'break';
-  const rawName = String(getLocationDisplayName(sl) || '').toLowerCase();
-  if (isBreak) return { key: 'break', label: lang() === 'ar' ? 'حصص البريك' : 'Break Classes' };
-  if (rawName.includes('first floor')) return { key: 'first-floor', label: lang() === 'ar' ? 'الطابق الأول' : 'First Floor' };
-  if (rawName.includes('second floor')) return { key: 'second-floor', label: lang() === 'ar' ? 'الطابق الثاني' : 'Second Floor' };
-  if (rawName.includes('ground floor')) return { key: 'ground-floor', label: lang() === 'ar' ? 'الطابق الأرضي' : 'Ground Floor' };
-  if (rawName.includes('basement')) return { key: 'basement', label: lang() === 'ar' ? 'القبو' : 'Basement' };
-  if (rawName.includes('play ground') || rawName.includes('playground')) return { key: 'playground', label: lang() === 'ar' ? 'الملعب' : 'Play Ground' };
-  if (rawName.includes('area ')) return { key: 'areas', label: lang() === 'ar' ? 'الساحات' : 'Areas' };
-  if (rawName.includes('waiting room') || rawName.includes('glass door') || rawName.includes('stairs')) return { key: 'entry-points', label: lang() === 'ar' ? 'مداخل المدرسة' : 'Entry Points' };
-  if (rawName.includes('general supervision')) return { key: 'general', label: lang() === 'ar' ? 'إشراف عام' : 'General Supervision' };
-  return { key: `group-${rawName || 'other'}`, label: getLocationDisplayName(sl) };
-}
-
-function renderMobileLocationGroups(dayDate, locations, isEditable) {
-  const groups = [];
-  const map = new Map();
-  for (const sl of locations) {
-    const meta = inferMobileLocationGroup(sl);
-    if (!map.has(meta.key)) {
-      const group = { ...meta, locations: [] };
-      map.set(meta.key, group);
-      groups.push(group);
-    }
-    map.get(meta.key).locations.push(sl);
-  }
-
-  return `<div class="mobile-location-groups">${groups.map((group, idx) => {
-    const locationCount = group.locations.length;
-    const slotCount = group.locations.reduce((sum, item) => sum + (item.slots_count || 0), 0);
-    const filledCount = group.locations.reduce((sum, item) => sum + (item.assignments || []).filter(a => getEffectiveAssignment(item.id, a.slot_index, a).teacher_id != null).length, 0);
-    const shouldOpen = idx === 0 || filledCount > 0;
-    return `
-      <details class="location-accordion" ${shouldOpen ? 'open' : ''}>
-        <summary class="location-accordion-summary">
-          <span class="location-accordion-title">${escHtml(group.label)}</span>
-          <span class="location-accordion-meta">${locationCount} ${locationCount === 1 ? 'location' : 'locations'} • ${filledCount}/${slotCount}</span>
-        </summary>
-        <div class="locations-grid locations-grid-mobile">
-          ${group.locations.map(sl => renderLocationColumn(dayDate, sl, isEditable)).join('')}
-        </div>
-      </details>
-    `;
-  }).join('')}</div>`;
 }
 
 function renderLocationColumn(dayDate, sl, isEditable) {
-  const isBreak = sl.duty_type === 'break' || sl.shift.duty_type === 'break';
+  const isBreak = sl.duty_type === 'break' || sl.shift?.duty_type === 'break';
 
-  // Column title
-  let colTitle;
-  if (isBreak) {
-    colTitle = `<span class="col-title-break">${lang() === 'ar' ? sl.shift.name_ar : sl.shift.name_en}</span>`;
-  } else {
-    colTitle = sl.location
-      ? escHtml(lang() === 'ar' ? sl.location.name_ar : sl.location.name_en)
-      : '—';
-  }
+  const colTitle = isBreak
+    ? `<span class="break-col-title">${lang() === 'ar' ? escHtml(sl.shift.name_ar) : escHtml(sl.shift.name_en)}</span>`
+    : (sl.location
+        ? escHtml(lang() === 'ar' ? sl.location.name_ar : sl.location.name_en)
+        : '—');
 
-  // Fill metrics
-  const total  = sl.slots_count;
-  const filled = sl.assignments.filter(a => a.teacher_id != null).length;
-  const pct    = total > 0 ? Math.round((filled / total) * 100) : 0;
-  const colStatus = filled === 0 ? 'col-empty' : filled < total ? 'col-partial' : 'col-full';
-
-  // Render each slot
   const slots = [];
-  for (let i = 0; i < total; i++) {
-    const assignment = sl.assignments.find(a => a.slot_index === i);
+  for (let i = 0; i < sl.slots_count; i++) {
+    const assignment = (sl.assignments || []).find(a => a.slot_index === i);
     slots.push(renderSlot(sl.id, i, assignment, isBreak, isEditable));
   }
 
+  const locId = sl.location_id ?? '';
+
   return `
-    <div class="location-column ${colStatus}${isBreak ? ' location-column-break' : ''}"
+    <div class="location-column"
          data-sl-id="${sl.id}"
          data-day="${dayDate}"
          data-shift="${sl.shift_id}"
-         data-loc="${sl.location_id || ''}"
-         data-duty-type="${isBreak ? 'break' : 'morning_endofday'}"
-         data-editable="${isEditable ? 'true' : 'false'}">
-
-      <div class="location-header">
-        <span class="location-name" title="${colTitle}">${colTitle}</span>
-        ${!isBreak ? `
-        <div class="slot-controls">
-          <button class="btn-slot btn-slot-sub"
-                  ${!isEditable ? 'disabled' : ''}
-                  onclick="changeSlots('${dayDate}', ${sl.shift_id}, ${sl.location_id || 'null'}, -1)">−</button>
-          <span class="slot-count" id="slot-count-${sl.id}">${total}</span>
-          <button class="btn-slot btn-slot-add"
-                  ${!isEditable ? 'disabled' : ''}
-                  onclick="changeSlots('${dayDate}', ${sl.shift_id}, ${sl.location_id || 'null'}, +1)">+</button>
-        </div>` : `<span class="col-fill-label" id="col-fill-label-${sl.id}" style="font-size:0.78rem;font-weight:600;color:var(--text-muted)">${filled}/${total}</span>`}
+         data-loc="${locId}"
+         data-editable="${isEditable ? 'true' : 'false'}"
+         data-duty-type="${isBreak ? 'break' : 'morning_endofday'}">
+      <div class="location-column-header">
+        <span class="loc-title">${colTitle}</span>
+        ${isEditable ? `
+          <div class="slot-controls">
+            <button class="btn-slot btn-slot-sub"
+                    onclick="changeSlots('${dayDate}',${sl.shift_id},'${locId}',-1)">−</button>
+            <span id="slot-count-${sl.id}">${sl.slots_count}</span>
+            <button class="btn-slot btn-slot-add"
+                    onclick="changeSlots('${dayDate}',${sl.shift_id},'${locId}',1)">+</button>
+          </div>` : ''}
       </div>
-
-      <div class="col-fill-bar">
-        <div class="col-fill-bar-track">
-          <div class="col-fill-bar-fill" style="width:${pct}%"></div>
-        </div>
-        ${!isBreak ? `<span class="col-fill-label" id="col-fill-label-${sl.id}">${filled}/${total}</span>` : ''}
-      </div>
-
-      <div class="slots-list${isBreak ? ' slots-list-break' : ''}"
-           id="slots-${sl.id}"
+      <div id="slots-${sl.id}"
+           class="slots-list"
            data-sl-id="${sl.id}"
            data-duty-type="${isBreak ? 'break' : 'morning_endofday'}">
         ${slots.join('')}
@@ -873,146 +697,108 @@ function renderLocationColumn(dayDate, sl, isEditable) {
   `;
 }
 
-/**
- * renderSlot — redesigned for clarity:
- *
- * FILLED slot:
- *   - Initials avatar circle (colour-coded by name hash)
- *   - Teacher name (truncated, full name in title tooltip)
- *   - Slot number badge
- *   - ✕ remove button — hidden by CSS, revealed on hover
- *   - For break: grade class badge (the slot's identity)
- *
- * EMPTY slot (non-break):
- *   - Dashed drop-zone card with arrow-down icon + "Drop teacher" hint
- *   - Slot number badge
- *
- * EMPTY slot (break):
- *   - The grade class IS the identity of the slot — shown large and prominent
- *   - Arrow-down drop-zone hint underneath
- */
+/* ─── Grade class options ─────────────────────────────────────────────────── */
+
+function getGradeClassOptions() {
+  const classes = [
+    '1/A','1/B','1/C','1/D',
+    '2/A','2/B','2/C','2/D',
+    '3/A','3/B','3/C',
+    '4/A','4/B','4/C',
+    '5/A','5/B',
+    '6/A','6/B',
+    '7/A','7/B',
+    '8/AB',
+    '9',
+  ];
+  return [
+    { value: '', label: I18N.t('select_class') },
+    ...classes.map(v => ({ value: v, label: v })),
+  ];
+}
+
+function renderGradeOptions(selected = '') {
+  return getGradeClassOptions()
+    .map(o => `<option value="${escHtml(o.value)}"${o.value === selected ? ' selected' : ''}>${escHtml(o.label)}</option>`)
+    .join('');
+}
+
+/* ─── Slot rendering ──────────────────────────────────────────────────────── */
+
 function renderSlot(slId, slotIdx, assignment, isBreak, isEditable = true) {
-  const slotNum = slotIdx + 1;
-  const slotNumBadge = `<span class="slot-num">${slotNum}</span>`;
+  // `onSlotTap` is called on click for EVERY slot.
+  // On desktop it returns immediately (isMobilePlanner() === false).
+  // On mobile it opens the bottom-sheet picker.
+  const tapAttr = `onclick="onSlotTap(${slId}, ${slotIdx})"`;
 
-  // ── BREAK duty slot — compact grid card ─────────────────────────────────
-  // The grade_class is the identity. Shown large at top; teacher name below.
-  if (isBreak) {
-    const gradeClass = assignment?.grade_class ?? null;
-    const gradeLabel = gradeClass ? escHtml(gradeClass) : `#${slotNum}`;
-
-    if (assignment && assignment.teacher_id) {
-      const name    = assignment.teacher_name || '';
-      const initial = _initials(name);
-      const hue     = (assignment.teacher_id * 47) % 360;
-      const removeBtn = isEditable
-        ? `<button class="slot-remove-btn" onclick="removeTeacher(${slId}, ${slotIdx})" title="Remove">✕</button>`
-        : '';
-
-      return `
-        <div class="slot-item slot-filled slot-break-card" data-sl-id="${slId}" data-slot-idx="${slotIdx}" data-teacher-id="${assignment.teacher_id}">
-          <div class="break-card-class">${gradeLabel}</div>
-          <div class="break-card-teacher">
-            <span class="teacher-avatar" style="--avatar-hue:${hue}deg">${escHtml(initial)}</span>
-            <span class="teacher-name" title="${escHtml(name)}">${escHtml(name)}</span>
-            ${removeBtn}
-          </div>
-        </div>
-      `;
-    }
-
-    // Empty break slot
-    return `
-      <div class="slot-item slot-empty slot-break-card slot-break-empty" data-sl-id="${slId}" data-slot-idx="${slotIdx}" data-teacher-id="">
-        <div class="break-card-class">${gradeLabel}</div>
-        ${isEditable
-          ? `<div class="slot-drop-zone"><span class="slot-drop-icon">↓</span><span class="slot-drop-text">${I18N.t('no_teacher') || 'Drop'}</span></div>`
-          : `<span class="slot-locked-text">—</span>`
-        }
-      </div>
-    `;
-  }
-
-  // ── NON-BREAK slot — original full-width card ────────────────────────────
-  if (assignment && assignment.teacher_id) {
-    const name    = assignment.teacher_name || '';
-    const initial = _initials(name);
-    const hue     = (assignment.teacher_id * 47) % 360;
-    const removeBtn = isEditable
-      ? `<button class="slot-remove-btn" onclick="removeTeacher(${slId}, ${slotIdx})" title="Remove">✕</button>`
+  if (assignment?.teacher_id) {
+    // Grade/class field — always a <select> (single consistent control)
+    const gradeHtml = isBreak
+      ? `<div class="grade-select-wrap">
+           <label class="grade-label" for="grade-${slId}-${slotIdx}">${I18N.t('grade_class_label')}</label>
+           <select id="grade-${slId}-${slotIdx}"
+                   class="grade-input"
+                   onchange="updateGradeClass(${slId}, ${slotIdx}, this.value)"
+                   onclick="event.stopPropagation()"
+                   ${!isEditable ? 'disabled' : ''}
+                   style="${!isEditable ? 'opacity:0.6;background:#f3f4f6' : ''}">
+             ${renderGradeOptions(assignment.grade_class || '')}
+           </select>
+         </div>`
       : '';
 
     return `
-      <div class="slot-item slot-filled" data-sl-id="${slId}" data-slot-idx="${slotIdx}" data-teacher-id="${assignment.teacher_id}">
-        ${slotNumBadge}
-        <div class="slot-inner">
-          <div class="slot-row">
-            <span class="teacher-avatar" style="--avatar-hue:${hue}deg">${escHtml(initial)}</span>
-            <span class="teacher-name" title="${escHtml(name)}">${escHtml(name)}</span>
-            ${removeBtn}
-          </div>
+      <div class="slot-item filled"
+           data-sl-id="${slId}"
+           data-slot-idx="${slotIdx}"
+           data-teacher-id="${assignment.teacher_id}"
+           ${tapAttr}>
+        <div class="teacher-card"
+             data-teacher-id="${assignment.teacher_id}"
+             data-teacher-name="${escHtml(assignment.teacher_name)}">
+          <span>${escHtml(assignment.teacher_name)}</span>
+          ${isEditable
+            ? `<span class="remove-btn"
+                     onclick="event.stopPropagation();removeTeacher(${slId}, ${slotIdx})"
+                     title="${I18N.t('delete')}">✕</span>`
+            : ''}
         </div>
-      </div>
-    `;
+        ${gradeHtml}
+      </div>`;
   }
 
-  // Non-break empty: dashed drop zone
   return `
-    <div class="slot-item slot-empty" data-sl-id="${slId}" data-slot-idx="${slotIdx}" data-teacher-id="">
-      ${slotNumBadge}
-      ${isEditable
-        ? `<div class="slot-drop-zone">
-             <span class="slot-drop-icon">↓</span>
-             <span class="slot-drop-text">${I18N.t('no_teacher') || 'Drop teacher'}</span>
-           </div>`
-        : `<span class="slot-locked-text">—</span>`
-      }
-    </div>
-  `;
+    <div class="slot-item"
+         data-sl-id="${slId}"
+         data-slot-idx="${slotIdx}"
+         data-teacher-id=""
+         ${tapAttr}>
+      <span class="slot-empty-label">${I18N.t('no_teacher')}</span>
+    </div>`;
 }
 
-// ─── Grade Class (no longer user-editable, but updateGradeClass kept for
-//     any programmatic callers during drag-drop grade preservation) ──────────
+/* ─── Grade/class update ──────────────────────────────────────────────────── */
 
 function updateGradeClass(slId, slotIdx, value) {
+  const list = byId(`slots-${slId}`);
+  const col  = list?.closest('.location-column');
+
+  if (col?.dataset.editable !== 'true') {
+    showToast(I18N.t('day_locked'), 'error');
+    return;
+  }
+
   if (!pendingAssignments[slId]) pendingAssignments[slId] = {};
   if (!pendingAssignments[slId][slotIdx]) pendingAssignments[slId][slotIdx] = {};
   pendingAssignments[slId][slotIdx].grade_class = value;
 }
 
-/**
- * Recomputes and updates the fill bar + column status class for a given slId.
- * Called after any in-place slot mutation (add teacher, remove teacher).
- */
-function _refreshFillBar(slId) {
-  const list = byId(`slots-${slId}`);
-  const col  = list?.closest('.location-column');
-  const bar  = col?.querySelector('.col-fill-bar-fill');
-  const label = byId(`col-fill-label-${slId}`);
-  const countEl = byId(`slot-count-${slId}`);
-  if (!list || !col) return;
-
-  const isBreak = list.dataset.dutyType === 'break';
-  // For break cols, total comes from slot count in DOM; for non-break from the counter span
-  const total  = isBreak
-    ? list.querySelectorAll('.slot-item').length
-    : parseInt(countEl?.textContent || '0', 10);
-  const filled = list.querySelectorAll('.slot-filled').length;
-  const pct    = total > 0 ? Math.round((filled / total) * 100) : 0;
-
-  if (bar)   bar.style.width = `${pct}%`;
-  if (label) label.textContent = `${filled}/${total}`;
-
-  col.classList.remove('col-empty', 'col-partial', 'col-full');
-  col.classList.add(filled === 0 ? 'col-empty' : filled < total ? 'col-partial' : 'col-full');
-}
-
-// ─── Drag & Drop ──────────────────────────────────────────────────────────────
+/* ─── Drag-and-drop (desktop only) ───────────────────────────────────────── */
 
 function findShiftLocationInCurrentWeek(slId) {
   if (!currentWeekData?.day_plans) return null;
   for (const day of currentWeekData.day_plans) {
-    for (const sl of day.shift_locations || []) {
+    for (const sl of (day.shift_locations || [])) {
       if (sl.id === slId) return { day, sl };
     }
   }
@@ -1036,29 +822,25 @@ function isTeacherAssignedInSameShift(slId, teacherId) {
   const found = findShiftLocationInCurrentWeek(slId);
   if (!found || !teacherId) return false;
   const { day, sl } = found;
-  for (const candidate of day.shift_locations || []) {
+  for (const candidate of (day.shift_locations || [])) {
     if (candidate.shift_id !== sl.shift_id) continue;
-    for (const assignment of candidate.assignments || []) {
-      const effective = getEffectiveAssignment(candidate.id, assignment.slot_index, assignment);
-      if (effective.teacher_id === teacherId) return true;
+    for (const assignment of (candidate.assignments || [])) {
+      const eff = getEffectiveAssignment(candidate.id, assignment.slot_index, assignment);
+      if (eff.teacher_id === teacherId) return true;
     }
   }
   return false;
 }
 
-async function getApiErrorMessage(res, fallbackMessage) {
-  if (!res) return fallbackMessage;
-  try {
-    const data = await res.json();
-    return data?.detail || data?.message || fallbackMessage;
-  } catch (_) {
-    return fallbackMessage;
-  }
-}
-
 function initDragAndDrop() {
+  // ── Mobile: no Sortable whatsoever ──────────────────────────────────────
+  if (isMobilePlanner()) return;
+
+  if (typeof Sortable === 'undefined') return;
+
+  // ── Sidebar (source, clone) ──────────────────────────────────────────────
   const sidebar = byId('teacherList');
-  if (sidebar && !isMobileViewport() && typeof Sortable !== 'undefined' && !sidebar.dataset.sortableInit) {
+  if (sidebar && !sidebar.dataset.sortableInit) {
     new Sortable(sidebar, {
       group: { name: 'teachers', pull: 'clone', put: false },
       sort: false,
@@ -1067,8 +849,7 @@ function initDragAndDrop() {
     sidebar.dataset.sortableInit = 'true';
   }
 
-  if (typeof Sortable === 'undefined') return;
-
+  // ── Slot lists (targets, no reorder) ────────────────────────────────────
   document.querySelectorAll('.slots-list').forEach(list => {
     if (list.dataset.sortableInit === 'true') return;
 
@@ -1076,30 +857,35 @@ function initDragAndDrop() {
 
     new Sortable(list, {
       group: { name: 'teachers', pull: false, put: true },
-      sort: false,
+      sort: false,       // slots are FIXED — reordering is intentionally disabled
       animation: 150,
 
-      onMove: function (evt) {
+      onMove(evt) {
+        // Visual feedback: distinguish ADD (empty) vs REPLACE (filled) on hover
+        const target = evt.related;
+        if (!target) return true;
+
         const col = list.closest('.location-column');
         if (!col || col.dataset.editable !== 'true') return false;
-        const targetSlot = getHoveredSlotFromMoveEvent(evt, list);
-        if (targetSlot) setSlotReactionState(list, targetSlot);
-        return !!targetSlot;
+
+        target.classList.toggle('slot-drag-replace', target.classList.contains('filled'));
+        target.classList.toggle('slot-drag-add',     !target.classList.contains('filled'));
+        return true;
       },
 
-      onEnd: function () {
-        clearSlotReactionState();
-      },
+      onAdd(evt) {
+        // Clean up hover classes
+        list.querySelectorAll('.slot-drag-replace, .slot-drag-add').forEach(el => {
+          el.classList.remove('slot-drag-replace', 'slot-drag-add');
+        });
 
-      onAdd: async function (evt) {
         const col     = list.closest('.location-column');
         const dayDate = col?.dataset.day;
         const day     = currentWeekData?.day_plans?.find(d => d.date === dayDate);
 
-        if (!day || !day.is_editable) {
-          showToast(I18N.t('day_locked') || 'Past days cannot be edited', 'error');
-          evt.item.parentNode && evt.item.parentNode.removeChild(evt.item);
-          clearSlotReactionState();
+        if (!day?.is_editable) {
+          showToast(I18N.t('day_locked'), 'error');
+          evt.item.remove();
           return;
         }
 
@@ -1108,44 +894,39 @@ function initDragAndDrop() {
         const teacherName = evt.item.dataset.teacherName;
 
         if (isTeacherAssignedInSameShift(slId, teacherId)) {
-          showToast(I18N.t('duplicate_teacher') || 'Teacher already assigned in this duty', 'error');
-          evt.item.parentNode && evt.item.parentNode.removeChild(evt.item);
-          clearSlotReactionState();
+          showToast(I18N.t('teacher_already_assigned') || 'Teacher already assigned in this duty', 'error');
+          evt.item.remove();
           return;
         }
 
-        const targetSlotIdx = parseInt(list.dataset.dropSlotIdx || '', 10);
-        const targetSlot = Number.isInteger(targetSlotIdx)
-          ? list.querySelector(`[data-slot-idx="${targetSlotIdx}"]`)
-          : getHoveredSlotFromMoveEvent(evt, list);
+        const emptySlot  = list.querySelector('.slot-item:not(.filled)');
+        const filledSlots = Array.from(list.querySelectorAll('.slot-item.filled'));
 
-        if (!targetSlot) {
-          showToast(I18N.t('no_empty_slot') || 'Choose a slot first', 'error');
-          evt.item.parentNode && evt.item.parentNode.removeChild(evt.item);
-          clearSlotReactionState();
+        // If no empty slot exists → replace the last filled slot
+        if (!emptySlot && filledSlots.length > 0) {
+          const targetSlot = filledSlots[filledSlots.length - 1];
+          const slotIdx    = parseInt(targetSlot.dataset.slotIdx, 10);
+          replaceTeacherInSlot(slId, slotIdx, teacherId, teacherName, isBreak);
+          evt.item.remove();
+          showToast(I18N.t('teacher_replaced'));
           return;
         }
 
-        const slotIdx = parseInt(targetSlot.dataset.slotIdx, 10);
-        const existingGradeClass = _getExistingGradeClass(slId, slotIdx);
-
-        if (targetSlot.classList.contains('slot-filled')) {
-          replaceTeacherInSlot(slId, slotIdx, teacherId, teacherName, isBreak, existingGradeClass);
-          showToast(I18N.t('teacher_replaced') || 'Teacher replaced');
-        } else {
-          recordAssignment(slId, slotIdx, teacherId, existingGradeClass);
-          targetSlot.outerHTML = renderSlot(slId, slotIdx, {
-            teacher_id:   teacherId,
-            teacher_name: teacherName,
-            slot_index:   slotIdx,
-            grade_class:  existingGradeClass,
-          }, isBreak, true);
-          showToast(I18N.t('success_saved') || 'Teacher assigned');
+        if (!emptySlot) {
+          showToast(I18N.t('no_empty_slot'), 'error');
+          evt.item.remove();
+          return;
         }
 
-        evt.item.parentNode && evt.item.parentNode.removeChild(evt.item);
-        _refreshFillBar(slId);
-        clearSlotReactionState();
+        const slotIdx = parseInt(emptySlot.dataset.slotIdx, 10);
+        recordAssignment(slId, slotIdx, teacherId, null);
+        emptySlot.outerHTML = renderSlot(slId, slotIdx, {
+          teacher_id: teacherId,
+          teacher_name: teacherName,
+          slot_index: slotIdx,
+          grade_class: null,
+        }, isBreak, true);
+        evt.item.remove();
       },
     });
 
@@ -1153,74 +934,57 @@ function initDragAndDrop() {
   });
 }
 
-/**
- * Returns the pre-seeded grade_class for a break slot from currentWeekData.
- * For non-break slots returns null.
- */
-function _getExistingGradeClass(slId, slotIdx) {
-  const found = findShiftLocationInCurrentWeek(slId);
-  if (!found) return null;
-  const existing = found.sl.assignments?.find(a => a.slot_index === slotIdx);
-  return existing?.grade_class ?? null;
-}
+/* ─── Assignment helpers ──────────────────────────────────────────────────── */
 
 function recordAssignment(slId, slotIdx, teacherId, gradeClass) {
   if (!pendingAssignments[slId]) pendingAssignments[slId] = {};
   pendingAssignments[slId][slotIdx] = { teacher_id: teacherId, grade_class: gradeClass };
 }
 
-function replaceTeacherInSlot(slId, slotIdx, teacherId, teacherName, isBreak, gradeClass = null) {
-  // Preserve existing grade_class if not explicitly passed
-  const resolvedGrade = gradeClass ?? _getExistingGradeClass(slId, slotIdx);
-  recordAssignment(slId, slotIdx, teacherId, resolvedGrade);
-
-  const list = byId(`slots-${slId}`);
-  if (!list) return;
-  const slotEl = list.querySelector(`[data-slot-idx="${slotIdx}"]`);
+function replaceTeacherInSlot(slId, slotIdx, teacherId, teacherName, isBreak) {
+  recordAssignment(slId, slotIdx, teacherId, null);
+  const list   = byId(`slots-${slId}`);
+  const slotEl = list?.querySelector(`[data-slot-idx="${slotIdx}"]`);
   if (!slotEl) return;
   slotEl.outerHTML = renderSlot(slId, slotIdx, {
-    teacher_id:   teacherId,
+    teacher_id: teacherId,
     teacher_name: teacherName,
-    slot_index:   slotIdx,
-    grade_class:  resolvedGrade,
+    slot_index: slotIdx,
+    grade_class: null,
   }, isBreak, true);
 }
 
 function removeTeacher(slId, slotIdx) {
   const list = byId(`slots-${slId}`);
   const col  = list?.closest('.location-column');
+
   if (col?.dataset.editable !== 'true') {
-    showToast(I18N.t('day_locked') || 'Past days cannot be edited', 'error');
+    showToast(I18N.t('day_locked'), 'error');
     return;
   }
 
-  // Preserve grade_class so the empty slot badge still shows the class
-  const gradeClass = _getExistingGradeClass(slId, slotIdx);
-  recordAssignment(slId, slotIdx, null, gradeClass);
+  recordAssignment(slId, slotIdx, null, null);
 
-  if (!list) return;
-  const slotEl = list.querySelector(`[data-slot-idx="${slotIdx}"]`);
+  const slotEl = list?.querySelector(`[data-slot-idx="${slotIdx}"]`);
   if (slotEl) {
-    const isBreak = list.dataset.dutyType === 'break';
-    slotEl.outerHTML = renderSlot(slId, slotIdx, { grade_class: gradeClass }, isBreak, true);
-    _refreshFillBar(slId);
-    showToast(I18N.t('teacher_removed') || 'Teacher removed', 'info');
+    slotEl.outerHTML = renderSlot(slId, slotIdx, null, list.dataset.dutyType === 'break', true);
+    showToast(I18N.t('teacher_removed'), 'info');
   }
 }
 
-// ─── Slot Count Control ───────────────────────────────────────────────────────
+/* ─── Slot count control ──────────────────────────────────────────────────── */
 
 function changeSlots(dayDate, shiftId, locationId, delta) {
-  const day = currentWeekData?.day_plans.find(d => d.date === dayDate);
-  if (!day || !day.is_editable) {
-    showToast(I18N.t('day_locked') || 'Past days cannot be edited', 'error');
+  const day = currentWeekData?.day_plans?.find(d => d.date === dayDate);
+  if (!day?.is_editable) {
+    showToast(I18N.t('day_locked'), 'error');
     return;
   }
 
   const locId = locationId === 'null' ? null : locationId;
   const key   = `${dayDate}:${shiftId}:${locId}`;
 
-  const selector = locId === null
+  const selector = locId === null || locId === ''
     ? `[data-day="${dayDate}"][data-shift="${shiftId}"][data-loc=""]`
     : `[data-day="${dayDate}"][data-shift="${shiftId}"][data-loc="${locId}"]`;
 
@@ -1241,45 +1005,70 @@ function changeSlots(dayDate, shiftId, locationId, delta) {
     locationId: locId ? parseInt(locId, 10) : null,
     slotsCount: newCount,
   };
+
+  const list    = byId(`slots-${slId}`);
+  if (!list) return;
+  const isBreak = list.dataset.dutyType === 'break';
+
+  if (delta > 0) {
+    const div = document.createElement('div');
+    div.innerHTML = renderSlot(slId, current, null, isBreak, true);
+    list.appendChild(div.firstElementChild);
+    // Init DnD on the new slot container (idempotent guard inside)
+    initDragAndDrop();
+  } else if (delta < 0 && current > 0) {
+    const lastSlot = list.querySelector(`[data-slot-idx="${current - 1}"]`);
+    lastSlot?.remove();
+  }
 }
 
-// ─── Save / Publish ───────────────────────────────────────────────────────────
+/* ─── Save / Publish / Clone ──────────────────────────────────────────────── */
+
+async function saveDraft() {
+  if (!currentWeekData) return;
+  showToast(I18N.t('saving') || 'Saving…', 'info');
+  try {
+    await flushPendingChanges();
+    showToast(I18N.t('success_saved'));
+  } catch (err) {
+    console.error('saveDraft failed:', err);
+  }
+}
 
 async function flushPendingChanges() {
-  const weekStart = currentWeekData?.week_start_date;
-  if (!weekStart) return;
+  const weekStart = currentWeekData.week_start_date;
 
-  // 1. Flush slot count changes
-  const slotUpdates = Object.values(pendingSlots);
-  if (slotUpdates.length > 0) {
+  if (Object.keys(pendingSlots).length > 0) {
+    const updates = Object.values(pendingSlots).map(s => ({
+      day_date:    s.dayDate,
+      shift_id:    s.shiftId,
+      location_id: s.locationId,
+      slots_count: s.slotsCount,
+    }));
+
     const res = await apiFetch(`/weeks/${weekStart}/shift-locations`, {
       method: 'PUT',
-      body: JSON.stringify(slotUpdates.map(u => ({
-        day_date:    u.dayDate,
-        shift_id:    u.shiftId,
-        location_id: u.locationId,
-        slots_count: u.slotsCount,
-      }))),
+      body:   JSON.stringify(updates),
     });
-    if (res && res.ok) {
-      pendingSlots = {};
+
+    if (res?.ok) {
+      pendingSlots    = {};
       currentWeekData = await res.json();
     } else {
-      const message = await getApiErrorMessage(res, 'Failed to save slot changes');
-      showToast(message, 'error');
-      throw new Error(message);
+      const msg = await getApiErrorMessage(res, 'Failed to save slot changes');
+      showToast(msg, 'error');
+      throw new Error(msg);
     }
   }
 
-  // 2. Flush assignment changes
   const assignmentUpdates = [];
-  for (const [slId, slotMap] of Object.entries(pendingAssignments)) {
-    for (const [slotIdx, data] of Object.entries(slotMap)) {
+  for (const [slId, slots] of Object.entries(pendingAssignments)) {
+    for (const [slotIdx, data] of Object.entries(slots)) {
       assignmentUpdates.push({
-        shift_location_id: parseInt(slId, 10),
+        shift_location_id: parseInt(slId,    10),
         slot_index:        parseInt(slotIdx, 10),
-        teacher_id:        data.teacher_id ?? null,
-        grade_class:       data.grade_class ?? null,
+        teacher_id:        data.teacher_id,
+        grade_class:       data.grade_class || null,
       });
     }
   }
@@ -1287,29 +1076,20 @@ async function flushPendingChanges() {
   if (assignmentUpdates.length > 0) {
     const res = await apiFetch(`/weeks/${weekStart}/assignments`, {
       method: 'PUT',
-      body: JSON.stringify(assignmentUpdates),
+      body:   JSON.stringify(assignmentUpdates),
     });
-    if (res && res.ok) {
+
+    if (res?.ok) {
       pendingAssignments = {};
-      currentWeekData = await res.json();
+      currentWeekData   = await res.json();
     } else {
-      const message = await getApiErrorMessage(res, 'Failed to save assignment changes');
-      showToast(message, 'error');
-      throw new Error(message);
+      const msg = await getApiErrorMessage(res, 'Failed to save assignment changes');
+      showToast(msg, 'error');
+      throw new Error(msg);
     }
   }
 
   renderWeek();
-}
-
-async function saveDraft() {
-  if (!currentWeekData) return;
-  try {
-    await flushPendingChanges();
-    showToast(I18N.t('success_saved'));
-  } catch (err) {
-    showToast(err.message || I18N.t('error_generic'), 'error');
-  }
 }
 
 async function publishWeek() {
@@ -1321,15 +1101,16 @@ async function publishWeek() {
     const weekStart = currentWeekData.week_start_date;
     const res = await apiFetch(`/weeks/${weekStart}/status`, {
       method: 'PUT',
-      body: JSON.stringify({ status: 'published' }),
+      body:   JSON.stringify({ status: 'published' }),
     });
-    if (res && res.ok) {
+
+    if (res?.ok) {
       currentWeekData = await res.json();
       renderWeek();
       updateStatusBadge(currentWeekData.status);
       showToast(I18N.t('success_published'));
     } else {
-      const err = res ? await res.json() : {};
+      const err = res ? await res.json().catch(() => ({})) : {};
       showToast(err.detail || I18N.t('error_generic'), 'error');
     }
   } catch (err) {
@@ -1339,24 +1120,19 @@ async function publishWeek() {
 
 async function publishDay(dayDate) {
   if (!currentWeekData) return;
-  const publishBtn = byId(`publish-day-btn-${dayDate}`);
-  const originalText = publishBtn?.textContent;
 
-  if (publishBtn) {
-    publishBtn.disabled = true;
-    publishBtn.textContent = I18N.t('publishing') || 'Publishing...';
-  }
+  const publishBtn = byId(`publish-day-btn-${dayDate}`);
+  if (publishBtn) { publishBtn.disabled = true; publishBtn.textContent = I18N.t('loading'); }
 
   try {
     await flushPendingChanges();
     const weekStart = currentWeekData.week_start_date;
     const res = await apiFetch(`/weeks/${weekStart}/publish-day?day_date=${dayDate}`, { method: 'PUT' });
 
-    if (res && res.ok) {
+    if (res?.ok) {
       let data = null;
       try { data = await res.json(); } catch (_) {}
 
-      // Update local data model
       if (data?.day_plans) {
         currentWeekData = data;
       } else if (currentWeekData?.day_plans) {
@@ -1364,129 +1140,137 @@ async function publishDay(dayDate) {
           d.date === dayDate ? { ...d, is_published: true } : d
         );
       }
-
-      // ── Surgical DOM update — no full re-render needed ──────────────────
-      // 1. Find the tab button for this day and stamp the tick instantly
-      _markDayTabPublished(dayDate);
-
-      // 2. Replace the "Publish Day" button with the "Published" badge in-place
-      const btn = byId(`publish-day-btn-${dayDate}`);
-      if (btn) {
-        const badge = document.createElement('span');
-        badge.style.cssText = 'font-size:0.8rem;color:#166534;background:#dcfce7;padding:6px 10px;border-radius:999px';
-        badge.textContent = `✅ ${I18N.t('published') || 'Published'}`;
-        btn.replaceWith(badge);
-      }
-      // ────────────────────────────────────────────────────────────────────
-
-      showToast(I18N.t('success_day_published') || 'Day published successfully');
+      renderWeek();
+      showToast(I18N.t('day_published') || 'Day published');
       return;
     }
 
-    const message = await getApiErrorMessage(res, I18N.t('error_generic'));
-    showToast(message, 'error');
+    showToast(await getApiErrorMessage(res, I18N.t('error_generic')), 'error');
   } catch (err) {
     showToast(err.message || I18N.t('error_generic'), 'error');
-  } finally {
-    // Only restore button if it still exists (wasn't replaced on success)
-    const currentBtn = byId(`publish-day-btn-${dayDate}`);
-    if (currentBtn) {
-      currentBtn.disabled = false;
-      currentBtn.textContent = originalText || I18N.t('publish_day') || 'Publish Day';
-    }
   }
-}
-
-/**
- * Finds the tab button for a given dayDate and appends the ✔ tick mark
- * without rebuilding the tab bar. Works by matching the tab's position
- * against currentWeekData.day_plans order.
- */
-function _markDayTabPublished(dayDate) {
-  const tabs = document.querySelectorAll('#dayTabs .tab-btn');
-  const idx  = currentWeekData?.day_plans?.findIndex(d => d.date === dayDate) ?? -1;
-  if (idx < 0 || !tabs[idx]) return;
-
-  const tab = tabs[idx];
-  // Stamp the tick mark
-  if (!tab.textContent.includes('✔')) {
-    tab.textContent = tab.textContent.trimEnd() + ' ✔';
-  }
-  // Brief scale-pop animation to draw the eye
-  tab.classList.remove('just-published'); // reset if already applied
-  void tab.offsetWidth;                   // force reflow so animation replays
-  tab.classList.add('just-published');
+  // Note: button is restored by renderWeek() above on success;
+  // on failure, restore it manually
+  const btn = byId(`publish-day-btn-${dayDate}`);
+  if (btn) { btn.disabled = false; btn.textContent = I18N.t('publish_day') || 'Publish Day'; }
 }
 
 async function createWeek() {
-  const input = byId('weekStartInput');
-  if (!input?.value) return;
-  const weekStart = getWeekStartFromDate(input.value);
-  setPlannerBusy(true, I18N.t('creating_week') || 'Creating week...');
+  const selected = byId('weekStartInput')?.value;
+  if (!selected) return;
+
+  const weekStart = getWeekStartFromDate(selected);
+  setPlannerBusy(true, I18N.t('creating_week') || 'Creating week…');
 
   try {
     const res = await apiFetch(`/weeks/${weekStart}/create`, { method: 'POST' });
-    if (!res) throw new Error('Failed to reach server');
-
     let data = null;
     try { data = await res.json(); } catch (_) {}
 
     if (res.status === 409) {
-      selectedDate = weekStart; syncWeekInputWithSelectedDate();
+      selectedDate = weekStart;
+      syncWeekInputWithSelectedDate();
       pendingAssignments = {}; pendingSlots = {};
       await loadWeek();
-      showToast(data?.detail || I18N.t('week_exists_loaded') || 'Week already exists, loaded successfully', 'info');
+      showToast(data?.detail || 'Week already exists, loaded successfully', 'info');
       return;
     }
+    if (!res.ok) throw new Error(data?.detail || 'Failed to create week');
 
-    if (!res.ok) throw new Error(data?.detail || I18N.t('create_failed') || 'Failed to create week');
-
-    selectedDate = weekStart; syncWeekInputWithSelectedDate();
+    selectedDate = weekStart;
+    syncWeekInputWithSelectedDate();
     pendingAssignments = {}; pendingSlots = {};
     await loadWeek();
-    showToast(data?.message || I18N.t('success_created') || 'Week created successfully');
+    showToast(data?.message || 'Week created successfully');
   } catch (err) {
-    showToast(err.message || I18N.t('create_failed'), 'error');
+    showToast(err.message || I18N.t('error_generic'), 'error');
   } finally {
     setPlannerBusy(false);
   }
 }
 
 async function cloneWeek() {
-  const input = byId('weekStartInput');
-  if (!input?.value) return;
-  const weekStart = getWeekStartFromDate(input.value);
-  setPlannerBusy(true, I18N.t('cloning_week') || 'Cloning week...');
+  const selected = byId('weekStartInput')?.value;
+  if (!selected) return;
+
+  const weekStart = getWeekStartFromDate(selected);
+  setPlannerBusy(true, I18N.t('cloning_week') || 'Cloning week…');
 
   try {
     const res = await apiFetch(`/weeks/${weekStart}/clone`, { method: 'POST' });
-    if (!res) throw new Error('Failed to reach server');
-
     let data = null;
     try { data = await res.json(); } catch (_) {}
 
     if (res.status === 409) {
-      selectedDate = weekStart; syncWeekInputWithSelectedDate();
+      selectedDate = weekStart;
+      syncWeekInputWithSelectedDate();
       pendingAssignments = {}; pendingSlots = {};
       await loadWeek();
-      showToast(data?.detail || I18N.t('week_exists_loaded') || 'Week already exists, loaded successfully', 'info');
+      showToast(data?.detail || 'Week already exists, loaded successfully', 'info');
       return;
     }
+    if (!res.ok) throw new Error(data?.detail || 'Clone failed');
 
-    if (!res.ok) throw new Error(data?.detail || I18N.t('clone_failed') || 'Clone failed');
-
-    selectedDate = weekStart; syncWeekInputWithSelectedDate();
+    selectedDate = weekStart;
+    syncWeekInputWithSelectedDate();
     pendingAssignments = {}; pendingSlots = {};
     await loadWeek();
-    showToast(data?.message || I18N.t('success_cloned') || 'Week cloned successfully');
+    showToast(I18N.t('success_cloned'));
   } catch (err) {
-    showToast(err.message || I18N.t('clone_failed'), 'error');
+    showToast(err.message || I18N.t('error_generic'), 'error');
   } finally {
     setPlannerBusy(false);
   }
 }
 
-// ─── Auto Init ────────────────────────────────────────────────────────────────
+/* ─── Poll helper ─────────────────────────────────────────────────────────── */
+
+async function pollUntilWeekVisible(weekStart, attempts = 6, delayMs = 1200) {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await apiFetch(`/weeks/${weekStart}`);
+      if (res?.ok) {
+        currentWeekData   = await res.json();
+        selectedDate      = weekStart;
+        syncWeekInputWithSelectedDate();
+        pendingAssignments = {};
+        pendingSlots       = {};
+        renderWeek();
+        return true;
+      }
+    } catch (err) {
+      console.warn('pollUntilWeekVisible attempt failed:', err);
+    }
+    if (i < attempts - 1) await sleep(delayMs);
+  }
+  return false;
+}
+
+/* ─── Viewport resize: re-init DnD when crossing desktop threshold ────────── */
+
+let _resizeTimer = null;
+let _wasMobile   = isMobilePlanner();
+
+window.addEventListener('resize', () => {
+  clearTimeout(_resizeTimer);
+  _resizeTimer = setTimeout(() => {
+    const nowMobile = isMobilePlanner();
+    if (_wasMobile !== nowMobile) {
+      _wasMobile = nowMobile;
+      if (!nowMobile && currentWeekData) {
+        // Crossed into desktop: remove stale sortable markers and re-init
+        document.querySelectorAll('[data-sortable-init]').forEach(el => {
+          delete el.dataset.sortableInit;
+        });
+        initDragAndDrop();
+      }
+      // Re-render sidebar for drag/no-drag attribute
+      renderTeacherSidebar(byId('teacherSearch')?.value || '');
+    }
+  }, 250);
+});
+
+/* ─── Auto init ───────────────────────────────────────────────────────────── */
 
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initPlanner);

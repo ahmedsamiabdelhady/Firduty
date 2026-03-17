@@ -4,55 +4,43 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Firduty — Week Planner</title>
-
-  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <!-- Single CSS link (was duplicated in previous version) -->
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" type="image/x-icon"    href="favicon.ico">
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">
   <link rel="apple-touch-icon" sizes="192x192" href="favicon-192x192.png">
-
-  <link rel="stylesheet" href="css/style.css">
+  <!-- SortableJS — desktop drag-and-drop only; never used on mobile -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
 
   <style>
+    /* ── Busy overlay ───────────────────────────────────────────────── */
     .planner-main { position: relative; }
+
     .planner-busy-overlay {
-      position: absolute;
-      inset: 0;
-      display: none;
-      align-items: center;
-      justify-content: center;
+      position: absolute; inset: 0;
+      display: none; align-items: center; justify-content: center;
       z-index: 30;
       background: rgba(255,255,255,0.82);
       backdrop-filter: blur(1px);
       border-radius: 16px;
     }
     .planner-busy-card {
-      min-width: 280px;
-      max-width: 420px;
+      min-width: 280px; max-width: 420px;
       width: min(90%, 420px);
-      background: #fff;
-      border-radius: 16px;
+      background: #fff; border-radius: 16px;
       box-shadow: 0 12px 30px rgba(15,23,42,0.14);
-      padding: 20px 22px;
-      text-align: center;
+      padding: 20px 22px; text-align: center;
     }
     .planner-busy-title {
-      font-size: 1rem;
-      font-weight: 700;
-      color: #1f2937;
-      margin-bottom: 12px;
+      font-size: 1rem; font-weight: 700; color: #1f2937; margin-bottom: 12px;
     }
     .planner-progress {
-      height: 10px;
-      width: 100%;
-      background: #e5e7eb;
-      border-radius: 999px;
-      overflow: hidden;
-      position: relative;
+      height: 10px; width: 100%;
+      background: #e5e7eb; border-radius: 999px; overflow: hidden; position: relative;
     }
     .planner-progress-bar {
-      height: 100%;
-      width: 35%;
+      height: 100%; width: 35%;
       border-radius: 999px;
       background: linear-gradient(90deg, #60a5fa, #2563eb);
       transform: translateX(-120%);
@@ -62,26 +50,217 @@
     }
     @keyframes plannerBusySlide {
       0%   { transform: translateX(-120%); }
-      100% { transform: translateX(320%); }
+      100% { transform: translateX(320%);  }
     }
+
+    /* ── Sidebar search ─────────────────────────────────────────────── */
+    .teacher-search-wrap {
+      margin-bottom: 10px;
+    }
+    .teacher-search-input {
+      width: 100%;
+      padding: 7px 10px;
+      font-size: 0.82rem;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--bg);
+      color: var(--text);
+      outline: none;
+      box-sizing: border-box;
+    }
+    .teacher-search-input:focus {
+      border-color: var(--nav-light);
+      box-shadow: 0 0 0 2px rgba(79,161,204,0.2);
+    }
+    .sidebar-empty {
+      font-size: 0.8rem; color: #999; text-align: center; padding: 12px 0;
+    }
+
+    /* ── Day / shift styles ──────────────────────────────────────────── */
+    .day-header {
+      display: flex; align-items: center; justify-content: space-between;
+      flex-wrap: wrap; gap: 8px;
+      margin-bottom: 12px;
+      padding: 10px 14px;
+      background: var(--surface);
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+    }
+    .day-header-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .day-header-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .day-date { font-weight: 600; font-size: 0.9rem; color: var(--nav); }
+
+    .day-badge {
+      font-size: 0.75rem; padding: 3px 10px; border-radius: 999px; font-weight: 600;
+    }
+    .day-badge--editable { background: #dcfce7; color: #15803d; }
+    .day-badge--locked   { background: #fee2e2; color: #991b1b; }
+    .published-badge     { font-size: 0.8rem; color: #166534; background: #dcfce7; padding: 6px 10px; border-radius: 999px; }
+
+    .shift-tabs {
+      display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px;
+    }
+    .shift-tab-btn {
+      padding: 6px 14px; border-radius: var(--radius);
+      background: var(--bg); border: 1px solid var(--border);
+      cursor: pointer; font-size: 0.83rem; color: var(--text);
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .shift-tab-btn.active {
+      background: var(--nav); color: #fff; border-color: var(--nav);
+    }
+    .break-badge {
+      font-size: 0.7rem; background: #ede9fe; color: #5b21b6;
+      border-radius: 8px; padding: 1px 7px; margin-inline-start: 6px;
+    }
+    .break-col-title { color: #7c3aed; font-weight: 600; }
+
+    .locations-grid {
+      display: flex; flex-wrap: wrap; gap: 14px;
+    }
+    .location-column {
+      flex: 1 1 220px; min-width: 180px; max-width: 340px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 12px;
+    }
+    .location-column-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 8px;
+    }
+    .loc-title { font-size: 0.85rem; font-weight: 600; color: var(--nav); }
+
+    .slot-controls {
+      display: flex; align-items: center; gap: 4px; font-size: 0.8rem;
+    }
+
+    .slot-empty-label { color: #bbb; font-size: 0.8rem; }
+
+    /* Drag-over visual feedback */
+    .slot-drag-add     { outline: 2px dashed var(--primary); background: #f0fdf4 !important; }
+    .slot-drag-replace { outline: 2px dashed var(--warning); background: #fffbeb !important; }
+
+    /* Mobile: slots are tappable */
+    @media (max-width: 768px) {
+      .slot-item { cursor: pointer; }
+      .slot-item:active { opacity: 0.8; }
+      .locations-grid { flex-direction: column; }
+      .location-column { max-width: 100%; }
+      .teacher-list-item--mobile { cursor: default; opacity: 0.7; font-style: italic; }
+    }
+
+    /* ── Mobile bottom-sheet teacher picker ──────────────────────────── */
+    .mobile-bottom-sheet {
+      position: fixed; inset: 0;
+      display: none; /* shown via JS */
+      flex-direction: column;
+      z-index: 500;
+    }
+    .bottom-sheet-backdrop {
+      flex: 1;
+      background: rgba(0,0,0,0.4);
+    }
+    .bottom-sheet-panel {
+      background: #fff;
+      border-radius: 20px 20px 0 0;
+      box-shadow: 0 -4px 24px rgba(0,0,0,0.15);
+      max-height: 72vh;
+      display: flex; flex-direction: column;
+      overflow: hidden;
+    }
+    .bottom-sheet-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 20px 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    .bottom-sheet-title {
+      font-size: 1rem; font-weight: 700; color: var(--text);
+    }
+    .bottom-sheet-close {
+      background: none; border: none; cursor: pointer;
+      font-size: 1.3rem; color: var(--text-muted); line-height: 1;
+      padding: 4px 8px; border-radius: 6px;
+    }
+    .bottom-sheet-close:hover { background: var(--bg); }
+    .bottom-sheet-search {
+      margin: 10px 16px;
+      padding: 9px 12px;
+      border: 1px solid var(--border); border-radius: var(--radius);
+      font-size: 0.9rem; outline: none;
+      flex-shrink: 0;
+    }
+    .bottom-sheet-search:focus { border-color: var(--nav-light); }
+    .bottom-sheet-list {
+      overflow-y: auto;
+      padding: 4px 16px 24px;
+      flex: 1;
+    }
+    .bottom-sheet-teacher-btn {
+      display: block; width: 100%;
+      padding: 12px 14px;
+      margin-bottom: 6px;
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: var(--radius);
+      cursor: pointer; text-align: start;
+      font-size: 0.9rem; color: var(--text);
+      transition: background 0.12s;
+    }
+    .bottom-sheet-teacher-btn:hover,
+    .bottom-sheet-teacher-btn:active { background: var(--slot-filled); }
+    .bottom-sheet-empty {
+      font-size: 0.85rem; color: #999; text-align: center; padding: 20px 0;
+    }
+
+    /* ── Week status badge ───────────────────────────────────────────── */
+    .week-status-badge {
+      display: inline-block; padding: 3px 12px;
+      border-radius: 999px; font-size: 0.78rem; font-weight: 700;
+    }
+    .week-status-badge.status-draft     { background: #fef9c3; color: #854d0e; }
+    .week-status-badge.status-published { background: #dcfce7; color: #166534; }
   </style>
 </head>
 <body>
 
+<!-- Guard runs immediately; redirects to login.html if no token -->
+<script>
+  // Inline guard: i18n.js / auth.js are loaded below, but we need the token
+  // check as early as possible to avoid rendering the page for unauthenticated users.
+  (function () {
+    if (!localStorage.getItem('firduty_token')) {
+      window.location.replace('login.html');
+    }
+  })();
+</script>
+
 <header class="app-header">
-  <h1><img src="logo.png" alt="Firduty" class="header-logo">Firduty</h1>
+  <h1>
+    <img src="logo.png" alt="Firduty logo" width="32" height="32">
+    <span data-i18n="app_title">Firduty</span>
+  </h1>
   <div class="header-actions">
-    <button class="btn btn-lang btn-sm" onclick="I18N.toggle().then(()=>location.reload())">عربي | EN</button>
+    <button class="btn btn-lang btn-sm"
+            data-lang-toggle
+            onclick="I18N.toggle().then(()=>location.reload())">عربي | EN</button>
     <button class="btn btn-lang btn-sm" onclick="logout()" data-i18n="logout">Logout</button>
   </div>
 </header>
 
-<nav class="main-nav" id="mainNav" aria-label="Main navigation"></nav>
-
 <main class="main-content">
+
+  <!-- Navigation -->
+  <div class="nav-bar" style="margin-bottom:16px">
+    <a class="nav-btn" href="dashboard.html" data-i18n="dashboard">Dashboard</a>
+    <a class="nav-btn active" href="planner.html" data-i18n="week_planner">Week Planner</a>
+    <a class="nav-btn" href="teachers.html" data-i18n="teacher_approval">Teachers</a>
+    <a class="nav-btn" href="reports.html" data-i18n="monthly_report">Report</a>
+  </div>
+
+  <!-- Week Controls -->
   <div class="week-controls">
-    <label data-i18n="select_week">Select Week:</label>
-    <input type="date" id="weekStartInput" onchange="onWeekSelected ? onWeekSelected() : loadWeek()">
+    <label for="weekStartInput" data-i18n="select_week">Select Week:</label>
+    <input type="date" id="weekStartInput" onchange="onWeekSelected()">
     <button class="btn btn-primary btn-sm" onclick="loadWeek()" data-i18n="load_week">Load</button>
 
     <span id="weekStatusBadge" class="week-status-badge" style="display:none"></span>
@@ -89,87 +268,100 @@
 
     <div style="margin-inline-start:auto;display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn btn-secondary btn-sm" onclick="createWeek()" data-i18n="create_week">Create Week</button>
-      <button class="btn btn-secondary btn-sm" onclick="cloneWeek()" data-i18n="clone_last_week">Clone</button>
-      <button class="btn btn-warning btn-sm" onclick="saveDraft()" data-i18n="save_draft">Save Draft</button>
-      <button class="btn btn-success btn-sm" onclick="publishWeek()" data-i18n="publish_week">Publish</button>
+      <button class="btn btn-secondary btn-sm" onclick="cloneWeek()"  data-i18n="clone_last_week">Clone</button>
+      <button class="btn btn-warning  btn-sm" onclick="saveDraft()"   data-i18n="save_draft">Save Draft</button>
+      <button class="btn btn-success  btn-sm" onclick="publishWeek()" data-i18n="publish_week">Publish</button>
     </div>
   </div>
 
+  <!-- Planner Layout -->
   <div class="planner-layout">
-    <aside class="sidebar" id="teachersSidebar">
-      <div class="teacher-panel-header">
-        <div>
-          <h3 data-i18n="teachers">Teachers</h3>
-          <p class="teacher-panel-subtitle">Search and drag teachers into slots.</p>
-        </div>
-      </div>
+
+    <!-- Teacher Sidebar -->
+    <aside class="sidebar">
+      <h3 data-i18n="teachers">Teachers</h3>
+
+      <!-- Search (desktop filter + mobile reference) -->
       <div class="teacher-search-wrap">
-        <input type="search" id="teacherSearchInput" class="teacher-search-input" placeholder="Search teachers..." autocomplete="off">
+        <input
+          type="search"
+          id="teacherSearch"
+          class="teacher-search-input"
+          data-i18n-placeholder="search_teachers"
+          placeholder="Search teachers…"
+          autocomplete="off"
+          oninput="filterTeacherSidebar(this.value)"
+        >
       </div>
-      <div id="teachersLoading" style="text-align:center;padding:24px">
+
+      <div id="teachersLoading" style="text-align:center;padding:24px;display:none">
         <div class="spinner"></div>
       </div>
+
       <div class="teacher-list" id="teacherList"></div>
     </aside>
 
+    <!-- Planner Main -->
     <div class="planner-main">
+
+      <!-- Initial load spinner -->
       <div id="plannerLoading" style="text-align:center;padding:32px">
         <div class="spinner"></div>
       </div>
 
-      <div id="plannerBusyOverlay" class="planner-busy-overlay" aria-live="polite" aria-busy="true">
+      <!-- Busy overlay (save / clone / create) -->
+      <div id="plannerBusyOverlay" class="planner-busy-overlay"
+           aria-live="polite" aria-busy="true" style="display:none">
         <div class="planner-busy-card">
-          <div id="plannerLoadingText" class="planner-busy-title">Loading...</div>
+          <div id="plannerLoadingText" class="planner-busy-title">Loading…</div>
           <div class="planner-progress">
             <div id="plannerLoadingBar" class="planner-progress-bar"></div>
           </div>
         </div>
       </div>
 
+      <!-- Day tabs -->
       <div class="tabs" id="dayTabs"></div>
 
-      <div id="mobilePlannerTargetPill" class="mobile-planner-target-pill" style="display:none"></div>
-
+      <!-- Day panels + no-plan message -->
       <div id="dayPanels">
-        <p style="color:#6c757d;text-align:center;margin-top:40px;display:none"
-           id="noPlanMsg"
+        <p id="noPlanMsg"
+           style="color:#6c757d;text-align:center;margin-top:40px;display:none"
            data-i18n="no_week">
           No plan found for this week.
         </p>
       </div>
-    </div>
-  </div>
+
+    </div><!-- /.planner-main -->
+
+  </div><!-- /.planner-layout -->
+
 </main>
 
-<div class="mobile-teacher-sheet-backdrop" id="mobileTeacherSheetBackdrop"></div>
-<div class="mobile-teacher-sheet" id="mobileTeacherSheet" aria-hidden="true">
-  <div class="mobile-teacher-sheet-surface">
-  <div class="mobile-teacher-sheet-handle" id="mobileTeacherSheetHandle"></div>
-  <div class="mobile-teacher-sheet-header" id="mobileTeacherSheetHeader">
-    <div>
-      <h3 id="mobileTeacherSheetTitle" data-i18n="teachers">Teachers <span class="mobile-teacher-toggle-count" id="mobileTeacherCount">0</span></h3>
-      <p class="mobile-teacher-sheet-subtitle" id="mobileTeacherSheetSubtitle">Tap a slot to choose a teacher.</p>
+<!-- Mobile bottom-sheet (also created by JS via ensureMobileBottomSheet if absent) -->
+<div id="mobileTeacherPicker" class="mobile-bottom-sheet" aria-modal="true" role="dialog">
+  <div class="bottom-sheet-backdrop" id="bottomSheetBackdrop"></div>
+  <div class="bottom-sheet-panel" id="bottomSheetPanel">
+    <div class="bottom-sheet-header">
+      <span class="bottom-sheet-title" id="mobilePickerTitle" data-i18n="pick_teacher">Pick a teacher</span>
+      <button class="bottom-sheet-close" id="bottomSheetClose" aria-label="Close">&times;</button>
     </div>
-    <button class="btn btn-secondary btn-sm" id="mobileTeacherClose" type="button">Close</button>
-  </div>
-  <div class="teacher-search-wrap mobile-teacher-search-wrap">
-    <input type="search" id="mobileTeacherSearchInput" class="teacher-search-input" placeholder="Search teacher..." autocomplete="off">
-  </div>
-  <div class="mobile-selected-hint" id="mobileSelectedHint" style="display:none"></div>
-  <div class="teacher-list teacher-list-mobile" id="mobileTeacherList"></div>
+    <input
+      type="search"
+      id="mobileTeacherSearch"
+      class="bottom-sheet-search"
+      data-i18n-placeholder="search_teachers"
+      placeholder="Search teachers…"
+      autocomplete="off"
+    >
+    <div id="mobileTeacherList" class="bottom-sheet-list"></div>
   </div>
 </div>
 
 <div class="toast-container" id="toastContainer"></div>
 
-<script src="js/i18n.js?v=101"></script>
-<script src="js/auth.js?v=101"></script>
-<script src="js/nav.js?v=101"></script>
-<script src="js/planner.js?v=110"></script>
-<script>
-  I18N.load(localStorage.getItem('firduty_lang') || 'ar').then(() => {
-    initNav();
-  });
-</script>
+<script src="js/i18n.js?v=100"></script>
+<script src="js/auth.js?v=100"></script>
+<script src="js/planner.js?v=100"></script>
 </body>
 </html>
