@@ -19,9 +19,6 @@ let allTeachers = [];
 let pendingAssignments = {};   // slId → { slotIdx → { teacher_id, grade_class } }
 let pendingSlots = {};         // key → { dayDate, shiftId, locationId, slotsCount }
 let selectedDate = null;       // the exact day chosen by admin in the date picker
-let teacherSearchTerm = '';
-let mobilePickerTarget = null;
-let mobileSheetDrag = null;
 let lang = () => I18N.getLang();
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
@@ -36,10 +33,6 @@ function showEl(el, display = '') {
 
 function hideEl(el) {
   if (el) el.style.display = 'none';
-}
-
-function isMobileViewport() {
-  return window.matchMedia('(max-width: 768px)').matches;
 }
 
 function showToast(message, type = 'success') {
@@ -125,195 +118,144 @@ function escHtml(str) {
 // ─── Teachers ─────────────────────────────────────────────────────────────────
 
 async function loadTeachers() {
-  const loadingEl = byId('teachersLoading');
+  const desktopList = byId('teacherList');
+  const mobileList  = byId('mobileTeacherList');
+  const loadingEl   = byId('teachersLoading');
   try {
     const res = await apiFetch('/teachers/');
     if (!res || !res.ok) return;
     allTeachers = await res.json();
-    if (loadingEl) loadingEl.style.display = 'none';
     renderTeacherLists();
+    const countEl = byId('mobileTeacherCount');
+    if (countEl) countEl.textContent = allTeachers.length;
+    if (loadingEl) loadingEl.style.display = 'none';
   } catch (err) {
     console.error('loadTeachers failed:', err);
   }
 }
 
-function getFilteredTeachers() {
-  const q = (teacherSearchTerm || '').trim().toLowerCase();
-  if (!q) return allTeachers;
-  return allTeachers.filter(t => (t.name || '').toLowerCase().includes(q));
+function filterTeachersByQuery(query) {
+  const q = String(query || '').trim().toLowerCase();
+  return allTeachers.filter(t => String(t.name || '').toLowerCase().includes(q));
+}
+
+function buildTeacherListHtml(teachers, mobile = false) {
+  if (!teachers.length) return `<div class="teacher-list-empty">No teachers found.</div>`;
+  return teachers.map(t => `
+    <div class="teacher-list-item${mobile ? ' teacher-list-item-mobile' : ''}"
+         draggable="${mobile ? 'false' : 'true'}"
+         data-teacher-id="${t.id}"
+         data-teacher-name="${escHtml(t.name)}">
+      ${escHtml(t.name)}
+    </div>
+  `).join('');
 }
 
 function renderTeacherLists() {
-  const filtered = getFilteredTeachers();
-  const html = filtered.length
-    ? filtered.map(t => `
-        <div class="teacher-list-item"
-             data-teacher-id="${t.id}"
-             data-teacher-name="${escHtml(t.name)}"
-             onclick="selectTeacherForMobile(${t.id}, '${escHtml(t.name).replace(/'/g, "&#39;")}')">
-          ${escHtml(t.name)}
-        </div>
-      `).join('')
-    : `<div class="teacher-list-empty">${I18N.t('no_teachers_yet') || 'No teachers found'}</div>`;
-
   const desktopList = byId('teacherList');
-  const mobileList  = byId('mobileTeacherList');
-  if (desktopList) desktopList.innerHTML = html;
-  if (mobileList) mobileList.innerHTML = html;
-
-  const countEl = byId('mobileTeacherCount');
-  if (countEl) countEl.textContent = String(filtered.length);
+  const mobileList = byId('mobileTeacherList');
+  const desktopSearch = byId('teacherSearchInput')?.value || '';
+  const mobileSearch = byId('mobileTeacherSearchInput')?.value || '';
+  const desktopTeachers = filterTeachersByQuery(desktopSearch);
+  const mobileTeachers = filterTeachersByQuery(mobileSearch || desktopSearch);
+  if (desktopList) desktopList.innerHTML = buildTeacherListHtml(desktopTeachers, false);
+  if (mobileList) mobileList.innerHTML = buildTeacherListHtml(mobileTeachers, true);
 }
 
-function bindTeacherSearch() {
-  const desktopInput = byId('teacherSearchInput');
-  const mobileInput  = byId('mobileTeacherSearchInput');
-  const sync = (value, source) => {
-    teacherSearchTerm = value || '';
-    if (source !== 'desktop' && desktopInput) desktopInput.value = teacherSearchTerm;
-    if (source !== 'mobile' && mobileInput) mobileInput.value = teacherSearchTerm;
-    renderTeacherLists();
-  };
-
-  if (desktopInput && !desktopInput.dataset.bound) {
-    desktopInput.addEventListener('input', e => sync(e.target.value, 'desktop'));
-    desktopInput.dataset.bound = 'true';
-  }
-  if (mobileInput && !mobileInput.dataset.bound) {
-    mobileInput.addEventListener('input', e => sync(e.target.value, 'mobile'));
-    mobileInput.dataset.bound = 'true';
-  }
+function isMobileViewport() {
+  return window.matchMedia('(max-width: 768px)').matches;
 }
 
-function updateMobileTargetPill() {
-  const pill = byId('mobilePlannerTargetPill');
-  const hint = byId('mobileSelectedHint');
-  if (!pill || !hint || !isMobileViewport() || !mobilePickerTarget) {
-    if (pill) pill.style.display = 'none';
-    if (hint) hint.style.display = 'none';
-    return;
-  }
-  const label = mobilePickerTarget.hasTeacher
-    ? `Replace teacher • Slot ${mobilePickerTarget.slotIdx + 1}`
-    : `Assign teacher • Slot ${mobilePickerTarget.slotIdx + 1}`;
-  pill.textContent = label;
-  pill.style.display = 'inline-flex';
-  hint.textContent = label;
-  hint.style.display = 'block';
-}
+let mobileSelectedTarget = null;
 
 function openMobileTeacherSheet() {
   if (!isMobileViewport()) return;
-  const sheet = byId('mobileTeacherSheet');
-  const backdrop = byId('mobileTeacherSheetBackdrop');
-  if (sheet) {
-    sheet.classList.add('is-open');
-    sheet.setAttribute('aria-hidden', 'false');
-  }
-  if (backdrop) backdrop.classList.add('is-open');
-  updateMobileTargetPill();
+  byId('mobileTeacherSheet')?.classList.add('is-open');
+  byId('mobileTeacherSheetBackdrop')?.classList.add('is-open');
+  byId('mobileTeacherSheet')?.setAttribute('aria-hidden', 'false');
 }
 
 function closeMobileTeacherSheet() {
-  const sheet = byId('mobileTeacherSheet');
-  const backdrop = byId('mobileTeacherSheetBackdrop');
-  if (sheet) {
-    sheet.classList.remove('is-open');
-    sheet.setAttribute('aria-hidden', 'true');
-    sheet.style.removeProperty('transform');
-  }
-  if (backdrop) backdrop.classList.remove('is-open');
+  byId('mobileTeacherSheet')?.classList.remove('is-open');
+  byId('mobileTeacherSheetBackdrop')?.classList.remove('is-open');
+  byId('mobileTeacherSheet')?.setAttribute('aria-hidden', 'true');
 }
 
-function clearMobilePickerTarget() {
-  mobilePickerTarget = null;
-  document.querySelectorAll('.slot-item.mobile-slot-target').forEach(el => el.classList.remove('mobile-slot-target'));
-  updateMobileTargetPill();
+function clearMobileTarget() {
+  mobileSelectedTarget = null;
+  document.querySelectorAll('.mobile-slot-target').forEach(el => el.classList.remove('mobile-slot-target'));
+  hideEl(byId('mobilePlannerTargetPill'));
+  hideEl(byId('mobileSelectedHint'));
 }
 
-function handleSlotTap(event, slotEl) {
-  if (!isMobileViewport() || !slotEl) return;
+function setMobileTarget(slotEl) {
+  if (!slotEl || !isMobileViewport()) return;
+  clearMobileTarget();
+  const slId = parseInt(slotEl.dataset.slId, 10);
+  const slotIdx = parseInt(slotEl.dataset.slotIdx, 10);
   const list = slotEl.closest('.slots-list');
-  const col  = slotEl.closest('.location-column');
-  if (!list || !col || col.dataset.editable !== 'true') return;
-  if (event) event.preventDefault();
-  document.querySelectorAll('.slot-item.mobile-slot-target').forEach(el => el.classList.remove('mobile-slot-target'));
+  const isBreak = list?.dataset.dutyType === 'break';
+  const isFilled = slotEl.classList.contains('slot-filled');
+  mobileSelectedTarget = { slId, slotIdx, isBreak, isFilled };
   slotEl.classList.add('mobile-slot-target');
-  mobilePickerTarget = {
-    slId: parseInt(list.dataset.slId, 10),
-    slotIdx: parseInt(slotEl.dataset.slotIdx, 10),
-    isBreak: list.dataset.dutyType === 'break',
-    hasTeacher: slotEl.classList.contains('slot-filled'),
-  };
-  updateMobileTargetPill();
+  const pill = byId('mobilePlannerTargetPill');
+  if (pill) {
+    pill.textContent = `${isFilled ? 'Replace teacher' : 'Assign teacher'} • Slot ${slotIdx + 1}`;
+    showEl(pill, 'inline-flex');
+  }
+  const hint = byId('mobileSelectedHint');
+  if (hint) {
+    hint.textContent = isFilled ? 'This slot already has a teacher. Choosing a teacher will replace them.' : 'Choose a teacher to assign to this slot.';
+    showEl(hint, 'block');
+  }
   openMobileTeacherSheet();
 }
 
-function selectTeacherForMobile(teacherId, teacherName) {
-  if (!isMobileViewport()) return;
-  if (!mobilePickerTarget) return;
-  const { slId, slotIdx, isBreak, hasTeacher } = mobilePickerTarget;
-
+function handleMobileTeacherPick(teacherId, teacherName) {
+  if (!mobileSelectedTarget) return;
+  const { slId, slotIdx, isBreak } = mobileSelectedTarget;
   if (isTeacherAssignedInSameShift(slId, teacherId)) {
     showToast(I18N.t('duplicate_teacher') || 'Teacher already assigned in this duty', 'error');
     return;
   }
-
   const gradeClass = _getExistingGradeClass(slId, slotIdx);
-  replaceTeacherInSlot(slId, slotIdx, teacherId, teacherName, isBreak, gradeClass);
+  const list = byId(`slots-${slId}`);
+  const slotEl = list?.querySelector(`[data-slot-idx="${slotIdx}"]`);
+  if (!slotEl) return;
+
+  recordAssignment(slId, slotIdx, teacherId, gradeClass);
+  slotEl.outerHTML = renderSlot(slId, slotIdx, {
+    teacher_id: teacherId,
+    teacher_name: teacherName,
+    slot_index: slotIdx,
+    grade_class: gradeClass,
+  }, isBreak, true);
   _refreshFillBar(slId);
   closeMobileTeacherSheet();
-  clearMobilePickerTarget();
-  showToast((hasTeacher ? (I18N.t('teacher_replaced') || 'Teacher replaced') : (I18N.t('success_saved') || 'Teacher assigned')));
+  clearMobileTarget();
+  bindMobileSlotTapTargets();
 }
 
-function bindMobileSheetControls() {
-  const closeBtn = byId('mobileTeacherClose');
-  const backdrop = byId('mobileTeacherSheetBackdrop');
-  const handle   = byId('mobileTeacherSheetHandle');
-  const sheet    = byId('mobileTeacherSheet');
+function bindTeacherSearchAndMobileSheet() {
+  byId('teacherSearchInput')?.addEventListener('input', renderTeacherLists);
+  byId('mobileTeacherSearchInput')?.addEventListener('input', renderTeacherLists);
+  byId('mobileTeacherClose')?.addEventListener('click', () => { closeMobileTeacherSheet(); clearMobileTarget(); });
+  byId('mobileTeacherSheetBackdrop')?.addEventListener('click', () => { closeMobileTeacherSheet(); clearMobileTarget(); });
+  byId('mobileTeacherList')?.addEventListener('click', (e) => {
+    const item = e.target.closest('.teacher-list-item');
+    if (!item || !isMobileViewport()) return;
+    handleMobileTeacherPick(parseInt(item.dataset.teacherId, 10), item.dataset.teacherName || item.textContent.trim());
+  });
+}
 
-  if (closeBtn && !closeBtn.dataset.bound) {
-    closeBtn.addEventListener('click', () => { closeMobileTeacherSheet(); clearMobilePickerTarget(); });
-    closeBtn.dataset.bound = 'true';
-  }
-  if (backdrop && !backdrop.dataset.bound) {
-    backdrop.addEventListener('click', () => { closeMobileTeacherSheet(); clearMobilePickerTarget(); });
-    backdrop.dataset.bound = 'true';
-  }
-
-  if (handle && sheet && !handle.dataset.bound) {
-    const start = (clientY) => { mobileSheetDrag = { startY: clientY, currentY: clientY }; };
-    const move = (clientY) => {
-      if (!mobileSheetDrag) return;
-      mobileSheetDrag.currentY = clientY;
-      const delta = Math.max(0, clientY - mobileSheetDrag.startY);
-      sheet.style.transform = `translateY(${delta}px)`;
-    };
-    const end = () => {
-      if (!mobileSheetDrag) return;
-      const delta = mobileSheetDrag.currentY - mobileSheetDrag.startY;
-      sheet.style.removeProperty('transform');
-      if (delta > 90) { closeMobileTeacherSheet(); clearMobilePickerTarget(); }
-      mobileSheetDrag = null;
-    };
-    handle.addEventListener('touchstart', e => start(e.touches[0].clientY), { passive: true });
-    handle.addEventListener('touchmove', e => move(e.touches[0].clientY), { passive: true });
-    handle.addEventListener('touchend', end);
-    handle.addEventListener('mousedown', e => {
-      e.preventDefault();
-      start(e.clientY);
-      const onMove = ev => move(ev.clientY);
-      const onUp = () => {
-        window.removeEventListener('mousemove', onMove);
-        window.removeEventListener('mouseup', onUp);
-        end();
-      };
-      window.addEventListener('mousemove', onMove);
-      window.addEventListener('mouseup', onUp);
-    });
-    handle.dataset.bound = 'true';
-  }
+function bindMobileSlotTapTargets() {
+  document.querySelectorAll('.slots-list .slot-item').forEach(slotEl => {
+    slotEl.onclick = null;
+    if (!isMobileViewport()) return;
+    const col = slotEl.closest('.location-column');
+    if (!col || col.dataset.editable !== 'true') return;
+    slotEl.onclick = () => setMobileTarget(slotEl);
+  });
 }
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
@@ -321,14 +263,7 @@ function bindMobileSheetControls() {
 async function initPlanner() {
   guardPage();
   applyWeekInputLimits();
-  bindTeacherSearch();
-  bindMobileSheetControls();
-  window.addEventListener('resize', () => {
-    if (!isMobileViewport()) {
-      closeMobileTeacherSheet();
-      clearMobilePickerTarget();
-    }
-  });
+  bindTeacherSearchAndMobileSheet();
   await loadTeachers();
   await loadWeek();
 }
@@ -436,7 +371,7 @@ function renderWeek() {
   });
 
   initDragAndDrop();
-  if (!isMobileViewport()) clearMobilePickerTarget();
+  bindMobileSlotTapTargets();
 }
 
 function getActiveDayIndex() {
@@ -757,11 +692,11 @@ function renderSlot(slId, slotIdx, assignment, isBreak, isEditable = true) {
       const initial = _initials(name);
       const hue     = (assignment.teacher_id * 47) % 360;
       const removeBtn = isEditable
-        ? `<button class="slot-remove-btn" onclick="event.stopPropagation(); removeTeacher(${slId}, ${slotIdx})" title="Remove">✕</button>`
+        ? `<button class="slot-remove-btn" onclick="removeTeacher(${slId}, ${slotIdx})" title="Remove">✕</button>`
         : '';
 
       return `
-        <div class="slot-item slot-filled slot-break-card" data-sl-id="${slId}" data-slot-idx="${slotIdx}" data-teacher-id="${assignment.teacher_id}" onclick="handleSlotTap(event, this)">
+        <div class="slot-item slot-filled slot-break-card" data-sl-id="${slId}" data-slot-idx="${slotIdx}" data-teacher-id="${assignment.teacher_id}">
           <div class="break-card-class">${gradeLabel}</div>
           <div class="break-card-teacher">
             <span class="teacher-avatar" style="--avatar-hue:${hue}deg">${escHtml(initial)}</span>
@@ -774,7 +709,7 @@ function renderSlot(slId, slotIdx, assignment, isBreak, isEditable = true) {
 
     // Empty break slot
     return `
-      <div class="slot-item slot-empty slot-break-card slot-break-empty" data-sl-id="${slId}" data-slot-idx="${slotIdx}" data-teacher-id="" onclick="handleSlotTap(event, this)">
+      <div class="slot-item slot-empty slot-break-card slot-break-empty" data-sl-id="${slId}" data-slot-idx="${slotIdx}" data-teacher-id="">
         <div class="break-card-class">${gradeLabel}</div>
         ${isEditable
           ? `<div class="slot-drop-zone"><span class="slot-drop-icon">↓</span><span class="slot-drop-text">${I18N.t('no_teacher') || 'Drop'}</span></div>`
@@ -790,11 +725,11 @@ function renderSlot(slId, slotIdx, assignment, isBreak, isEditable = true) {
     const initial = _initials(name);
     const hue     = (assignment.teacher_id * 47) % 360;
     const removeBtn = isEditable
-      ? `<button class="slot-remove-btn" onclick="event.stopPropagation(); removeTeacher(${slId}, ${slotIdx})" title="Remove">✕</button>`
+      ? `<button class="slot-remove-btn" onclick="removeTeacher(${slId}, ${slotIdx})" title="Remove">✕</button>`
       : '';
 
     return `
-      <div class="slot-item slot-filled" data-sl-id="${slId}" data-slot-idx="${slotIdx}" data-teacher-id="${assignment.teacher_id}" onclick="handleSlotTap(event, this)">
+      <div class="slot-item slot-filled" data-sl-id="${slId}" data-slot-idx="${slotIdx}" data-teacher-id="${assignment.teacher_id}">
         ${slotNumBadge}
         <div class="slot-inner">
           <div class="slot-row">
@@ -809,7 +744,7 @@ function renderSlot(slId, slotIdx, assignment, isBreak, isEditable = true) {
 
   // Non-break empty: dashed drop zone
   return `
-    <div class="slot-item slot-empty" data-sl-id="${slId}" data-slot-idx="${slotIdx}" data-teacher-id="" onclick="handleSlotTap(event, this)">
+    <div class="slot-item slot-empty" data-sl-id="${slId}" data-slot-idx="${slotIdx}" data-teacher-id="">
       ${slotNumBadge}
       ${isEditable
         ? `<div class="slot-drop-zone">
@@ -909,7 +844,7 @@ async function getApiErrorMessage(res, fallbackMessage) {
 
 function initDragAndDrop() {
   const sidebar = byId('teacherList');
-  if (sidebar && typeof Sortable !== 'undefined' && !sidebar.dataset.sortableInit) {
+  if (sidebar && typeof Sortable !== 'undefined' && !sidebar.dataset.sortableInit && !isMobileViewport()) {
     new Sortable(sidebar, {
       group: { name: 'teachers', pull: 'clone', put: false },
       sort: false,
@@ -956,8 +891,8 @@ function initDragAndDrop() {
           return;
         }
 
-        const filledSlots = Array.from(list.querySelectorAll('.slot-item.filled'));
-        const emptySlot   = list.querySelector('.slot-item:not(.filled)');
+        const filledSlots = Array.from(list.querySelectorAll('.slot-item.slot-filled'));
+        const emptySlot   = list.querySelector('.slot-item.slot-empty');
 
         if (!emptySlot && filledSlots.length > 0) {
           // All slots full — replace last filled slot
@@ -1050,7 +985,6 @@ function removeTeacher(slId, slotIdx) {
     const isBreak = list.dataset.dutyType === 'break';
     slotEl.outerHTML = renderSlot(slId, slotIdx, { grade_class: gradeClass }, isBreak, true);
     _refreshFillBar(slId);
-    if (mobilePickerTarget && mobilePickerTarget.slId === slId && mobilePickerTarget.slotIdx === slotIdx) clearMobilePickerTarget();
     showToast(I18N.t('teacher_removed') || 'Teacher removed', 'info');
   }
 }
@@ -1340,3 +1274,4 @@ if (document.readyState === 'loading') {
 } else {
   initPlanner();
 }
+window.addEventListener('resize', () => { renderTeacherLists(); bindMobileSlotTapTargets(); if (!isMobileViewport()) { closeMobileTeacherSheet(); clearMobileTarget(); } });

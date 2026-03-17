@@ -20,24 +20,17 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/teachers", tags=["teachers"])
 
 
-def _normalize_email(email: str | None) -> str | None:
-    if not email:
-        return None
-    clean = email.strip().lower()
-    return clean or None
-
-
 def _duty_dict(a: Assignment, sl: ShiftLocation, query_date: date_type) -> dict:
     """Serialize a duty assignment — duty-type aware."""
     duty_type = sl.shift.duty_type
     base = {
-        "assignment_id": a.id,
-        "date": str(query_date),
-        "shift_name_en": sl.shift.name_en,
-        "shift_name_ar": sl.shift.name_ar,
-        "shift_start": str(sl.shift.start_time),
-        "shift_end": str(sl.shift.end_time),
-        "duty_type": duty_type,
+        "assignment_id":  a.id,
+        "date":           str(query_date),
+        "shift_name_en":  sl.shift.name_en,
+        "shift_name_ar":  sl.shift.name_ar,
+        "shift_start":    str(sl.shift.start_time),
+        "shift_end":      str(sl.shift.end_time),
+        "duty_type":      duty_type,
     }
     if duty_type == "morning_endofday" and sl.location:
         base["location_name_en"] = sl.location.name_en
@@ -48,6 +41,8 @@ def _duty_dict(a: Assignment, sl: ShiftLocation, query_date: date_type) -> dict:
     base["grade_class"] = a.grade_class
     return base
 
+
+# ─── Static-path routes (must come before /{teacher_id}/…) ───────────────────
 
 @router.get("/", response_model=List[TeacherOut])
 def list_teachers(db: Session = Depends(get_db)) -> List[TeacherOut]:
@@ -67,13 +62,8 @@ def list_all_teachers(
     db: Session = Depends(get_db),
     _: str = Depends(get_current_admin),
 ) -> List[TeacherOut]:
-    """List active teachers regardless of status (admin only)."""
-    rows = (
-        db.query(Teacher)
-        .filter(Teacher.active.is_(True))
-        .order_by(Teacher.name)
-        .all()
-    )
+    """List ALL teachers regardless of status or active flag (admin only)."""
+    rows = db.query(Teacher).filter(Teacher.active.is_(True)).order_by(Teacher.name).all()
     logger.debug("list_all_teachers → %d rows", len(rows))
     return rows
 
@@ -83,7 +73,7 @@ def list_pending_teachers(
     db: Session = Depends(get_db),
     _: str = Depends(get_current_admin),
 ) -> List[TeacherOut]:
-    """List active teachers awaiting approval (admin only)."""
+    """List teachers awaiting approval (admin only)."""
     rows = (
         db.query(Teacher)
         .filter(Teacher.active.is_(True), Teacher.status == "pending")
@@ -100,26 +90,20 @@ def create_teacher(
     db: Session = Depends(get_db),
     _: str = Depends(get_current_admin),
 ) -> TeacherOut:
-    """Admin-only: create a teacher directly."""
-    email = _normalize_email(data.email)
-    if email:
-        existing = db.query(Teacher).filter(Teacher.email == email).first()
+    """Admin-only: create a teacher directly (bypasses approval flow)."""
+    if data.email:
+        existing = db.query(Teacher).filter(Teacher.email == data.email).first()
         if existing:
             raise HTTPException(409, "Email already registered")
-
     payload = data.model_dump() if hasattr(data, "model_dump") else data.dict()
-    payload["email"] = email
-    payload["name"] = payload["name"].strip()
     teacher = Teacher(**payload)
     db.add(teacher)
-
     try:
         db.commit()
     except Exception as exc:
         db.rollback()
         logger.exception("create_teacher DB error — payload=%s", payload)
         raise HTTPException(500, f"Database error: {exc}") from exc
-
     db.refresh(teacher)
     logger.info("Created teacher id=%d name=%r", teacher.id, teacher.name)
     return teacher
@@ -130,12 +114,15 @@ def register_teacher(
     data: TeacherRegister,
     db: Session = Depends(get_db),
 ) -> TeacherStatusOut:
-    """Public self-registration. Creates a teacher with status='pending'."""
-    email_lower = _normalize_email(data.email)
+    """
+    Public self-registration.
+    Creates a teacher with status='pending'. Admin must approve.
+    Returns 409 if the email is already registered.
+    """
+    email_lower = data.email.lower().strip()
     existing = db.query(Teacher).filter(Teacher.email == email_lower).first()
     if existing:
         raise HTTPException(409, "Email already registered")
-
     teacher = Teacher(
         name=data.name.strip(),
         email=email_lower,
@@ -144,14 +131,12 @@ def register_teacher(
         preferred_language="ar",
     )
     db.add(teacher)
-
     try:
         db.commit()
     except Exception as exc:
         db.rollback()
         logger.exception("register_teacher DB error — email=%s", email_lower)
         raise HTTPException(500, f"Database error: {exc}") from exc
-
     db.refresh(teacher)
     logger.info("Teacher registered (pending) id=%d email=%s", teacher.id, email_lower)
     return teacher
@@ -162,15 +147,17 @@ def approve_all_pending(
     db: Session = Depends(get_db),
     _: str = Depends(get_current_admin),
 ) -> dict:
-    """Approve every active pending teacher in one operation (admin only)."""
+    """Approve every pending teacher in one operation (admin only)."""
     pending = db.query(Teacher).filter(Teacher.active.is_(True), Teacher.status == "pending").all()
     count = len(pending)
-    for teacher in pending:
-        teacher.status = "approved"
+    for t in pending:
+        setattr(t, "status", "approved")
     db.commit()
     logger.info("approve_all_pending → approved %d teachers", count)
     return {"approved_count": count}
 
+
+# ─── Parameterised routes /{teacher_id}/… ─────────────────────────────────────
 
 @router.put("/{teacher_id}", response_model=TeacherOut)
 def update_teacher(
@@ -182,28 +169,18 @@ def update_teacher(
     teacher = db.query(Teacher).filter(Teacher.id == teacher_id).first()
     if not teacher:
         raise HTTPException(404, "Teacher not found")
-
-    payload = data.model_dump(exclude_none=True) if hasattr(data, "model_dump") else data.dict(exclude_none=True)
-
-    if "name" in payload:
-        payload["name"] = payload["name"].strip()
-        if not payload["name"]:
-            raise HTTPException(400, "Teacher name is required")
-
-    if "email" in payload:
-        payload["email"] = _normalize_email(payload["email"])
-        if payload["email"]:
-            existing = (
-                db.query(Teacher)
-                .filter(Teacher.email == payload["email"], Teacher.id != teacher_id)
-                .first()
-            )
-            if existing:
-                raise HTTPException(409, "Email already registered")
-
+    payload = (
+        data.model_dump(exclude_none=True)
+        if hasattr(data, "model_dump")
+        else data.dict(exclude_none=True)
+    )
+    new_email = payload.get("email")
+    if new_email:
+        existing = db.query(Teacher).filter(Teacher.email == new_email, Teacher.id != teacher_id).first()
+        if existing:
+            raise HTTPException(409, "Email already registered")
     for field, value in payload.items():
         setattr(teacher, field, value)
-
     db.commit()
     db.refresh(teacher)
     return teacher
@@ -218,7 +195,7 @@ def delete_teacher(
     teacher = db.query(Teacher).filter(Teacher.id == teacher_id).first()
     if not teacher:
         raise HTTPException(404, "Teacher not found")
-    teacher.active = False
+    setattr(teacher, "active", False)
     db.commit()
     return {"status": "deactivated", "id": teacher_id}
 
@@ -228,6 +205,10 @@ def get_teacher_status(
     teacher_id: int,
     db: Session = Depends(get_db),
 ) -> TeacherStatusOut:
+    """
+    Public endpoint — Flutter app checks this on every launch.
+    Returns 404 if the teacher record no longer exists.
+    """
     teacher = db.query(Teacher).filter(Teacher.id == teacher_id).first()
     if not teacher:
         raise HTTPException(404, "Teacher not found")
@@ -240,10 +221,11 @@ def approve_teacher(
     db: Session = Depends(get_db),
     _: str = Depends(get_current_admin),
 ) -> TeacherOut:
+    """Approve a single pending teacher (admin only)."""
     teacher = db.query(Teacher).filter(Teacher.id == teacher_id).first()
     if not teacher:
         raise HTTPException(404, "Teacher not found")
-    teacher.status = "approved"
+    setattr(teacher, "status", "approved")
     db.commit()
     db.refresh(teacher)
     return teacher
@@ -255,6 +237,11 @@ def get_teacher_schedule(
     date: str,
     db: Session = Depends(get_db),
 ) -> dict:
+    """
+    Get a teacher's duties for a specific date.
+    Returns duty_type, location (for morning/end-of-day), grade_class (for break),
+    plus assignment_id and already_confirmed status.
+    """
     query_date = date_type.fromisoformat(date)
     teacher = db.query(Teacher).filter(Teacher.id == teacher_id).first()
     if not teacher:
@@ -287,6 +274,7 @@ def get_teacher_week(
     week_start: str,
     db: Session = Depends(get_db),
 ) -> dict:
+    """Get a teacher's duties for an entire week."""
     ws = date_type.fromisoformat(week_start)
     teacher = db.query(Teacher).filter(Teacher.id == teacher_id).first()
     if not teacher:
@@ -313,10 +301,10 @@ def get_teacher_week(
                     duties.append(entry)
 
     return {
-        "teacher_id": teacher_id,
+        "teacher_id":   teacher_id,
         "teacher_name": teacher.name,
-        "week_status": week.status,
-        "duties": duties,
+        "week_status":  week.status,
+        "duties":       duties,
     }
 
 
@@ -331,8 +319,8 @@ def register_device_token(
         raise HTTPException(404, "Teacher not found")
     existing = db.query(DeviceToken).filter(DeviceToken.token == data.token).first()
     if existing:
-        existing.teacher_id = teacher_id
-        existing.platform = data.platform
+        setattr(existing, "teacher_id", teacher_id)
+        setattr(existing, "platform", data.platform)
     else:
         db.add(DeviceToken(teacher_id=teacher_id, token=data.token, platform=data.platform))
     db.commit()

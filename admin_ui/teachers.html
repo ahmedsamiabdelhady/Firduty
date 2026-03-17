@@ -10,7 +10,8 @@
   <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">
   <link rel="apple-touch-icon" sizes="192x192" href="favicon-192x192.png">
 </head>
-<body>
+<body class="teachers-page">
+
 <header class="app-header">
   <h1><img src="logo.png" alt="Firduty" class="header-logo">Firduty</h1>
   <div class="header-actions">
@@ -21,21 +22,23 @@
 
 <nav class="main-nav" id="mainNav" aria-label="Main navigation"></nav>
 
-<main class="main-content teachers-page">
+<main class="main-content teachers-shell">
   <section class="teachers-hero">
     <div>
-      <h2 class="teachers-title">Teachers</h2>
-      <p class="teachers-subtitle">Review registrations, edit teacher records, export data, and manage approvals.</p>
+      <h2>Teachers</h2>
+      <p>Review registrations, edit teacher records, export data, and manage approvals.</p>
     </div>
-    <div class="teachers-hero-actions">
-      <button class="btn btn-primary btn-sm" id="addTeacherBtn" type="button">+ Add New Teacher</button>
-      <button class="btn btn-success btn-sm" id="approveAllBtn" type="button">Approve All Pending</button>
-      <button class="btn btn-secondary btn-sm" id="exportTeachersBtn" type="button">Export CSV</button>
-      <button class="btn btn-secondary btn-sm" id="refreshTeachersBtn" type="button">Refresh</button>
+    <div class="teachers-actions">
+      <button class="btn btn-success btn-sm" type="button" onclick="openAddTeacherModal()">+ Add New Teacher</button>
+      <button class="btn btn-success btn-sm" id="approveAllBtn" type="button" onclick="approveAll()">Approve All Pending</button>
+      <button class="btn btn-secondary btn-sm" type="button" onclick="exportTeachersCSV()">Export CSV</button>
+      <button class="btn btn-secondary btn-sm" type="button" onclick="loadAll()">Refresh</button>
     </div>
   </section>
 
-  <section class="teachers-stats-grid" aria-label="Teacher summary">
+  <div id="alertMsg" class="alert" style="display:none;margin-bottom:16px"></div>
+
+  <section class="teachers-stats-grid">
     <article class="teacher-stat-card">
       <span class="teacher-stat-label">Pending</span>
       <strong class="teacher-stat-value" id="summaryPendingValue">0</strong>
@@ -50,71 +53,61 @@
     </article>
   </section>
 
-  <div id="alertMsg" class="alert" style="display:none"></div>
-
-  <section class="teachers-panel">
-    <div class="teachers-panel-toolbar">
-      <div class="teachers-search-wrap">
-        <input id="teacherSearchInput" class="teachers-search-input" type="search" placeholder="Search teachers..." autocomplete="off">
+  <section class="teachers-page-panel">
+    <div class="teachers-page-toolbar">
+      <div class="teachers-search-wrap-wide">
+        <input type="search" id="teacherSearchInput" class="teacher-search-input" placeholder="Search teachers..." autocomplete="off">
       </div>
-
-      <div class="teachers-tabs" role="tablist" aria-label="Teacher views">
-        <button class="tab-btn active" id="tabPending" type="button" role="tab" aria-selected="true">
-          <span>Pending Approval</span>
-          <span class="tab-count" id="pendingCount">0</span>
+      <div class="teacher-tabbar" role="tablist" aria-label="Teacher tabs">
+        <button class="teacher-tab active" id="tabPending" type="button" onclick="setTab('pending')" aria-selected="true">
+          Pending Approval <span class="teacher-tab-count" id="pendingCount">0</span>
         </button>
-        <button class="tab-btn" id="tabAll" type="button" role="tab" aria-selected="false">
-          <span>All Teachers</span>
-          <span class="tab-count tab-count-muted" id="allCount">0</span>
+        <button class="teacher-tab" id="tabAll" type="button" onclick="setTab('all')" aria-selected="false">
+          All Teachers <span class="teacher-tab-count" id="allCount">0</span>
         </button>
       </div>
     </div>
 
     <div class="teachers-bulkbar" id="teachersBulkbar" style="display:none">
-      <div class="teachers-bulkbar-left">
-        <strong><span id="selectedCount">0</span> selected</strong>
-        <span class="teachers-bulkbar-hint">Bulk actions apply to selected visible teachers.</span>
-      </div>
+      <span><strong id="selectedCount">0</strong> selected</span>
       <div class="teachers-bulkbar-actions">
-        <button class="btn btn-secondary btn-sm" id="clearSelectionBtn" type="button">Clear Selection</button>
-        <button class="btn btn-danger btn-sm" id="bulkDeleteBtn" type="button">Delete Selected</button>
+        <button class="btn btn-danger btn-sm" type="button" onclick="confirmBulkDelete()">Delete Selected</button>
+        <button class="btn btn-secondary btn-sm" type="button" onclick="clearSelection()">Clear</button>
       </div>
     </div>
 
     <div id="pendingSection" class="teachers-section">
-      <div id="pendingLoading" class="table-loading"><div class="spinner"></div></div>
+      <div id="pendingLoading" style="text-align:center;padding:32px"><div class="spinner"></div></div>
       <div id="pendingTableWrap"></div>
     </div>
 
     <div id="allSection" class="teachers-section" style="display:none">
-      <div id="allLoading" class="table-loading"><div class="spinner"></div></div>
+      <div id="allLoading" style="text-align:center;padding:32px"><div class="spinner"></div></div>
       <div id="allTableWrap"></div>
     </div>
   </section>
 </main>
 
 <div class="modal-backdrop" id="teacherModalBackdrop" aria-hidden="true">
-  <div class="teacher-modal" role="dialog" aria-modal="true" aria-labelledby="teacherModalTitle">
-    <div class="teacher-modal-header">
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="teacherModalTitle">
+    <div class="modal-header">
       <div>
         <h3 id="teacherModalTitle">Add Teacher</h3>
-        <p id="teacherModalSubtitle">Create a teacher record directly from the admin dashboard.</p>
+        <p>Create a teacher record directly from the admin dashboard.</p>
       </div>
-      <button class="icon-btn" type="button" id="closeTeacherModalBtn" aria-label="Close">✕</button>
+      <button class="modal-close" type="button" onclick="closeAddTeacherModal()">×</button>
     </div>
-
-    <div class="teacher-modal-body">
+    <div class="modal-body">
+      <div class="form-error" id="teacherFormError" style="display:none"></div>
       <div class="form-field">
         <label for="teacherNameInput">Name</label>
         <input id="teacherNameInput" type="text" autocomplete="off">
       </div>
-
       <div class="form-field">
         <label for="teacherEmailInput">Email</label>
         <input id="teacherEmailInput" type="email" autocomplete="off">
       </div>
-
-      <div class="form-grid-2">
+      <div class="form-grid">
         <div class="form-field">
           <label for="teacherLanguageInput">Language</label>
           <select id="teacherLanguageInput">
@@ -122,7 +115,6 @@
             <option value="en">English</option>
           </select>
         </div>
-
         <div class="form-field">
           <label for="teacherStatusInput">Status</label>
           <select id="teacherStatusInput">
@@ -131,46 +123,43 @@
           </select>
         </div>
       </div>
-
-      <p class="form-error" id="teacherFormError"></p>
     </div>
-
-    <div class="teacher-modal-footer">
-      <button class="btn btn-secondary btn-sm" type="button" id="cancelTeacherModalBtn">Cancel</button>
-      <button class="btn btn-primary btn-sm" type="button" id="saveTeacherModalBtn">Save Teacher</button>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" type="button" onclick="closeAddTeacherModal()">Cancel</button>
+      <button class="btn btn-success" id="saveTeacherModalBtn" type="button" onclick="createTeacher()">Save Teacher</button>
     </div>
   </div>
 </div>
 
 <div class="modal-backdrop" id="deleteTeacherBackdrop" aria-hidden="true">
-  <div class="teacher-modal teacher-modal-sm" role="dialog" aria-modal="true" aria-labelledby="deleteTeacherTitle">
-    <div class="teacher-modal-header">
+  <div class="modal-card modal-card-danger" role="dialog" aria-modal="true" aria-labelledby="deleteTeacherTitle">
+    <div class="modal-header">
       <div>
         <h3 id="deleteTeacherTitle">Remove Teacher</h3>
         <p id="deleteTeacherSubtitle">This will deactivate the selected teacher records and remove them from active lists.</p>
       </div>
-      <button class="icon-btn" type="button" id="closeDeleteModalBtn" aria-label="Close">✕</button>
+      <button class="modal-close" type="button" onclick="closeDeleteModal()">×</button>
     </div>
-
-    <div class="teacher-modal-body">
-      <div class="delete-warning">
+    <div class="modal-body">
+      <div class="danger-summary">
         <strong id="deleteTeacherName">Teacher</strong>
-        <p id="deleteTeacherEmail">—</p>
+        <span id="deleteTeacherEmail">—</span>
       </div>
-      <p class="form-error" id="deleteTeacherError"></p>
+      <div class="form-error" id="deleteTeacherError" style="display:none"></div>
     </div>
-
-    <div class="teacher-modal-footer">
-      <button class="btn btn-secondary btn-sm" type="button" id="cancelDeleteTeacherBtn">Cancel</button>
-      <button class="btn btn-danger btn-sm" type="button" id="confirmDeleteTeacherBtn">Remove</button>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" type="button" onclick="closeDeleteModal()">Cancel</button>
+      <button class="btn btn-danger" id="confirmDeleteBtn" type="button" onclick="deleteQueuedTeachers()">Remove</button>
     </div>
   </div>
 </div>
 
-<script src="js/auth.js?v=111"></script>
-<script src="js/i18n.js?v=111"></script>
-<script src="js/nav.js?v=111"></script>
-<script src="js/teachers.js?v=111"></script>
+<div class="toast-container" id="toastContainer"></div>
+
+<script src="js/auth.js?v=120"></script>
+<script src="js/i18n.js?v=120"></script>
+<script src="js/nav.js?v=120"></script>
+<script src="js/teachers.js?v=120"></script>
 <script>
   I18N.load(localStorage.getItem('firduty_lang') || 'ar').then(() => {
     initNav();
