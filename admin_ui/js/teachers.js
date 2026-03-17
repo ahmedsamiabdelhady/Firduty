@@ -134,53 +134,43 @@ function renderTeacherList(container, teachers, showApprove) {
   if (!container) return;
 
   if (!teachers.length) {
-    container.innerHTML = emptyState(
-      showApprove ? 'no_pending_teachers' : 'no_teachers_yet'
-    );
+    container.innerHTML = emptyState(showApprove ? 'no_pending_teachers' : 'no_teachers_yet');
     return;
   }
 
   const isAr = I18N.getLang() === 'ar';
-
-  const approveHeader = showApprove
-    ? `<th data-i18n="actions">${I18N.t('actions')}</th>`
-    : `<th data-i18n="actions">${I18N.t('actions')}</th>`;
 
   const rows = teachers.map((t, i) => {
     const statusBadge = t.status === 'pending'
       ? `<span class="badge badge-pending">${I18N.t('status_pending')}</span>`
       : `<span class="badge badge-approved">${I18N.t('status_approved')}</span>`;
 
-    const langLabel = t.preferred_language === 'ar'
-      ? I18N.t('arabic')
-      : I18N.t('english');
-
+    const langLabel = t.preferred_language === 'ar' ? I18N.t('arabic') : I18N.t('english');
     const createdAt = t.created_at
-      ? new Date(t.created_at).toLocaleDateString(isAr ? 'ar-OM' : 'en-GB')
-      : '—';
+      ? new Date(t.created_at).toLocaleDateString(isAr ? 'ar-OM' : 'en-GB') : '—';
 
     const approveBtn = showApprove && t.status === 'pending'
-      ? `<button class="btn btn-success btn-sm"
-                id="btn-approve-${t.id}"
-                onclick="approveTeacher(${t.id})"
-                data-i18n="approve">${I18N.t('approve')}</button>`
+      ? `<button class="btn btn-success btn-sm" id="btn-approve-${t.id}" onclick="approveTeacher(${t.id})">${I18N.t('approve')}</button>`
       : '';
 
-    const removeBtn = `<button class="btn btn-danger btn-sm"
-             onclick="openRemoveModal(${t.id},'${escHtml(t.name).replace(/'/g,'&#39;')}')"
-             title="Deactivate">${I18N.t('delete') || 'Deactivate'}</button>`;
-
-    const actionCell = `<td style="white-space:nowrap;display:flex;gap:6px;flex-wrap:wrap">${approveBtn}${removeBtn}</td>`;
+    const actionBtns = `
+      <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center">
+        ${approveBtn}
+        <button class="btn btn-secondary btn-sm" onclick="startEditRow(${t.id})">✏️</button>
+        <button class="btn btn-danger btn-sm"
+                onclick="openRemoveModal(${t.id},'${escHtml(t.name).replace(/'/g,'&#39;')}')"
+                title="Deactivate">🗑</button>
+      </div>`;
 
     return `
-      <tr>
+      <tr id="teacher-row-${t.id}" data-teacher-id="${t.id}">
         <td>${i + 1}</td>
-        <td><strong>${escHtml(t.name)}</strong></td>
-        <td style="font-size:0.83rem;color:var(--text-muted)">${escHtml(t.email || '—')}</td>
-        <td>${statusBadge}</td>
-        <td>${langLabel}</td>
+        <td id="cell-name-${t.id}"><strong>${escHtml(t.name)}</strong></td>
+        <td id="cell-email-${t.id}" style="font-size:0.83rem;color:var(--text-muted)">${escHtml(t.email || '—')}</td>
+        <td id="cell-status-${t.id}">${statusBadge}</td>
+        <td id="cell-lang-${t.id}">${langLabel}</td>
         <td style="font-size:0.82rem;color:var(--text-muted)">${createdAt}</td>
-        ${actionCell}
+        <td id="cell-actions-${t.id}">${actionBtns}</td>
       </tr>`;
   }).join('');
 
@@ -189,12 +179,12 @@ function renderTeacherList(container, teachers, showApprove) {
       <thead>
         <tr>
           <th>#</th>
-          <th data-i18n="name">${I18N.t('name')}</th>
-          <th data-i18n="email">${I18N.t('email')}</th>
-          <th data-i18n="status">${I18N.t('status')}</th>
-          <th data-i18n="language">${I18N.t('language')}</th>
-          <th data-i18n="date">${I18N.t('date')}</th>
-          ${approveHeader}
+          <th>${I18N.t('name')}</th>
+          <th>${I18N.t('email')}</th>
+          <th>${I18N.t('status')}</th>
+          <th>${I18N.t('language')}</th>
+          <th>${I18N.t('date')}</th>
+          <th>${I18N.t('actions')}</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
@@ -207,6 +197,111 @@ function emptyState(i18nKey) {
       <div class="empty-icon">👥</div>
       <p>${I18N.t(i18nKey)}</p>
     </div>`;
+}
+
+/* ─── Inline row edit ─────────────────────────────────────────────────────── */
+
+// Cache of teacher objects by id for quick lookup during edit
+function _getTeacherById(id) {
+  return [..._allPending, ..._allTeachers].find(t => t.id === id) || null;
+}
+
+function startEditRow(id) {
+  const teacher = _getTeacherById(id);
+  if (!teacher) return;
+
+  const row = document.getElementById(`teacher-row-${id}`);
+  if (!row) return;
+  row.classList.add('teacher-row-editing');
+
+  // Name cell
+  document.getElementById(`cell-name-${id}`).innerHTML = `
+    <input class="inline-edit-input" id="edit-name-${id}"
+           value="${escHtml(teacher.name)}" placeholder="Name">`;
+
+  // Email cell
+  document.getElementById(`cell-email-${id}`).innerHTML = `
+    <input class="inline-edit-input" id="edit-email-${id}" type="email"
+           value="${escHtml(teacher.email || '')}" placeholder="Email">`;
+
+  // Status cell
+  document.getElementById(`cell-status-${id}`).innerHTML = `
+    <select class="inline-edit-select" id="edit-status-${id}">
+      <option value="approved" ${teacher.status === 'approved' ? 'selected' : ''}>Approved</option>
+      <option value="pending"  ${teacher.status === 'pending'  ? 'selected' : ''}>Pending</option>
+    </select>`;
+
+  // Language cell
+  document.getElementById(`cell-lang-${id}`).innerHTML = `
+    <select class="inline-edit-select" id="edit-lang-${id}">
+      <option value="ar" ${(teacher.preferred_language ?? 'ar') === 'ar' ? 'selected' : ''}>Arabic</option>
+      <option value="en" ${(teacher.preferred_language ?? 'ar') === 'en' ? 'selected' : ''}>English</option>
+    </select>`;
+
+  // Actions cell
+  document.getElementById(`cell-actions-${id}`).innerHTML = `
+    <div style="display:flex;gap:5px">
+      <button class="btn btn-edit-save btn-sm" onclick="saveEditRow(${id})">💾 Save</button>
+      <button class="btn btn-edit-cancel btn-sm" onclick="cancelEditRow(${id})">✕</button>
+    </div>`;
+
+  // Focus name
+  document.getElementById(`edit-name-${id}`)?.focus();
+
+  // Allow Enter to save, Escape to cancel
+  row.addEventListener('keydown', function _kd(e) {
+    if (e.key === 'Enter')  { saveEditRow(id);   row.removeEventListener('keydown', _kd); }
+    if (e.key === 'Escape') { cancelEditRow(id); row.removeEventListener('keydown', _kd); }
+  });
+}
+
+async function saveEditRow(id) {
+  const name   = document.getElementById(`edit-name-${id}`)?.value.trim();
+  const email  = document.getElementById(`edit-email-${id}`)?.value.trim();
+  const status = document.getElementById(`edit-status-${id}`)?.value;
+  const lang   = document.getElementById(`edit-lang-${id}`)?.value;
+
+  if (!name) {
+    document.getElementById(`edit-name-${id}`)?.focus();
+    showAlert('Name is required', 'danger');
+    return;
+  }
+
+  const saveBtn = document.querySelector(`#teacher-row-${id} .btn-edit-save`);
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = '…'; }
+
+  try {
+    const res = await apiFetch(`/teachers/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        name,
+        email: email || null,
+        status,
+        preferred_language: lang,
+      }),
+    });
+
+    if (!res || !res.ok) {
+      let detail = I18N.t('error_generic');
+      try { const d = await res.json(); detail = d.detail || detail; } catch (_) {}
+      showAlert(detail, 'danger');
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '💾 Save'; }
+      return;
+    }
+
+    showToast('Teacher updated', 'success');
+    await loadAll();
+  } catch (err) {
+    console.error('saveEditRow failed:', err);
+    showAlert(I18N.t('error_generic'), 'danger');
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '💾 Save'; }
+  }
+}
+
+function cancelEditRow(id) {
+  // Just re-render both lists to restore the row
+  renderTeacherList(document.getElementById('pendingTableWrap'), _allPending, true);
+  renderTeacherList(document.getElementById('allTableWrap'),    _allTeachers, false);
 }
 
 /* ─── Approve actions ─────────────────────────────────────────────────────── */

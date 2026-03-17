@@ -4,107 +4,87 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Firduty — Login</title>
-  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" type="image/x-icon"    href="favicon.ico">
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">
   <link rel="apple-touch-icon" sizes="192x192" href="favicon-192x192.png">
-  <link rel="stylesheet" href="css/style.css?v=109">
 </head>
-<body class="login-page">
-  <div class="login-wrapper">
-    <div class="login-bg-orb login-bg-orb-1" aria-hidden="true"></div>
-    <div class="login-bg-orb login-bg-orb-2" aria-hidden="true"></div>
+<body>
 
-    <div class="login-shell">
-      <section class="login-brand-panel" aria-label="Firduty introduction">
-        <div class="login-brand-badge">Firduty Admin</div>
-        <img src="logo.png" alt="Firduty" class="login-logo login-logo-brand">
-        <h1 class="login-brand-title">Firduty</h1>
-        <p class="login-brand-subtitle">
-          Plan duties, approve teachers, and monitor weekly operations from one admin workspace.
-        </p>
+<div class="login-wrapper">
+  <div class="login-split">
 
-        <div class="login-brand-points">
-          <div class="login-point-card">
-            <span class="login-point-icon">📅</span>
-            <div>
-              <strong>Week Planner</strong>
-              <p>Build, update, and publish weekly duty schedules quickly.</p>
-            </div>
-          </div>
-
-          <div class="login-point-card">
-            <span class="login-point-icon">👩‍🏫</span>
-            <div>
-              <strong>Teachers</strong>
-              <p>Approve registrations and manage teacher records with ease.</p>
-            </div>
-          </div>
-
-          <div class="login-point-card">
-            <span class="login-point-icon">📊</span>
-            <div>
-              <strong>Reports</strong>
-              <p>Track workload, confirmations, and school duty coverage.</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <main class="login-card" aria-label="Admin sign in">
-        <div class="login-card-topbar">
-          <button class="btn btn-secondary btn-sm login-lang-btn" id="langBtn" type="button" onclick="toggleLang()">
-            EN | عربي
-          </button>
-        </div>
-
-        <div class="login-card-header">
-          <img src="logo.png" alt="Firduty" class="login-logo login-logo-card">
-          <h2 class="login-title">Welcome back</h2>
-          <p class="login-subtitle">Sign in to continue to the Firduty admin dashboard.</p>
-        </div>
-
-        <div id="loginError" class="sr-only" aria-live="polite"></div>
-
-        <form class="login-form" onsubmit="event.preventDefault(); doLogin();">
-          <div class="form-group">
-            <label for="username" data-i18n="username">Username</label>
-            <div class="input-shell">
-              <input type="text" id="username" data-i18n-placeholder="username" autocomplete="username" autocapitalize="off" spellcheck="false">
-            </div>
-          </div>
-
-          <div class="form-group">
-            <div class="login-label-row">
-              <label for="password" data-i18n="password">Password</label>
-            </div>
-            <div class="input-shell input-shell-password">
-              <input type="password" id="password" data-i18n-placeholder="password" autocomplete="current-password">
-              <button class="password-toggle" type="button" id="togglePasswordBtn" aria-label="Show password" aria-pressed="false" title="Show password">
-                <span class="password-toggle-icon" aria-hidden="true">👁</span>
-              </button>
-            </div>
-          </div>
-
-          <div class="login-options-row">
-            <label class="remember-me">
-              <input type="checkbox" id="rememberMe">
-              <span>Remember me</span>
-            </label>
-          </div>
-
-          <button class="btn btn-primary login-submit-btn" id="loginBtn" type="submit" data-i18n="sign_in">
-            <span class="login-btn-text">Sign In</span>
-          </button>
-        </form>
-      </main>
+    <!-- ── Brand panel (left on desktop, top on mobile) ──────────────────── -->
+    <div class="login-brand">
+      <img src="logo.png" alt="Firduty" class="login-brand-logo">
+      <h1>Firduty</h1>
+      <p>Plan duties, approve teachers, and monitor weekly operations from one admin workspace.</p>
+      <ul class="login-brand-features">
+        <li><span>📅</span><span>Build and publish weekly duty schedules</span></li>
+        <li><span>👩‍🏫</span><span>Approve teacher registrations instantly</span></li>
+        <li><span>📊</span><span>Track points and duty confirmations</span></li>
+      </ul>
     </div>
-  </div>
 
-  <div class="toast-container login-toast-container" id="toastContainer" aria-live="polite" aria-atomic="true"></div>
+    <!-- ── Form panel (right on desktop, bottom on mobile) ──────────────── -->
+    <div class="login-form-panel">
 
-  <script src="js/i18n.js"></script>
-  <script src="js/auth.js"></script>
-  <script src="js/login.js?v=109"></script>
+      <!-- Language toggle -->
+      <div class="login-lang-row">
+        <button class="login-lang-btn" id="langToggle" onclick="toggleLang()">عربي | EN</button>
+      </div>
+
+      <div class="login-form-header">
+        <h2 data-i18n="sign_in">Welcome back</h2>
+        <p>Sign in to continue to the Firduty admin dashboard.</p>
+      </div>
+
+      <!-- Error message -->
+      <div id="loginError" class="login-error" role="alert"></div>
+
+      <!-- Username -->
+      <div class="form-group">
+        <label for="username" data-i18n="username">Username</label>
+        <input
+          type="text"
+          id="username"
+          autocomplete="username"
+          data-i18n-placeholder="username"
+          placeholder="Username"
+          onkeydown="if(event.key==='Enter')document.getElementById('password').focus()"
+        >
+      </div>
+
+      <!-- Password with eye toggle -->
+      <div class="form-group">
+        <label for="password" data-i18n="password">Password</label>
+        <div class="login-input-wrap">
+          <input
+            type="password"
+            id="password"
+            autocomplete="current-password"
+            data-i18n-placeholder="password"
+            placeholder="Password"
+            onkeydown="if(event.key==='Enter')doLogin()"
+          >
+          <button class="login-eye-btn" type="button" onclick="togglePassword()" id="eyeBtn" aria-label="Show password">
+            👁
+          </button>
+        </div>
+      </div>
+
+      <!-- Submit -->
+      <button class="login-submit-btn" id="loginBtn" onclick="doLogin()">
+        <span data-i18n="sign_in">Sign In</span>
+      </button>
+
+    </div><!-- /.login-form-panel -->
+  </div><!-- /.login-split -->
+</div><!-- /.login-wrapper -->
+
+<script src="js/i18n.js?v=3"></script>
+<script src="js/auth.js?v=3"></script>
+<script src="js/login.js?v=3"></script>
 </body>
 </html>
