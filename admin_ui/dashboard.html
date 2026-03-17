@@ -4,41 +4,284 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Firduty — Dashboard</title>
-  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" type="image/x-icon"    href="favicon.ico">
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">
   <link rel="apple-touch-icon" sizes="192x192" href="favicon-192x192.png">
-  <link rel="stylesheet" href="css/style.css">
+
+  <style>
+    /* ── Dashboard page-specific styles ──────────────────────────────────── */
+
+    /* Top stat cards: coloured top-border variant */
+    .dash-stat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 14px;
+      margin-bottom: 24px;
+    }
+    .dash-stat-card {
+      background: var(--white);
+      border-radius: var(--radius-lg);
+      padding: 20px;
+      box-shadow: var(--shadow);
+      border-top: 4px solid var(--nav);
+      text-align: center;
+      transition: box-shadow 0.2s;
+    }
+    .dash-stat-card:hover { box-shadow: var(--shadow-md); }
+    .dash-stat-card.green  { border-top-color: var(--primary); }
+    .dash-stat-card.orange { border-top-color: var(--warning); }
+    .dash-stat-card.red    { border-top-color: var(--danger);  }
+    .dash-stat-icon { font-size: 1.6rem; margin-bottom: 6px; }
+    .dash-stat-value { font-size: 2.2rem; font-weight: 800; color: var(--nav); line-height: 1; }
+    .dash-stat-card.green  .dash-stat-value { color: var(--success-dark); }
+    .dash-stat-card.orange .dash-stat-value { color: #c2410c; }
+    .dash-stat-card.red    .dash-stat-value { color: var(--danger);       }
+    .dash-stat-label { font-size: 0.78rem; color: var(--text-muted); margin-top: 5px; font-weight: 500; }
+
+    /* Section cards (used by dashboard.js for week sections, warnings, etc.) */
+    .section-card {
+      background: var(--white);
+      border-radius: var(--radius-lg);
+      padding: 20px;
+      box-shadow: var(--shadow);
+      margin-bottom: 20px;
+      border: 1px solid var(--border);
+    }
+    .section-card h3 {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: var(--nav);
+      margin-bottom: 16px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* Refresh button in header */
+    .dash-refresh-btn {
+      background: rgba(255,255,255,0.18);
+      border: 1px solid rgba(255,255,255,0.35);
+      color: var(--white);
+      border-radius: var(--radius);
+      padding: 5px 10px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      transition: background 0.15s;
+    }
+    .dash-refresh-btn:hover { background: rgba(255,255,255,0.3); }
+    .dash-refresh-btn.spinning { animation: spin 0.7s linear infinite; }
+
+    /* Two-column grid for week sections */
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      margin-bottom: 0;
+    }
+    @media (max-width: 860px) { .two-col { grid-template-columns: 1fr; } }
+
+    /* Bar chart rows */
+    .bar-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+      font-size: 0.85rem;
+    }
+    .bar-label {
+      width: 140px;
+      text-align: end;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      flex-shrink: 0;
+      color: var(--text-muted);
+      font-size: 0.82rem;
+    }
+    .bar-track  { flex: 1; background: #e9ecef; border-radius: 4px; height: 14px; min-width: 60px; overflow: hidden; }
+    .bar-fill   { height: 14px; border-radius: 4px; background: var(--primary); transition: width 0.5s ease; }
+    .bar-fill.break-type { background: #7c3aed; }
+    .bar-count  { width: 28px; text-align: start; font-weight: 700; color: var(--text); font-size: 0.85rem; }
+
+    /* Warnings list */
+    .warn-list { list-style: none; padding: 0; margin: 0; }
+    .warn-list li {
+      padding: 8px 12px;
+      background: #fff8e1;
+      border-inline-start: 4px solid var(--warning);
+      border-radius: 4px;
+      margin-bottom: 6px;
+      font-size: 0.85rem;
+      color: #7a4f00;
+    }
+    [dir="rtl"] .warn-list li { border-inline-start: none; border-inline-end: 4px solid var(--warning); }
+
+    /* Mini stat cards inside week section */
+    .mini-stat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    .mini-stat {
+      background: var(--bg);
+      border-radius: var(--radius);
+      padding: 10px 12px;
+      text-align: center;
+      border: 1px solid var(--border);
+    }
+    .mini-stat-value { font-size: 1.4rem; font-weight: 800; color: var(--nav); }
+    .mini-stat-value.red    { color: var(--danger); }
+    .mini-stat-value.green  { color: var(--success-dark); }
+    .mini-stat-value.orange { color: #c2410c; }
+    .mini-stat-label { font-size: 0.72rem; color: var(--text-muted); margin-top: 2px; }
+
+    /* Fill bar for daily overview */
+    .day-fill-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 6px;
+      font-size: 0.82rem;
+    }
+    .day-fill-bar-name { width: 80px; flex-shrink: 0; color: var(--text-muted); }
+    .day-fill-bar-track { flex: 1; background: #e9ecef; border-radius: 4px; height: 12px; overflow: hidden; }
+    .day-fill-bar-fill  { height: 12px; border-radius: 4px; background: var(--primary); transition: width 0.5s ease; }
+    .day-fill-bar-pct   { width: 36px; text-align: end; font-weight: 600; font-size: 0.78rem; color: var(--text-muted); }
+
+    /* Rank badges */
+    .rank-badge {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 26px; height: 26px; border-radius: 50%;
+      font-weight: 700; font-size: 0.8rem;
+      background: var(--bg); color: var(--text-muted);
+    }
+    .rank-badge.gold   { background: #fbbf24; color: #7c3500; }
+    .rank-badge.silver { background: #9ca3af; color: #1f2937; }
+    .rank-badge.bronze { background: #b45309; color: #fff; }
+
+    /* Status pills */
+    .status-pill {
+      display: inline-block; padding: 2px 10px;
+      border-radius: 12px; font-size: 0.78rem; font-weight: 600;
+    }
+    .status-pill.published { background: #d1fae5; color: #065f46; }
+    .status-pill.draft     { background: #fef9c3; color: #92400e; }
+    .status-pill.none      { background: #f3f4f6; color: #6b7280; }
+
+    /* Teacher chips for "no duty" list */
+    .no-duty-chip {
+      display: inline-block;
+      background: #fee2e2; color: #b91c1c;
+      border-radius: 10px; padding: 2px 10px;
+      font-size: 0.78rem; margin: 2px 3px;
+    }
+
+    /* Teacher table inside section */
+    .teacher-mini-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    .teacher-mini-table th {
+      text-align: start; padding: 6px 10px;
+      color: var(--text-muted); font-weight: 600; font-size: 0.75rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .teacher-mini-table td { padding: 7px 10px; border-bottom: 1px solid #f3f4f6; }
+    .teacher-mini-table tr:last-child td { border-bottom: none; }
+
+    /* Loading skeleton */
+    .dash-loading {
+      text-align: center;
+      padding: 80px 20px;
+      color: var(--text-muted);
+    }
+    .dash-loading .spinner { margin: 0 auto 16px; }
+    .dash-loading p { font-size: 0.9rem; }
+
+    /* Error state */
+    .dash-error {
+      text-align: center;
+      padding: 60px 20px;
+      color: var(--danger);
+    }
+    .dash-error .error-icon { font-size: 2.5rem; margin-bottom: 12px; }
+    .dash-error p { font-size: 0.9rem; margin-bottom: 16px; color: var(--text-muted); }
+
+    /* Greet line */
+    .dash-greet {
+      margin-bottom: 20px;
+      padding: 18px 20px;
+      background: var(--white);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .dash-greet-text h2 {
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 2px;
+    }
+    .dash-greet-text p { font-size: 0.82rem; color: var(--text-muted); }
+    .dash-updated { font-size: 0.78rem; color: var(--text-muted); }
+  </style>
 </head>
 <body>
 
+<!-- Instant auth guard — redirect before any rendering -->
+<script>
+  if (!localStorage.getItem('firduty_token')) {
+    window.location.replace('login.html');
+  }
+</script>
+
+<!-- ── Header ───────────────────────────────────────────────────────────────── -->
 <header class="app-header">
-  <h1><img src="logo.png" alt="Firduty" class="header-logo">Firduty</h1>
+  <h1>
+    <img src="logo.png" alt="Firduty" width="32" height="32">
+    <span data-i18n="app_title">Firduty</span>
+  </h1>
   <div class="header-actions">
-    <button class="btn btn-icon" title="Refresh" onclick="loadDashboard()" style="color:var(--white);font-size:1.1rem;padding:4px 10px">↺</button>
-    <button class="btn btn-lang btn-sm" onclick="I18N.toggle().then(()=>location.reload())">عربي | EN</button>
+    <button class="dash-refresh-btn" id="refreshBtn" onclick="refreshDashboard()" title="Refresh">↺</button>
+    <button class="btn btn-lang btn-sm"
+            data-lang-toggle
+            onclick="I18N.toggle().then(()=>location.reload())">عربي | EN</button>
     <button class="btn btn-lang btn-sm" onclick="logout()" data-i18n="logout">Logout</button>
   </div>
 </header>
 
-<nav class="main-nav" id="mainNav" aria-label="Main navigation"></nav>
-
+<!-- ── Main ─────────────────────────────────────────────────────────────────── -->
 <main class="main-content">
-  <div id="dashContent"></div>
+
+  <!-- Navigation — uses global .nav-bar / .nav-btn (no inline override) -->
+  <nav class="nav-bar">
+    <a class="nav-btn active" href="dashboard.html"  data-i18n="dashboard">Dashboard</a>
+    <a class="nav-btn"        href="planner.html"    data-i18n="week_planner">Week Planner</a>
+    <a class="nav-btn"        href="reports.html"    data-i18n="monthly_report">Monthly Report</a>
+    <a class="nav-btn"        href="teachers.html"   data-i18n="teacher_approval">Teachers</a>
+  </nav>
+
+  <!-- Dashboard content (filled by dashboard.js) -->
+  <div id="dashContent">
+    <div class="dash-loading">
+      <div class="spinner"></div>
+      <p data-i18n="loading">Loading…</p>
+    </div>
+  </div>
+
 </main>
 
 <div class="toast-container" id="toastContainer"></div>
 
-<script src="js/auth.js?v=101"></script>
-<script src="js/i18n.js?v=101"></script>
-<script src="js/nav.js?v=101"></script>
-<script src="js/dashboard.js?v=101"></script>
-<script>
-  if (!localStorage.getItem('firduty_token')) { window.location.href = 'login.html'; }
-  I18N.load(localStorage.getItem('firduty_lang') || 'ar').then(() => {
-    initNav();
-    loadDashboard();
-  });
-</script>
+<!-- Script order: i18n first, then auth, then page logic -->
+<script src="js/i18n.js?v=3"></script>
+<script src="js/auth.js?v=3"></script>
+<script src="js/dashboard.js?v=3"></script>
 </body>
 </html>
