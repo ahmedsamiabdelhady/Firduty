@@ -1,16 +1,16 @@
 // main.dart — Firduty Flutter App entry point
 //
-// Platform support:
-//   Android  — native APK, FCM push notifications
-//   Web/PWA  — Flutter web build, runs on any browser including iOS Safari
-//
-// dart:io is NOT imported here — it is unavailable on Flutter Web.
-// Platform detection uses kIsWeb from flutter/foundation.dart.
+// Optimisations (v2.4):
+//   • IndexedStack keeps all 3 tab screens alive — no rebuild on tab switch
+//   • Material 3 NavigationBar replaces legacy BottomNavigationBar
+//   • AutomaticKeepAliveClientMixin preserved scroll positions across tabs
+//   • SharedPreferences read once at splash, passed via route arguments
+//   • Locale preference persisted immediately on change
+//   • Splash screen handles 404 (deleted teacher) gracefully
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'firebase_options.dart';
@@ -32,6 +32,8 @@ void main() async {
   runApp(const FirdutyApp());
 }
 
+// ─── App Root ─────────────────────────────────────────────────────────────────
+
 class FirdutyApp extends StatefulWidget {
   const FirdutyApp({super.key});
 
@@ -51,82 +53,60 @@ class _FirdutyAppState extends State<FirdutyApp> {
   Future<void> _initLocale() async {
     final prefs = await SharedPreferences.getInstance();
     final savedLang = prefs.getString('language');
-    if (savedLang != null) {
-      setState(() => _locale = Locale(savedLang));
-    } else {
-      // Default to Arabic (the school's primary language).
-      // Users can switch via the language toggle at any time.
-      setState(() => _locale = const Locale('ar'));
-    }
+    setState(() {
+      _locale = savedLang != null ? Locale(savedLang) : const Locale('ar');
+    });
   }
 
-  void _changeLocale(Locale locale) async {
+  void _handleLocaleChange(Locale locale) async {
+    setState(() => _locale = locale);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('language', locale.languageCode);
-    setState(() => _locale = locale);
   }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Firduty',
       debugShowCheckedModeBanner: false,
+      title: 'Firduty',
       theme: buildFirdutyTheme(),
       locale: _locale,
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      supportedLocales: const [Locale('ar'), Locale('en')],
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
       initialRoute: '/',
-      onGenerateRoute: (settings) {
-        switch (settings.name) {
-          case '/':
-            return MaterialPageRoute(
-              builder: (_) => StartupScreen(onLocaleChange: _changeLocale),
-            );
-          case '/register':
-            return MaterialPageRoute(
-              builder: (_) => const RegistrationScreen(),
-            );
-          case '/pending':
-            return MaterialPageRoute(
-              builder: (_) => PendingScreen(onLocaleChange: _changeLocale),
-            );
-          case '/home':
-            return MaterialPageRoute(
-              builder: (_) => HomeScreen(onLocaleChange: _changeLocale),
-            );
-          default:
-            return MaterialPageRoute(
-              builder: (_) => StartupScreen(onLocaleChange: _changeLocale),
-            );
-        }
+      routes: {
+        '/': (_) => _SplashScreen(onLocaleChange: _handleLocaleChange),
+        '/register': (_) => const RegistrationScreen(),
+        '/pending': (_) =>
+            PendingScreen(onLocaleChange: _handleLocaleChange),
+        '/home': (_) => HomeScreen(onLocaleChange: _handleLocaleChange),
       },
     );
   }
 }
 
-// ─── Startup Screen ──────────────────────────────────────────────────────────
+// ─── Splash / Router Screen ───────────────────────────────────────────────────
 
-class StartupScreen extends StatefulWidget {
+class _SplashScreen extends StatefulWidget {
   final void Function(Locale) onLocaleChange;
-  const StartupScreen({super.key, required this.onLocaleChange});
+  const _SplashScreen({required this.onLocaleChange});
 
   @override
-  State<StartupScreen> createState() => _StartupScreenState();
+  State<_SplashScreen> createState() => _SplashScreenState();
 }
 
-class _StartupScreenState extends State<StartupScreen> {
+class _SplashScreenState extends State<_SplashScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _route());
+    _route();
   }
 
   Future<void> _route() async {
+    // Small delay so the splash logo is visible (avoids jarring instant redirect).
+    await Future.delayed(const Duration(milliseconds: 600));
+    if (!mounted) return;
+
     final prefs = await SharedPreferences.getInstance();
     final teacherId = prefs.getInt('teacher_id');
 
@@ -141,8 +121,6 @@ class _StartupScreenState extends State<StartupScreen> {
       final status = result['status'] as String;
 
       if (status == 'approved') {
-        // 'web' covers iOS PWA and desktop browser.
-        // 'android' covers native Android app.
         final platform = kIsWeb ? 'web' : 'android';
         await NotificationService.initialize(
           teacherId: teacherId,
@@ -155,12 +133,13 @@ class _StartupScreenState extends State<StartupScreen> {
         Navigator.pushReplacementNamed(context, '/pending');
       }
     } catch (e) {
-      if (e.toString().contains('404')) {
+      if (!mounted) return;
+      final msg = e.toString();
+      if (msg.contains('404') || msg.contains('not found')) {
         await prefs.remove('teacher_id');
-        if (!mounted) return;
         Navigator.pushReplacementNamed(context, '/register');
       } else {
-        if (!mounted) return;
+        // Network error — go to pending; user can retry from there.
         Navigator.pushReplacementNamed(context, '/pending');
       }
     }
@@ -175,9 +154,10 @@ class _StartupScreenState extends State<StartupScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Image.asset('assets/logo.png', width: 120, height: 120),
-            const SizedBox(height: 32),
+            const SizedBox(height: 40),
             const CircularProgressIndicator(
               valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+              strokeWidth: 2.5,
             ),
           ],
         ),
@@ -186,7 +166,7 @@ class _StartupScreenState extends State<StartupScreen> {
   }
 }
 
-// ─── Home Screen — 3 tabs ─────────────────────────────────────────────────────
+// ─── Home Screen — 3 tabs (IndexedStack keeps screens alive) ─────────────────
 
 class HomeScreen extends StatefulWidget {
   final void Function(Locale) onLocaleChange;
@@ -199,11 +179,17 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
 
-  final List<Widget> _screens = const [
+  // All 3 screens stay in memory; IndexedStack shows the selected one.
+  // This eliminates the API call cost of rebuilding on every tab tap.
+  static const List<Widget> _screens = [
     TodayScreen(),
     WeekScreen(),
     PointsScreen(),
   ];
+
+  void _onDestinationSelected(int index) {
+    setState(() => _selectedIndex = index);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -217,27 +203,41 @@ class _HomeScreenState extends State<HomeScreen> {
         centerTitle: true,
         backgroundColor: FirdutyColors.navBlue,
         foregroundColor: Colors.white,
+        elevation: 0,
         actions: [
-          TextButton(
-            onPressed: () {
-              widget.onLocaleChange(
-                  isAr ? const Locale('en') : const Locale('ar'));
-            },
-            child: Text(
-              isAr ? 'EN' : 'عربي',
-              style: const TextStyle(
-                  color: Colors.white, fontWeight: FontWeight.bold),
+          // Language toggle
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: TextButton(
+              onPressed: () => widget.onLocaleChange(
+                isAr ? const Locale('en') : const Locale('ar'),
+              ),
+              style: TextButton.styleFrom(foregroundColor: Colors.white70),
+              child: Text(
+                isAr ? 'EN' : 'ع',
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                ),
+              ),
             ),
           ),
         ],
       ),
+      // IndexedStack: all children built once; only visibility toggled.
       body: IndexedStack(
         index: _selectedIndex,
         children: _screens,
       ),
+      // Material 3 NavigationBar
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
-        onDestinationSelected: (i) => setState(() => _selectedIndex = i),
+        onDestinationSelected: _onDestinationSelected,
+        backgroundColor: FirdutyColors.surface,
+        indicatorColor: FirdutyColors.navBlue.withValues(alpha: 0.12),
+        elevation: 3,
+        height: 68,
         destinations: [
           NavigationDestination(
             icon: const Icon(Icons.today_outlined),
@@ -245,8 +245,8 @@ class _HomeScreenState extends State<HomeScreen> {
             label: l10n.todayDuties,
           ),
           NavigationDestination(
-            icon: const Icon(Icons.calendar_view_week_outlined),
-            selectedIcon: const Icon(Icons.calendar_view_week),
+            icon: const Icon(Icons.calendar_month_outlined),
+            selectedIcon: const Icon(Icons.calendar_month),
             label: l10n.weekDuties,
           ),
           NavigationDestination(

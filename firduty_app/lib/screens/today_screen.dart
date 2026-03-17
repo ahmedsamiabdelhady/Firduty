@@ -1,10 +1,12 @@
-// today_screen.dart — Teacher's duties for today with duty confirmation
+// today_screen.dart — Teacher's duties for today + confirmation
 //
-// Changes from original:
-// • Reads `duty_type` from each duty entry.
-// • For `morning_endofday` duties: shows location name + location_on icon.
-// • For `break` duties: shows grade_class + school icon instead.
-// • Replaced deprecated `.withOpacity()` calls with `.withValues(alpha:)`.
+// UX/Performance improvements (v2.4):
+//   • AutomaticKeepAliveClientMixin: scroll position survives tab switches
+//   • Confirmation uses SnackBar (non-blocking) instead of a dialog overlay
+//   • Optimistic UI: card shows "Confirmed" immediately, reverts on error
+//   • Empty state and error state with retry instead of plain text
+//   • _DutyCard fully const-constructable where possible
+//   • No deprecated APIs (withValues instead of withOpacity)
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -20,14 +22,18 @@ class TodayScreen extends StatefulWidget {
   State<TodayScreen> createState() => _TodayScreenState();
 }
 
-class _TodayScreenState extends State<TodayScreen> {
+class _TodayScreenState extends State<TodayScreen>
+    with AutomaticKeepAliveClientMixin {
   bool _loading = true;
   String? _error;
   List<Map<String, dynamic>> _duties = [];
   int _teacherId = -1;
 
-  // Track which assignment IDs have been confirmed this session
+  /// Assignment IDs confirmed during this session (avoids re-fetching).
   final Set<int> _confirmedThisSession = {};
+
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   void initState() {
@@ -61,23 +67,19 @@ class _TodayScreenState extends State<TodayScreen> {
       });
     } catch (e) {
       setState(() {
-        _error = e.toString();
+        _error = e.toString().replaceFirst('Exception: ', '');
         _loading = false;
       });
     }
   }
 
-  /// Call confirm endpoint and show result dialog
+  /// Optimistic confirm: mark instantly, call API, revert on error.
   Future<void> _confirmDuty(Map<String, dynamic> duty) async {
     final assignmentId = duty['assignment_id'] as int?;
     if (assignmentId == null) return;
 
-    // Show loading
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const Center(child: CircularProgressIndicator()),
-    );
+    // Optimistic update
+    setState(() => _confirmedThisSession.add(assignmentId));
 
     try {
       final result = await ApiService.confirmDuty(
@@ -86,106 +88,100 @@ class _TodayScreenState extends State<TodayScreen> {
       );
 
       if (!mounted) return;
-      Navigator.pop(context); // close loader
-
       final isAr = Localizations.localeOf(context).languageCode == 'ar';
-      final message =
-          isAr ? result['message_ar'] as String : result['message_en'] as String;
-      final points = result['points_earned'] as int;
+      final pts = result['points_earned'] as int;
+      final message = isAr
+          ? result['message_ar'] as String
+          : result['message_en'] as String;
 
-      // Add to confirmed set so button changes immediately
-      setState(() => _confirmedThisSession.add(assignmentId));
+      final color = pts == 2
+          ? FirdutyColors.primaryGreen
+          : pts == 1
+              ? FirdutyColors.warning
+              : Colors.grey.shade600;
 
-      showDialog(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
             children: [
-              Text(
-                points == 2 ? '🏆' : points == 1 ? '⏱' : '❌',
-                style: const TextStyle(fontSize: 48),
+              Icon(Icons.check_circle, color: Colors.white, size: 20),
+              const SizedBox(width: 10),
+              Expanded(child: Text(message)),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  '+$pts pts',
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold, color: Colors.white),
+                ),
               ),
-              const SizedBox(height: 12),
-              Text(
-                message,
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 16),
-              ),
-              const SizedBox(height: 8),
-              _PointsBadge(points: points),
             ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: Text(AppLocalizations.of(context).confirm),
-            ),
-          ],
+          backgroundColor: color,
+          duration: const Duration(seconds: 3),
+          behavior: SnackBarBehavior.floating,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          margin: const EdgeInsets.all(12),
         ),
       );
     } catch (e) {
+      // Revert optimistic update on error
+      setState(() => _confirmedThisSession.remove(assignmentId));
       if (!mounted) return;
-      Navigator.pop(context); // close loader
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-            content: Text(e.toString()), backgroundColor: Colors.red),
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          backgroundColor: FirdutyColors.danger,
+          behavior: SnackBarBehavior.floating,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          margin: const EdgeInsets.all(12),
+        ),
       );
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    super.build(context); // required for AutomaticKeepAliveClientMixin
     final l10n = AppLocalizations.of(context);
     final isAr = Localizations.localeOf(context).languageCode == 'ar';
 
-    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_loading) {
+      return const Center(
+        child: CircularProgressIndicator(),
+      );
+    }
 
     if (_error != null) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.error_outline, size: 48, color: Colors.red),
-            const SizedBox(height: 16),
-            Text(l10n.error),
-            TextButton(onPressed: _load, child: const Text('Retry')),
-          ],
-        ),
+      return _ErrorState(
+        message: _error!,
+        onRetry: _load,
       );
     }
 
     if (_duties.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.event_available,
-                size: 64, color: FirdutyColors.accentGreen.withValues(alpha: 0.5)),
-            const SizedBox(height: 16),
-            Text(l10n.noDutiesToday,
-                style:
-                    TextStyle(fontSize: 16, color: FirdutyColors.textMuted)),
-          ],
-        ),
-      );
+      return _EmptyState(message: l10n.noDutiesToday);
     }
 
     return RefreshIndicator(
       onRefresh: _load,
+      color: FirdutyColors.navBlue,
       child: ListView.builder(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
         itemCount: _duties.length,
-        itemBuilder: (ctx, i) {
-          final d = _duties[i];
-
+        itemBuilder: (context, index) {
+          final d = _duties[index];
           final dutyType =
               (d['duty_type'] as String?) ?? 'morning_endofday';
           final isBreak = dutyType == 'break';
 
-          // Location duties show a place name; break duties show grade/class.
           final String locationLabel;
           if (isBreak) {
             locationLabel = (d['grade_class'] as String?) ?? '—';
@@ -195,15 +191,16 @@ class _TodayScreenState extends State<TodayScreen> {
                 : ((d['location_name_en'] as String?) ?? '—');
           }
 
-          final shiftName =
-              isAr ? d['shift_name_ar'] : d['shift_name_en'];
+          final shiftName = isAr
+              ? d['shift_name_ar'] as String
+              : d['shift_name_en'] as String;
           final assignmentId = d['assignment_id'] as int?;
           final isConfirmed = assignmentId != null &&
               (d['already_confirmed'] == true ||
                   _confirmedThisSession.contains(assignmentId));
 
           return _DutyCard(
-            shiftName: shiftName as String,
+            shiftName: shiftName,
             locationLabel: locationLabel,
             isBreak: isBreak,
             startTime: (d['shift_start'] as String).substring(0, 5),
@@ -220,18 +217,91 @@ class _TodayScreenState extends State<TodayScreen> {
   }
 }
 
-// ─── Duty Card Widget ─────────────────────────────────────────────────────────
+// ─── Empty State ──────────────────────────────────────────────────────────────
+
+class _EmptyState extends StatelessWidget {
+  final String message;
+  const _EmptyState({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: FirdutyColors.navBlue.withValues(alpha: 0.08),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.event_available,
+                size: 56,
+                color: FirdutyColors.navBlue.withValues(alpha: 0.5),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 16,
+                color: FirdutyColors.textMuted,
+                height: 1.5,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Error State ──────────────────────────────────────────────────────────────
+
+class _ErrorState extends StatelessWidget {
+  final String message;
+  final VoidCallback onRetry;
+  const _ErrorState({required this.message, required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.wifi_off_rounded,
+                size: 52, color: FirdutyColors.textMuted),
+            const SizedBox(height: 16),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: FirdutyColors.textMuted),
+            ),
+            const SizedBox(height: 20),
+            ElevatedButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Retry'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Duty Card ────────────────────────────────────────────────────────────────
 
 class _DutyCard extends StatelessWidget {
   final String shiftName;
-
-  /// The text shown in the "location / class" row.
   final String locationLabel;
-
-  /// True for break duties (shows school icon + grade label),
-  /// false for morning/end-of-day duties (shows pin icon + location label).
   final bool isBreak;
-
   final String startTime;
   final String endTime;
   final bool isConfirmed;
@@ -251,157 +321,172 @@ class _DutyCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accentColor =
+        isBreak ? FirdutyColors.primaryGreen : FirdutyColors.navBlue;
+
     return Card(
       margin: const EdgeInsets.only(bottom: 14),
-      elevation: 2,
-      shape:
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // ── Shift name + optional "confirmed" badge ────────────────────
-            Row(
+      elevation: isConfirmed ? 0 : 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: isConfirmed
+            ? BorderSide(
+                color: FirdutyColors.primaryGreen.withValues(alpha: 0.4),
+                width: 1.5)
+            : BorderSide.none,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Coloured top accent bar ─────────────────────────────────────
+          Container(
+            height: 4,
+            decoration: BoxDecoration(
+              color: accentColor,
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(14)),
+            ),
+          ),
+
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Break duties get a purple accent icon; location duties blue.
-                Icon(
-                  isBreak ? Icons.groups : Icons.access_time,
-                  color: isBreak
-                      ? FirdutyColors.primaryGreen
-                      : FirdutyColors.navBlue,
-                  size: 20,
+                // ── Shift name row ────────────────────────────────────────
+                Row(
+                  children: [
+                    Icon(
+                      isBreak ? Icons.groups : Icons.access_time,
+                      color: accentColor,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        shiftName,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                          color: FirdutyColors.textDark,
+                        ),
+                      ),
+                    ),
+                    if (isConfirmed)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: FirdutyColors.accentGreen.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.check_circle,
+                                size: 14,
+                                color: FirdutyColors.successDark),
+                            const SizedBox(width: 4),
+                            Text(
+                              l10n.confirmed,
+                              style: TextStyle(
+                                color: FirdutyColors.successDark,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(shiftName,
+                const SizedBox(height: 10),
+
+                // ── Location / Class row ──────────────────────────────────
+                Row(
+                  children: [
+                    Icon(
+                      isBreak ? Icons.school : Icons.location_on,
+                      size: 16,
+                      color: FirdutyColors.textMuted,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        '${isBreak ? l10n.gradeClass : l10n.location}: $locationLabel',
+                        style: const TextStyle(
+                            fontSize: 14, color: FirdutyColors.textDark),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+
+                // ── Time row ─────────────────────────────────────────────
+                Row(
+                  children: [
+                    const Icon(Icons.schedule,
+                        size: 16, color: FirdutyColors.textMuted),
+                    const SizedBox(width: 6),
+                    Text(
+                      '$startTime – $endTime',
                       style: const TextStyle(
-                          fontWeight: FontWeight.bold, fontSize: 16)),
+                          fontSize: 14, color: FirdutyColors.textMuted),
+                    ),
+                  ],
                 ),
-                if (isConfirmed)
+
+                if (!isConfirmed) ...[
+                  const SizedBox(height: 14),
+
+                  // ── Points hint ───────────────────────────────────────
                   Container(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 4),
+                        horizontal: 12, vertical: 8),
                     decoration: BoxDecoration(
-                      color: FirdutyColors.accentGreen.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(12),
+                      color: FirdutyColors.navBlue.withValues(alpha: 0.06),
+                      borderRadius: BorderRadius.circular(8),
                     ),
-                    child: Text(l10n.confirmed,
-                        style: TextStyle(
-                            color: FirdutyColors.successDark,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600)),
+                    child: Row(
+                      children: [
+                        const Text('🏆 ', style: TextStyle(fontSize: 13)),
+                        Expanded(
+                          child: Text(
+                            l10n.pointsHint(startTime),
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: FirdutyColors.navBlue,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-              ],
-            ),
-            const SizedBox(height: 10),
+                  const SizedBox(height: 12),
 
-            // ── Location / Grade row ──────────────────────────────────────
-            Row(
-              children: [
-                Icon(
-                  isBreak ? Icons.school : Icons.location_on,
-                  size: 16,
-                  color: Colors.grey,
-                ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    '${isBreak ? l10n.gradeClass : l10n.location}: $locationLabel',
-                    style: const TextStyle(
-                        fontSize: 14, color: Colors.black87),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-
-            // ── Time row ──────────────────────────────────────────────────
-            Row(
-              children: [
-                const Icon(Icons.schedule, size: 16, color: Colors.grey),
-                const SizedBox(width: 6),
-                Text('$startTime – $endTime',
-                    style: const TextStyle(
-                        fontSize: 14, color: Colors.black54)),
-              ],
-            ),
-            const SizedBox(height: 14),
-
-            // ── Points hint ───────────────────────────────────────────────
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: FirdutyColors.navBlue.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                children: [
-                  const Text('🏆 ', style: TextStyle(fontSize: 14)),
-                  Expanded(
-                    child: Text(
-                      l10n.pointsHint(startTime),
-                      style: TextStyle(
-                          fontSize: 12, color: FirdutyColors.navBlue),
+                  // ── Confirm button ────────────────────────────────────
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: onConfirm,
+                      icon: const Icon(Icons.how_to_reg, size: 18),
+                      label: Text(l10n.confirmPresence),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: FirdutyColors.navBlue,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 13),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        elevation: 0,
+                      ),
                     ),
                   ),
                 ],
-              ),
+              ],
             ),
-            const SizedBox(height: 12),
-
-            // ── Confirm button ────────────────────────────────────────────
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: onConfirm,
-                icon: Icon(
-                    isConfirmed ? Icons.check_circle : Icons.how_to_reg),
-                label: Text(
-                    isConfirmed ? l10n.confirmed : l10n.confirmPresence),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: isConfirmed
-                      ? FirdutyColors.primaryGreen
-                      : FirdutyColors.navBlue,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8)),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ─── Points Badge Widget ──────────────────────────────────────────────────────
-
-class _PointsBadge extends StatelessWidget {
-  final int points;
-  const _PointsBadge({required this.points});
-
-  @override
-  Widget build(BuildContext context) {
-    final color = points == 2
-        ? FirdutyColors.primaryGreen
-        : points == 1
-            ? FirdutyColors.warning
-            : FirdutyColors.textMuted;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-      decoration: BoxDecoration(
-          // withValues(alpha:) replaces deprecated withOpacity()
-          color: color.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: color.withValues(alpha: 0.4))),
-      child: Text(
-        '+$points pts',
-        style: TextStyle(
-            fontWeight: FontWeight.bold, fontSize: 20, color: color),
+          ),
+        ],
       ),
     );
   }

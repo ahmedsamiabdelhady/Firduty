@@ -25,11 +25,12 @@
   <section class="teachers-hero">
     <div>
       <h2 class="teachers-title">Teachers</h2>
-      <p class="teachers-subtitle">Review registrations and manage approvals with a mobile-friendly layout.</p>
+      <p class="teachers-subtitle">Review registrations, edit teacher records, export data, and manage approvals.</p>
     </div>
     <div class="teachers-hero-actions">
       <button class="btn btn-primary btn-sm" id="addTeacherBtn" type="button">+ Add New Teacher</button>
       <button class="btn btn-success btn-sm" id="approveAllBtn" type="button">Approve All Pending</button>
+      <button class="btn btn-secondary btn-sm" id="exportTeachersBtn" type="button">Export CSV</button>
       <button class="btn btn-secondary btn-sm" id="refreshTeachersBtn" type="button">Refresh</button>
     </div>
   </section>
@@ -64,7 +65,19 @@
         </button>
         <button class="tab-btn" id="tabAll" type="button" role="tab" aria-selected="false">
           <span>All Teachers</span>
+          <span class="tab-count tab-count-muted" id="allCount">0</span>
         </button>
+      </div>
+    </div>
+
+    <div class="teachers-bulkbar" id="teachersBulkbar" style="display:none">
+      <div class="teachers-bulkbar-left">
+        <strong><span id="selectedCount">0</span> selected</strong>
+        <span class="teachers-bulkbar-hint">Bulk actions apply to selected visible teachers.</span>
+      </div>
+      <div class="teachers-bulkbar-actions">
+        <button class="btn btn-secondary btn-sm" id="clearSelectionBtn" type="button">Clear Selection</button>
+        <button class="btn btn-danger btn-sm" id="bulkDeleteBtn" type="button">Delete Selected</button>
       </div>
     </div>
 
@@ -134,7 +147,7 @@
     <div class="teacher-modal-header">
       <div>
         <h3 id="deleteTeacherTitle">Remove Teacher</h3>
-        <p>This will deactivate the teacher and remove them from active lists.</p>
+        <p id="deleteTeacherSubtitle">This will deactivate the selected teacher records and remove them from active lists.</p>
       </div>
       <button class="icon-btn" type="button" id="closeDeleteModalBtn" aria-label="Close">✕</button>
     </div>
@@ -154,10 +167,10 @@
   </div>
 </div>
 
-<script src="js/auth.js?v=110"></script>
-<script src="js/i18n.js?v=110"></script>
-<script src="js/nav.js?v=110"></script>
-<script src="js/teachers.js?v=110"></script>
+<script src="js/auth.js?v=111"></script>
+<script src="js/i18n.js?v=111"></script>
+<script src="js/nav.js?v=111"></script>
+<script src="js/teachers.js?v=111"></script>
 <script>
   I18N.load(localStorage.getItem('firduty_lang') || 'ar').then(() => {
     initNav();

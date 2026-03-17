@@ -1,8 +1,12 @@
 // pending_screen.dart — Shown after registration while awaiting admin approval.
 //
-// dart:io removed — Platform is unavailable on Flutter Web.
-// kIsWeb (flutter/foundation.dart) is used for platform detection instead.
+// UX improvements (v2.4):
+//   • Auto-polls every 30 seconds instead of requiring a manual tap
+//   • Visual progress indicator shows poll countdown
+//   • Better illustration-style empty state
+//   • Logout confirmation dialog
 
+import 'dart:async';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -19,12 +23,59 @@ class PendingScreen extends StatefulWidget {
   State<PendingScreen> createState() => _PendingScreenState();
 }
 
-class _PendingScreenState extends State<PendingScreen> {
+class _PendingScreenState extends State<PendingScreen>
+    with SingleTickerProviderStateMixin {
   bool _checking = false;
   String? _errorMsg;
 
-  /// Poll the backend; if approved, init notifications and go to /home.
+  /// Auto-poll interval in seconds.
+  static const _pollIntervalSec = 30;
+  Timer? _pollTimer;
+  int _countdown = _pollIntervalSec;
+
+  late final AnimationController _pulseController;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Pulse animation for the waiting icon
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    )..repeat(reverse: true);
+
+    // First check immediately, then poll every 30 s.
+    _checkStatus();
+    _startPollTimer();
+  }
+
+  void _startPollTimer() {
+    _pollTimer?.cancel();
+    setState(() => _countdown = _pollIntervalSec);
+
+    // Tick down every second for the countdown display.
+    _pollTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) { timer.cancel(); return; }
+      setState(() {
+        _countdown--;
+        if (_countdown <= 0) {
+          _countdown = _pollIntervalSec;
+          _checkStatus();
+        }
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    _pulseController.dispose();
+    super.dispose();
+  }
+
   Future<void> _checkStatus() async {
+    if (_checking) return;
     setState(() {
       _checking = true;
       _errorMsg = null;
@@ -42,7 +93,7 @@ class _PendingScreenState extends State<PendingScreen> {
       final status = result['status'] as String;
 
       if (status == 'approved') {
-        // 'web' for iOS PWA and desktop browser; 'android' for native APK.
+        _pollTimer?.cancel();
         final platform = kIsWeb ? 'web' : 'android';
         await NotificationService.initialize(
           teacherId: teacherId,
@@ -52,6 +103,7 @@ class _PendingScreenState extends State<PendingScreen> {
         Navigator.pushReplacementNamed(context, '/home');
       } else {
         setState(() => _checking = false);
+        _startPollTimer();
       }
     } catch (e) {
       final msg = e.toString();
@@ -70,10 +122,37 @@ class _PendingScreenState extends State<PendingScreen> {
   }
 
   Future<void> _logout() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('teacher_id');
-    if (!mounted) return;
-    Navigator.pushReplacementNamed(context, '/register');
+    final isAr = mounted
+        ? Localizations.localeOf(context).languageCode == 'ar'
+        : true;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(isAr ? 'تسجيل الخروج' : 'Sign out'),
+        content: Text(isAr
+            ? 'هل تريد إلغاء طلبك والعودة لصفحة التسجيل؟'
+            : 'Cancel your registration request and return to sign-up?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(isAr ? 'إلغاء' : 'Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(isAr ? 'خروج' : 'Sign out',
+                style: const TextStyle(color: FirdutyColors.danger)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('teacher_id');
+      if (!mounted) return;
+      Navigator.pushReplacementNamed(context, '/register');
+    }
   }
 
   @override
@@ -87,92 +166,151 @@ class _PendingScreenState extends State<PendingScreen> {
         centerTitle: true,
         backgroundColor: FirdutyColors.navBlue,
         foregroundColor: Colors.white,
+        elevation: 0,
         actions: [
           TextButton(
-            onPressed: () {
-              widget.onLocaleChange(
-                  isAr ? const Locale('en') : const Locale('ar'));
-            },
-            child: Text(
-              isAr ? 'EN' : 'عربي',
-              style: const TextStyle(
-                  color: Colors.white, fontWeight: FontWeight.bold),
-            ),
+            onPressed: () => widget.onLocaleChange(
+                isAr ? const Locale('en') : const Locale('ar')),
+            style: TextButton.styleFrom(foregroundColor: Colors.white),
+            child: Text(isAr ? 'EN' : 'ع',
+                style: const TextStyle(
+                    fontWeight: FontWeight.w600, color: Colors.white)),
           ),
         ],
       ),
       body: Center(
         child: Padding(
-          padding: const EdgeInsets.all(32),
+          padding: const EdgeInsets.symmetric(horizontal: 32),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Container(
-                width: 88,
-                height: 88,
-                decoration: BoxDecoration(
-                  color: FirdutyColors.warning.withValues(alpha: 0.12),
-                  shape: BoxShape.circle,
+              // ── Animated waiting icon ─────────────────────────────────
+              AnimatedBuilder(
+                animation: _pulseController,
+                builder: (_, child) => Transform.scale(
+                  scale: 0.92 + _pulseController.value * 0.08,
+                  child: child,
                 ),
-                child: Icon(
-                  Icons.hourglass_empty_rounded,
-                  size: 48,
-                  color: FirdutyColors.warning,
+                child: Container(
+                  width: 100,
+                  height: 100,
+                  decoration: BoxDecoration(
+                    color: FirdutyColors.navBlue.withValues(alpha: 0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.hourglass_top_rounded,
+                    size: 52,
+                    color: FirdutyColors.navBlue,
+                  ),
                 ),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 28),
+
+              // ── Pending message ───────────────────────────────────────
               Text(
                 l10n.pendingTitle,
                 textAlign: TextAlign.center,
                 style: const TextStyle(
-                    fontSize: 20, fontWeight: FontWeight.bold),
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: FirdutyColors.textDark,
+                ),
               ),
               const SizedBox(height: 12),
               Text(
                 l10n.pendingMessage,
                 textAlign: TextAlign.center,
                 style: const TextStyle(
-                    fontSize: 15, color: Colors.black54, height: 1.5),
+                  fontSize: 15,
+                  color: FirdutyColors.textMuted,
+                  height: 1.5,
+                ),
               ),
-              const SizedBox(height: 32),
+
+              // ── Error message ─────────────────────────────────────────
               if (_errorMsg != null) ...[
+                const SizedBox(height: 16),
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFFDE8E8),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: const Color(0xFFF5BCBC)),
+                    color: FirdutyColors.danger.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                        color: FirdutyColors.danger.withValues(alpha: 0.25)),
                   ),
                   child: Text(
                     _errorMsg!,
-                    style: TextStyle(color: FirdutyColors.danger, fontSize: 13),
                     textAlign: TextAlign.center,
+                    style: const TextStyle(
+                        color: FirdutyColors.danger, fontSize: 13),
                   ),
                 ),
-                const SizedBox(height: 16),
               ],
-              FilledButton.icon(
-                onPressed: _checking ? null : _checkStatus,
-                icon: _checking
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white),
-                      )
-                    : const Icon(Icons.refresh_rounded),
-                label: Text(l10n.checkStatus),
-                style: FilledButton.styleFrom(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+
+              const SizedBox(height: 32),
+
+              // ── Auto-poll countdown + manual check ────────────────────
+              if (_checking)
+                const CircularProgressIndicator()
+              else
+                Column(
+                  children: [
+                    // Countdown ring
+                    Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        SizedBox(
+                          width: 60,
+                          height: 60,
+                          child: CircularProgressIndicator(
+                            value: _countdown / _pollIntervalSec,
+                            backgroundColor:
+                                FirdutyColors.navBlue.withValues(alpha: 0.12),
+                            color: FirdutyColors.navBlue,
+                            strokeWidth: 4,
+                          ),
+                        ),
+                        Text(
+                          '$_countdown',
+                          style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: FirdutyColors.navBlue),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      isAr ? 'التحقق التلقائي' : 'Auto-checking',
+                      style: const TextStyle(
+                          fontSize: 12, color: FirdutyColors.textMuted),
+                    ),
+                    const SizedBox(height: 16),
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        _startPollTimer();
+                        _checkStatus();
+                      },
+                      icon: const Icon(Icons.refresh, size: 18),
+                      label: Text(l10n.checkStatus),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: FirdutyColors.navBlue,
+                        side: const BorderSide(color: FirdutyColors.navBlue),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-              const SizedBox(height: 16),
+
+              const SizedBox(height: 24),
+
+              // ── Logout ────────────────────────────────────────────────
               TextButton(
                 onPressed: _logout,
                 child: Text(
-                  l10n.useAnotherAccount,
-                  style: const TextStyle(color: Colors.black45),
+                  isAr ? 'إلغاء الطلب' : 'Cancel request',
+                  style: const TextStyle(color: FirdutyColors.textMuted),
                 ),
               ),
             ],

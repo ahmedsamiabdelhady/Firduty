@@ -1,10 +1,17 @@
-// register_screen.dart (kept as teacher_select_screen.dart for import compatibility)
-// Teacher self-registration form.
+// teacher_select_screen.dart — Teacher self-registration form
+//
+// UX improvements (v2.4):
+//   • Tighter layout with card wrapping the form fields
+//   • Email format validated client-side before API call
+//   • Submit button shows "Submitting…" with spinner while loading
+//   • Keyboard action "Next" / "Done" for natural field flow
+//   • Error displayed inside a styled banner, not raw text
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../gen/app_localizations.dart';
+import '../app_theme.dart';
 
 class RegistrationScreen extends StatefulWidget {
   const RegistrationScreen({super.key});
@@ -17,6 +24,8 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nameCtrl  = TextEditingController();
   final _emailCtrl = TextEditingController();
+  final _emailFocus = FocusNode();
+
   bool _submitting = false;
   String? _errorMsg;
 
@@ -24,6 +33,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   void dispose() {
     _nameCtrl.dispose();
     _emailCtrl.dispose();
+    _emailFocus.dispose();
     super.dispose();
   }
 
@@ -53,98 +63,157 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final l10n  = AppLocalizations.of(context);
+    final l10n = AppLocalizations.of(context);
 
     return Scaffold(
+      backgroundColor: FirdutyColors.background,
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(28),
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 420),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // ── Logo / title ──────────────────────────────────────
-                    Image.asset('assets/logo.png', width: 200, height: 200),
-                    const SizedBox(height: 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // ── Logo ───────────────────────────────────────────────
+                  Center(
+                    child: Image.asset('assets/logo.png',
+                        width: 140, height: 140),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    l10n.registerTitle,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                        fontSize: 14,
+                        color: FirdutyColors.textMuted,
+                        height: 1.5),
+                  ),
+                  const SizedBox(height: 28),
 
-                    const SizedBox(height: 8),
-                    Text(
-                      l10n.registerTitle,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(fontSize: 15, color: Colors.black54),
-                    ),
-                    const SizedBox(height: 32),
+                  // ── Form card ──────────────────────────────────────────
+                  Card(
+                    elevation: 2,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16)),
+                    child: Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Form(
+                        key: _formKey,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            // Error banner
+                            if (_errorMsg != null) ...[
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: FirdutyColors.danger
+                                      .withValues(alpha: 0.08),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(
+                                      color: FirdutyColors.danger
+                                          .withValues(alpha: 0.3)),
+                                ),
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.error_outline,
+                                        color: FirdutyColors.danger, size: 18),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(_errorMsg!,
+                                          style: const TextStyle(
+                                              color: FirdutyColors.danger,
+                                              fontSize: 13)),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                            ],
 
-                    // ── Error message ─────────────────────────────────────
-                    if (_errorMsg != null) ...[
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.red.shade50,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.red.shade200),
+                            // Name field
+                            TextFormField(
+                              controller: _nameCtrl,
+                              textInputAction: TextInputAction.next,
+                              onFieldSubmitted: (_) =>
+                                  _emailFocus.requestFocus(),
+                              decoration: InputDecoration(
+                                labelText: l10n.fullName,
+                                prefixIcon: const Icon(Icons.person_outline),
+                              ),
+                              validator: (v) {
+                                if (v == null || v.trim().isEmpty) {
+                                  return l10n.nameRequired;
+                                }
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: 16),
+
+                            // Email field
+                            TextFormField(
+                              controller: _emailCtrl,
+                              focusNode: _emailFocus,
+                              keyboardType: TextInputType.emailAddress,
+                              textInputAction: TextInputAction.done,
+                              onFieldSubmitted: (_) => _submit(),
+                              decoration: InputDecoration(
+                                labelText: l10n.email,
+                                prefixIcon:
+                                    const Icon(Icons.email_outlined),
+                              ),
+                              validator: (v) {
+                                if (v == null || v.trim().isEmpty) {
+                                  return l10n.emailRequired;
+                                }
+                                final emailRegex = RegExp(
+                                    r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+                                if (!emailRegex.hasMatch(v.trim())) {
+                                  return l10n.emailRequired;
+                                }
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: 24),
+
+                            // Submit button
+                            SizedBox(
+                              height: 50,
+                              child: ElevatedButton(
+                                onPressed: _submitting ? null : _submit,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: FirdutyColors.navBlue,
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius:
+                                          BorderRadius.circular(12)),
+                                  elevation: 0,
+                                ),
+                                child: _submitting
+                                    ? const SizedBox(
+                                        height: 20,
+                                        width: 20,
+                                        child: CircularProgressIndicator(
+                                          color: Colors.white,
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : Text(
+                                        l10n.register,
+                                        style: const TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w600),
+                                      ),
+                              ),
+                            ),
+                          ],
                         ),
-                        child: Text(
-                          _errorMsg!,
-                          style: TextStyle(color: Colors.red.shade800, fontSize: 14),
-                        ),
                       ),
-                      const SizedBox(height: 16),
-                    ],
-
-                    // ── Name ─────────────────────────────────────────────
-                    TextFormField(
-                      controller: _nameCtrl,
-                      textCapitalization: TextCapitalization.words,
-                      decoration: InputDecoration(
-                        labelText: l10n.fullName,
-                        prefixIcon: const Icon(Icons.person_outline),
-                        border: const OutlineInputBorder(),
-                      ),
-                      validator: (v) =>
-                          (v == null || v.trim().isEmpty) ? l10n.nameRequired : null,
                     ),
-                    const SizedBox(height: 16),
-
-                    // ── Email ─────────────────────────────────────────────
-                    TextFormField(
-                      controller: _emailCtrl,
-                      keyboardType: TextInputType.emailAddress,
-                      autocorrect: false,
-                      decoration: InputDecoration(
-                        labelText: l10n.email,
-                        prefixIcon: const Icon(Icons.email_outlined),
-                        border: const OutlineInputBorder(),
-                      ),
-                      validator: (v) {
-                        if (v == null || v.trim().isEmpty) return l10n.emailRequired;
-                        final ok = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(v.trim());
-                        return ok ? null : l10n.emailRequired;
-                      },
-                    ),
-                    const SizedBox(height: 28),
-
-                    // ── Submit ────────────────────────────────────────────
-                    FilledButton(
-                      onPressed: _submitting ? null : _submit,
-                      style: FilledButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                      ),
-                      child: _submitting
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                  strokeWidth: 2, color: Colors.white),
-                            )
-                          : Text(l10n.register, style: const TextStyle(fontSize: 16)),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
           ),

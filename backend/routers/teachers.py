@@ -20,17 +20,24 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/teachers", tags=["teachers"])
 
 
+def _normalize_email(email: str | None) -> str | None:
+    if not email:
+        return None
+    clean = email.strip().lower()
+    return clean or None
+
+
 def _duty_dict(a: Assignment, sl: ShiftLocation, query_date: date_type) -> dict:
     """Serialize a duty assignment — duty-type aware."""
     duty_type = sl.shift.duty_type
     base = {
-        "assignment_id":  a.id,
-        "date":           str(query_date),
-        "shift_name_en":  sl.shift.name_en,
-        "shift_name_ar":  sl.shift.name_ar,
-        "shift_start":    str(sl.shift.start_time),
-        "shift_end":      str(sl.shift.end_time),
-        "duty_type":      duty_type,
+        "assignment_id": a.id,
+        "date": str(query_date),
+        "shift_name_en": sl.shift.name_en,
+        "shift_name_ar": sl.shift.name_ar,
+        "shift_start": str(sl.shift.start_time),
+        "shift_end": str(sl.shift.end_time),
+        "duty_type": duty_type,
     }
     if duty_type == "morning_endofday" and sl.location:
         base["location_name_en"] = sl.location.name_en
@@ -60,7 +67,7 @@ def list_all_teachers(
     db: Session = Depends(get_db),
     _: str = Depends(get_current_admin),
 ) -> List[TeacherOut]:
-    """List active teachers for admin management, regardless of approval status."""
+    """List active teachers regardless of status (admin only)."""
     rows = (
         db.query(Teacher)
         .filter(Teacher.active.is_(True))
@@ -94,21 +101,25 @@ def create_teacher(
     _: str = Depends(get_current_admin),
 ) -> TeacherOut:
     """Admin-only: create a teacher directly."""
-    email = data.email.lower().strip() if data.email else None
+    email = _normalize_email(data.email)
     if email:
         existing = db.query(Teacher).filter(Teacher.email == email).first()
         if existing:
             raise HTTPException(409, "Email already registered")
+
     payload = data.model_dump() if hasattr(data, "model_dump") else data.dict()
     payload["email"] = email
+    payload["name"] = payload["name"].strip()
     teacher = Teacher(**payload)
     db.add(teacher)
+
     try:
         db.commit()
     except Exception as exc:
         db.rollback()
         logger.exception("create_teacher DB error — payload=%s", payload)
         raise HTTPException(500, f"Database error: {exc}") from exc
+
     db.refresh(teacher)
     logger.info("Created teacher id=%d name=%r", teacher.id, teacher.name)
     return teacher
@@ -119,10 +130,12 @@ def register_teacher(
     data: TeacherRegister,
     db: Session = Depends(get_db),
 ) -> TeacherStatusOut:
-    email_lower = data.email.lower().strip()
+    """Public self-registration. Creates a teacher with status='pending'."""
+    email_lower = _normalize_email(data.email)
     existing = db.query(Teacher).filter(Teacher.email == email_lower).first()
     if existing:
         raise HTTPException(409, "Email already registered")
+
     teacher = Teacher(
         name=data.name.strip(),
         email=email_lower,
@@ -131,12 +144,14 @@ def register_teacher(
         preferred_language="ar",
     )
     db.add(teacher)
+
     try:
         db.commit()
     except Exception as exc:
         db.rollback()
         logger.exception("register_teacher DB error — email=%s", email_lower)
         raise HTTPException(500, f"Database error: {exc}") from exc
+
     db.refresh(teacher)
     logger.info("Teacher registered (pending) id=%d email=%s", teacher.id, email_lower)
     return teacher
@@ -147,10 +162,11 @@ def approve_all_pending(
     db: Session = Depends(get_db),
     _: str = Depends(get_current_admin),
 ) -> dict:
+    """Approve every active pending teacher in one operation (admin only)."""
     pending = db.query(Teacher).filter(Teacher.active.is_(True), Teacher.status == "pending").all()
     count = len(pending)
-    for t in pending:
-        setattr(t, "status", "approved")
+    for teacher in pending:
+        teacher.status = "approved"
     db.commit()
     logger.info("approve_all_pending → approved %d teachers", count)
     return {"approved_count": count}
@@ -167,15 +183,15 @@ def update_teacher(
     if not teacher:
         raise HTTPException(404, "Teacher not found")
 
-    payload = (
-        data.model_dump(exclude_none=True)
-        if hasattr(data, "model_dump")
-        else data.dict(exclude_none=True)
-    )
+    payload = data.model_dump(exclude_none=True) if hasattr(data, "model_dump") else data.dict(exclude_none=True)
+
+    if "name" in payload:
+        payload["name"] = payload["name"].strip()
+        if not payload["name"]:
+            raise HTTPException(400, "Teacher name is required")
 
     if "email" in payload:
-        email = payload.get("email")
-        payload["email"] = email.lower().strip() if email else None
+        payload["email"] = _normalize_email(payload["email"])
         if payload["email"]:
             existing = (
                 db.query(Teacher)
@@ -202,7 +218,7 @@ def delete_teacher(
     teacher = db.query(Teacher).filter(Teacher.id == teacher_id).first()
     if not teacher:
         raise HTTPException(404, "Teacher not found")
-    setattr(teacher, "active", False)
+    teacher.active = False
     db.commit()
     return {"status": "deactivated", "id": teacher_id}
 
@@ -227,7 +243,7 @@ def approve_teacher(
     teacher = db.query(Teacher).filter(Teacher.id == teacher_id).first()
     if not teacher:
         raise HTTPException(404, "Teacher not found")
-    setattr(teacher, "status", "approved")
+    teacher.status = "approved"
     db.commit()
     db.refresh(teacher)
     return teacher
@@ -315,8 +331,8 @@ def register_device_token(
         raise HTTPException(404, "Teacher not found")
     existing = db.query(DeviceToken).filter(DeviceToken.token == data.token).first()
     if existing:
-        setattr(existing, "teacher_id", teacher_id)
-        setattr(existing, "platform", data.platform)
+        existing.teacher_id = teacher_id
+        existing.platform = data.platform
     else:
         db.add(DeviceToken(teacher_id=teacher_id, token=data.token, platform=data.platform))
     db.commit()

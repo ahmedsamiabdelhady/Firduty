@@ -78,7 +78,7 @@ class TeacherCreate(BaseModel):
 
 class TeacherUpdate(BaseModel):
     name: Optional[str] = None
-    email: Optional[str] = None
+    email: Optional[EmailStr] = None
     status: Optional[str] = None
     active: Optional[bool] = None
     preferred_language: Optional[str] = None

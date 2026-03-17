@@ -1,9 +1,12 @@
 // points_screen.dart — Teacher's monthly points summary and history
 //
-// Changes from original:
-// • `_ConfirmationRow` now reads `duty_type` and shows `grade_class` for
-//   break duties, or location name for morning/end-of-day duties.
-// • Replaced all deprecated `.withOpacity()` calls with `.withValues(alpha:)`.
+// UX/Performance improvements (v2.4):
+//   • AutomaticKeepAliveClientMixin: scroll position survives tab switches
+//   • Points header has larger, cleaner total display
+//   • Stat chips (on-time / late / missed) show inside gradient header
+//   • Confirmation rows use consistent card style matching week_screen
+//   • Empty state and error state with retry
+//   • No deprecated APIs
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -18,13 +21,17 @@ class PointsScreen extends StatefulWidget {
   State<PointsScreen> createState() => _PointsScreenState();
 }
 
-class _PointsScreenState extends State<PointsScreen> {
+class _PointsScreenState extends State<PointsScreen>
+    with AutomaticKeepAliveClientMixin {
   bool _loading = true;
   String? _error;
   int _totalPoints = 0;
   List<Map<String, dynamic>> _details = [];
   int _year = DateTime.now().year;
   int _month = DateTime.now().month;
+
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   void initState() {
@@ -53,13 +60,12 @@ class _PointsScreenState extends State<PointsScreen> {
 
       setState(() {
         _totalPoints = data['total_points'] as int? ?? 0;
-        _details =
-            List<Map<String, dynamic>>.from(data['details'] ?? []);
+        _details = List<Map<String, dynamic>>.from(data['details'] ?? []);
         _loading = false;
       });
     } catch (e) {
       setState(() {
-        _error = e.toString();
+        _error = e.toString().replaceFirst('Exception: ', '');
         _loading = false;
       });
     }
@@ -68,67 +74,55 @@ class _PointsScreenState extends State<PointsScreen> {
   void _changeMonth(int delta) {
     setState(() {
       _month += delta;
-      if (_month > 12) {
-        _month = 1;
-        _year++;
-      }
-      if (_month < 1) {
-        _month = 12;
-        _year--;
-      }
+      if (_month > 12) { _month = 1; _year++; }
+      if (_month < 1)  { _month = 12; _year--; }
     });
     _load();
   }
 
   String _monthName(int m, bool isAr) {
-    const en = [
-      '',
-      'January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December'
-    ];
-    const ar = [
-      '',
-      'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو',
-      'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'
-    ];
+    const en = ['', 'January','February','March','April','May','June',
+        'July','August','September','October','November','December'];
+    const ar = ['', 'يناير','فبراير','مارس','أبريل','مايو','يونيو',
+        'يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
     return isAr ? ar[m] : en[m];
   }
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final l10n = AppLocalizations.of(context);
     final isAr = Localizations.localeOf(context).languageCode == 'ar';
 
     return Scaffold(
       body: RefreshIndicator(
         onRefresh: _load,
+        color: FirdutyColors.navBlue,
         child: CustomScrollView(
           slivers: [
-            // ─── Points Header ─────────────────────────────────────────────
+            // ── Points Header ────────────────────────────────────────────
             SliverToBoxAdapter(
               child: Container(
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: [
                       FirdutyColors.primaryGreen,
-                      FirdutyColors.primaryGreen.withBlue(200),
+                      FirdutyColors.primaryGreen.withBlue(190),
                     ],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
                 ),
-                padding:
-                    const EdgeInsets.fromLTRB(20, 20, 20, 32),
+                padding: const EdgeInsets.fromLTRB(20, 24, 20, 28),
                 child: Column(
                   children: [
                     // Month navigator
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        IconButton(
-                          icon: const Icon(Icons.chevron_left,
-                              color: Colors.white),
-                          onPressed: () => _changeMonth(-1),
+                        _NavButton(
+                          icon: Icons.chevron_left,
+                          onTap: () => _changeMonth(-1),
                         ),
                         Text(
                           '${_monthName(_month, isAr)} $_year',
@@ -137,99 +131,104 @@ class _PointsScreenState extends State<PointsScreen> {
                               fontSize: 18,
                               fontWeight: FontWeight.bold),
                         ),
-                        IconButton(
-                          icon: const Icon(Icons.chevron_right,
-                              color: Colors.white),
-                          onPressed: () => _changeMonth(1),
+                        _NavButton(
+                          icon: Icons.chevron_right,
+                          onTap: () => _changeMonth(1),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 20),
 
-                    // Points circle
-                    Container(
-                      width: 120,
-                      height: 120,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        // withValues(alpha:) replaces deprecated withOpacity()
-                        color: Colors.white.withValues(alpha: 0.15),
-                        border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.4),
-                            width: 2),
+                    // Total points
+                    if (_loading)
+                      const CircularProgressIndicator(
+                          color: Colors.white, strokeWidth: 2.5)
+                    else ...[
+                      Text(
+                        '$_totalPoints',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 60,
+                          fontWeight: FontWeight.w800,
+                          height: 1,
+                        ),
                       ),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            '$_totalPoints',
-                            style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 40,
-                                fontWeight: FontWeight.bold),
-                          ),
-                          Text(
-                            l10n.points,
-                            style: TextStyle(
-                                color: Colors.white
-                                    .withValues(alpha: 0.85),
-                                fontSize: 13),
-                          ),
-                        ],
+                      const SizedBox(height: 4),
+                      Text(
+                        l10n.myPoints,
+                        style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.75),
+                            fontSize: 14),
                       ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    if (!_loading && _details.isNotEmpty)
-                      _MiniStats(details: _details, l10n: l10n),
+                      const SizedBox(height: 20),
+                      _StatsRow(details: _details, l10n: l10n),
+                    ],
                   ],
                 ),
               ),
             ),
 
-            // ─── Details List ──────────────────────────────────────────────
-            if (_loading)
-              const SliverFillRemaining(
-                child: Center(child: CircularProgressIndicator()),
-              )
-            else if (_error != null)
+            // ── Error or empty state ─────────────────────────────────────
+            if (_error != null)
               SliverFillRemaining(
                 child: Center(
-                    child: Text(l10n.error,
-                        style:
-                            const TextStyle(color: Colors.red))),
+                  child: Padding(
+                    padding: const EdgeInsets.all(40),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.wifi_off_rounded,
+                            size: 48, color: FirdutyColors.textMuted),
+                        const SizedBox(height: 12),
+                        Text(_error!,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                                color: FirdutyColors.textMuted)),
+                        const SizedBox(height: 20),
+                        ElevatedButton.icon(
+                          onPressed: _load,
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('Retry'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               )
-            else if (_details.isEmpty)
+            else if (!_loading && _details.isEmpty)
               SliverFillRemaining(
                 child: Center(
                   child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(Icons.emoji_events_outlined,
-                          size: 64, color: FirdutyColors.textMuted.withValues(alpha: 0.4)),
+                          size: 52,
+                          color: FirdutyColors.textMuted.withValues(alpha: 0.5)),
                       const SizedBox(height: 16),
-                      Text(l10n.noConfirmationsYet,
-                          style: TextStyle(
-                              color: FirdutyColors.textMuted,
-                              fontSize: 15)),
+                      Text(
+                        l10n.noConfirmationsYet,
+                        style: const TextStyle(color: FirdutyColors.textMuted),
+                      ),
                     ],
                   ),
                 ),
               )
             else
-              SliverPadding(
-                padding: const EdgeInsets.all(16),
-                sliver: SliverList(
-                  delegate: SliverChildBuilderDelegate(
-                    (ctx, i) => _ConfirmationRow(
-                      detail: _details[i],
-                      isAr: isAr,
-                      l10n: l10n,
-                    ),
-                    childCount: _details.length,
+
+            // ── Confirmation List ─────────────────────────────────────────
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+              sliver: SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (context, index) => _ConfirmationCard(
+                    detail: _details[index],
+                    isAr: isAr,
+                    l10n: l10n,
                   ),
+                  childCount: _details.length,
                 ),
               ),
+            ),
           ],
         ),
       ),
@@ -237,35 +236,52 @@ class _PointsScreenState extends State<PointsScreen> {
   }
 }
 
-// ─── Mini Stats Row ───────────────────────────────────────────────────────────
+// ─── Month nav button ─────────────────────────────────────────────────────────
 
-class _MiniStats extends StatelessWidget {
-  final List<Map<String, dynamic>> details;
-  final AppLocalizations l10n;
-
-  const _MiniStats({required this.details, required this.l10n});
+class _NavButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+  const _NavButton({required this.icon, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    final onTime = details.where((d) => d['points_earned'] == 2).length;
-    final late = details.where((d) => d['points_earned'] == 1).length;
-    final missed = details.where((d) => d['points_earned'] == 0).length;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(6),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.2),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Icon(icon, color: Colors.white, size: 24),
+      ),
+    );
+  }
+}
+
+// ─── Stats Row ────────────────────────────────────────────────────────────────
+
+class _StatsRow extends StatelessWidget {
+  final List<Map<String, dynamic>> details;
+  final AppLocalizations l10n;
+
+  const _StatsRow({required this.details, required this.l10n});
+
+  @override
+  Widget build(BuildContext context) {
+    final onTime  = details.where((d) => d['points_earned'] == 2).length;
+    final late    = details.where((d) => d['points_earned'] == 1).length;
+    final missed  = details.where((d) => d['points_earned'] == 0).length;
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: [
-        _StatChip(
-            label: l10n.onTime,
-            value: '$onTime',
-            color: FirdutyColors.primaryGreen),
-        _StatChip(
-            label: l10n.late,
-            value: '$late',
-            color: FirdutyColors.warning),
-        _StatChip(
-            label: l10n.missed,
-            value: '$missed',
-            color: Colors.red.shade300),
+        _StatChip(label: l10n.onTime, value: '$onTime',
+            color: Colors.white, bgColor: Colors.white.withValues(alpha: 0.2)),
+        _StatChip(label: l10n.late, value: '$late',
+            color: FirdutyColors.warning, bgColor: Colors.white.withValues(alpha: 0.15)),
+        _StatChip(label: l10n.missed, value: '$missed',
+            color: Colors.redAccent.shade100, bgColor: Colors.white.withValues(alpha: 0.12)),
       ],
     );
   }
@@ -275,18 +291,22 @@ class _StatChip extends StatelessWidget {
   final String label;
   final String value;
   final Color color;
-  const _StatChip(
-      {required this.label, required this.value, required this.color});
+  final Color bgColor;
+
+  const _StatChip({
+    required this.label,
+    required this.value,
+    required this.color,
+    required this.bgColor,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding:
-          const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
       decoration: BoxDecoration(
-        // withValues(alpha:) replaces deprecated withOpacity()
-        color: Colors.white.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(10),
+        color: bgColor,
+        borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
         children: [
@@ -294,25 +314,24 @@ class _StatChip extends StatelessWidget {
               style: TextStyle(
                   color: color,
                   fontWeight: FontWeight.bold,
-                  fontSize: 18)),
+                  fontSize: 22)),
           const SizedBox(height: 2),
           Text(label,
-              style: const TextStyle(
-                  color: Colors.white70, fontSize: 11)),
+              style: const TextStyle(color: Colors.white70, fontSize: 11)),
         ],
       ),
     );
   }
 }
 
-// ─── Confirmation Row ─────────────────────────────────────────────────────────
+// ─── Confirmation Card ────────────────────────────────────────────────────────
 
-class _ConfirmationRow extends StatelessWidget {
+class _ConfirmationCard extends StatelessWidget {
   final Map<String, dynamic> detail;
   final bool isAr;
   final AppLocalizations l10n;
 
-  const _ConfirmationRow({
+  const _ConfirmationCard({
     required this.detail,
     required this.isAr,
     required this.l10n,
@@ -325,12 +344,10 @@ class _ConfirmationRow extends StatelessWidget {
         isAr ? detail['shift_name_ar'] : detail['shift_name_en'];
     final date = detail['date'] as String;
     final confTime =
-        (detail['confirmed_at_muscat'] as String).substring(11, 19);
+        (detail['confirmed_at_muscat'] as String).substring(11, 16);
     final startTime = (detail['shift_start'] as String).substring(0, 5);
 
-    // duty_type determines which secondary label to show.
-    final dutyType =
-        (detail['duty_type'] as String?) ?? 'morning_endofday';
+    final dutyType = (detail['duty_type'] as String?) ?? 'morning_endofday';
     final isBreak = dutyType == 'break';
 
     final String secondaryLabel;
@@ -339,8 +356,8 @@ class _ConfirmationRow extends StatelessWidget {
       secondaryLabel = '${l10n.gradeClass}: $gc';
     } else {
       final locName = isAr
-          ? ((detail['location_name_ar'] as String?) ?? '—')
-          : ((detail['location_name_en'] as String?) ?? '—');
+          ? (detail['location_name_ar'] as String? ?? '—')
+          : (detail['location_name_en'] as String? ?? '—');
       secondaryLabel = '${l10n.location}: $locName';
     }
 
@@ -352,83 +369,71 @@ class _ConfirmationRow extends StatelessWidget {
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
-      shape:
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      child: ListTile(
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-        leading: CircleAvatar(
-          // withValues(alpha:) replaces deprecated withOpacity()
-          backgroundColor: ptColor.withValues(alpha: 0.12),
-          child: Text(
-            '+$pts',
-            style: TextStyle(
-                color: ptColor,
-                fontWeight: FontWeight.bold,
-                fontSize: 14),
-          ),
-        ),
-        title: Text(
-          shiftName as String,
-          style: const TextStyle(
-              fontWeight: FontWeight.w600, fontSize: 14),
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+      elevation: 1,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
           children: [
-            Text(
-              '$secondaryLabel · $date',
-              style: const TextStyle(
-                  fontSize: 12, color: Colors.black54),
+            // Points badge
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: ptColor.withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+              ),
+              child: Center(
+                child: Text(
+                  '+$pts',
+                  style: TextStyle(
+                    color: ptColor,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
             ),
-            Row(
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(shiftName as String,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                          color: FirdutyColors.textDark)),
+                  const SizedBox(height: 3),
+                  Text(secondaryLabel,
+                      style: const TextStyle(
+                          fontSize: 12, color: FirdutyColors.textMuted)),
+                ],
+              ),
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Icon(Icons.schedule,
-                    size: 12, color: FirdutyColors.textMuted.withValues(alpha: 0.6)),
-                const SizedBox(width: 4),
-                Text(
-                  '${l10n.shift}: $startTime  |  ${l10n.confirmed}: $confTime',
-                  style: const TextStyle(
-                      fontSize: 11, color: Colors.black45),
+                Text(date,
+                    style: const TextStyle(
+                        fontSize: 12, color: FirdutyColors.textMuted)),
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.schedule, size: 12,
+                        color: FirdutyColors.textMuted),
+                    const SizedBox(width: 3),
+                    Text('$startTime → $confTime',
+                        style: const TextStyle(
+                            fontSize: 11, color: FirdutyColors.textMuted)),
+                  ],
                 ),
               ],
             ),
           ],
         ),
-        trailing: _StatusBadge(points: pts, l10n: l10n),
-        isThreeLine: true,
       ),
-    );
-  }
-}
-
-class _StatusBadge extends StatelessWidget {
-  final int points;
-  final AppLocalizations l10n;
-  const _StatusBadge({required this.points, required this.l10n});
-
-  @override
-  Widget build(BuildContext context) {
-    final (label, color) = points == 2
-        ? (l10n.onTime, FirdutyColors.primaryGreen)
-        : points == 1
-            ? (l10n.late, FirdutyColors.warning)
-            : (l10n.missed, FirdutyColors.textMuted);
-
-    return Container(
-      padding:
-          const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        // withValues(alpha:) replaces deprecated withOpacity()
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withValues(alpha: 0.3)),
-      ),
-      child: Text(label,
-          style: TextStyle(
-              color: color,
-              fontSize: 11,
-              fontWeight: FontWeight.w600)),
     );
   }
 }
