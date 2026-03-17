@@ -9,139 +9,8 @@
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">
   <link rel="apple-touch-icon" sizes="192x192" href="favicon-192x192.png">
-
-  <style>
-    .teachers-page-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      margin-bottom: 16px;
-      flex-wrap: wrap;
-    }
-    .teachers-page-head h2 {
-      margin: 0;
-      color: var(--text);
-      font-size: 1.15rem;
-    }
-    .teachers-page-subtitle {
-      margin: 4px 0 0;
-      color: var(--text-muted);
-      font-size: 0.9rem;
-    }
-    .teachers-toolbar-card {
-      background: var(--white);
-      border-radius: var(--radius);
-      box-shadow: var(--shadow);
-      padding: 16px;
-      margin-bottom: 16px;
-      border: 1px solid var(--border);
-    }
-    .tabs {
-      display: flex;
-      gap: 8px;
-      margin-bottom: 14px;
-      border-bottom: none;
-      flex-wrap: wrap;
-    }
-    .tab-btn {
-      border: 1px solid var(--border);
-      background: var(--white);
-      border-radius: 999px;
-      padding: 10px 14px;
-      color: var(--text);
-      font-weight: 700;
-      margin-bottom: 0;
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .tab-btn.active {
-      background: var(--nav);
-      color: var(--white);
-      border-color: var(--nav);
-    }
-    .tab-badge {
-      min-width: 22px;
-      height: 22px;
-      border-radius: 999px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      padding: 0 7px;
-      font-size: 0.76rem;
-      font-weight: 800;
-      background: rgba(255,255,255,0.18);
-    }
-    .tab-btn:not(.active) .tab-badge {
-      background: #eef6fb;
-      color: var(--nav);
-    }
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      padding: 5px 10px;
-      border-radius: 999px;
-      font-size: 0.78rem;
-      font-weight: 700;
-    }
-    .badge-pending  { background: #fff3cd; color: #856404; }
-    .badge-approved { background: #d1e7dd; color: #0a5c36; }
-    .teachers-table-wrap {
-      min-height: 180px;
-    }
-    .teacher-table {
-      width: 100%;
-      border-collapse: collapse;
-      background: var(--white);
-      overflow: hidden;
-    }
-    .teacher-table th {
-      background: var(--nav);
-      color: var(--white);
-      padding: 12px 14px;
-      text-align: start;
-      font-size: 0.84rem;
-      font-weight: 700;
-      white-space: nowrap;
-    }
-    .teacher-table td {
-      padding: 12px 14px;
-      border-bottom: 1px solid var(--border);
-      font-size: 0.9rem;
-      vertical-align: middle;
-    }
-    .teacher-table tr:last-child td {
-      border-bottom: none;
-    }
-    .teacher-table tr:hover td {
-      background: #f8fbfd;
-    }
-    .teacher-name-cell strong {
-      color: var(--text);
-      font-size: 0.95rem;
-    }
-    .teacher-actions-cell {
-      white-space: nowrap;
-    }
-    .empty-state {
-      text-align: center;
-      padding: 48px 20px;
-      color: var(--text-muted);
-      background: var(--white);
-      border-radius: var(--radius);
-      box-shadow: var(--shadow);
-      border: 1px solid var(--border);
-    }
-    .empty-icon {
-      font-size: 2.5rem;
-      margin-bottom: 12px;
-    }
-  </style>
 </head>
 <body>
-
 <header class="app-header">
   <h1><img src="logo.png" alt="Firduty" class="header-logo">Firduty</h1>
   <div class="header-actions">
@@ -152,70 +21,142 @@
 
 <nav class="main-nav" id="mainNav" aria-label="Main navigation"></nav>
 
-<main class="main-content">
-  <div class="teachers-page-head">
+<main class="main-content teachers-page">
+  <section class="teachers-hero">
     <div>
-      <h2 data-i18n="teacher_approval">Teachers</h2>
-      <p class="teachers-page-subtitle">Review registrations and manage approvals with a mobile-friendly layout.</p>
+      <h2 class="teachers-title">Teachers</h2>
+      <p class="teachers-subtitle">Review registrations and manage approvals with a mobile-friendly layout.</p>
     </div>
-  </div>
+    <div class="teachers-hero-actions">
+      <button class="btn btn-primary btn-sm" id="addTeacherBtn" type="button">+ Add New Teacher</button>
+      <button class="btn btn-success btn-sm" id="approveAllBtn" type="button">Approve All Pending</button>
+      <button class="btn btn-secondary btn-sm" id="refreshTeachersBtn" type="button">Refresh</button>
+    </div>
+  </section>
 
-  <div class="teachers-stats-grid" aria-label="Teacher statistics">
-    <div class="teachers-stat-card">
-      <div class="teachers-stat-label">Pending</div>
-      <div class="teachers-stat-value" id="statPending">0</div>
-    </div>
-    <div class="teachers-stat-card">
-      <div class="teachers-stat-label">Approved</div>
-      <div class="teachers-stat-value" id="statApproved">0</div>
-    </div>
-    <div class="teachers-stat-card">
-      <div class="teachers-stat-label">Active</div>
-      <div class="teachers-stat-value" id="statActive">0</div>
-    </div>
-  </div>
+  <section class="teachers-stats-grid" aria-label="Teacher summary">
+    <article class="teacher-stat-card">
+      <span class="teacher-stat-label">Pending</span>
+      <strong class="teacher-stat-value" id="summaryPendingValue">0</strong>
+    </article>
+    <article class="teacher-stat-card">
+      <span class="teacher-stat-label">Approved</span>
+      <strong class="teacher-stat-value" id="summaryApprovedValue">0</strong>
+    </article>
+    <article class="teacher-stat-card">
+      <span class="teacher-stat-label">Active</span>
+      <strong class="teacher-stat-value" id="summaryTotalValue">0</strong>
+    </article>
+  </section>
 
-  <div class="teachers-toolbar-card">
-    <div class="teachers-actions-row">
-      <div class="teachers-actions-group">
-        <button class="btn btn-success btn-sm" id="approveAllBtn" onclick="approveAll()" data-i18n="approve_all">Approve All Pending</button>
-        <button class="btn btn-secondary btn-sm" id="refreshTeachersBtn" onclick="loadAll()" data-i18n="refresh">Refresh</button>
+  <div id="alertMsg" class="alert" style="display:none"></div>
+
+  <section class="teachers-panel">
+    <div class="teachers-panel-toolbar">
+      <div class="teachers-search-wrap">
+        <input id="teacherSearchInput" class="teachers-search-input" type="search" placeholder="Search teachers..." autocomplete="off">
+      </div>
+
+      <div class="teachers-tabs" role="tablist" aria-label="Teacher views">
+        <button class="tab-btn active" id="tabPending" type="button" role="tab" aria-selected="true">
+          <span>Pending Approval</span>
+          <span class="tab-count" id="pendingCount">0</span>
+        </button>
+        <button class="tab-btn" id="tabAll" type="button" role="tab" aria-selected="false">
+          <span>All Teachers</span>
+        </button>
       </div>
     </div>
 
-    <div class="teachers-search-bar">
-      <input type="search" id="teacherSearchInput" placeholder="Search teachers..." autocomplete="off">
+    <div id="pendingSection" class="teachers-section">
+      <div id="pendingLoading" class="table-loading"><div class="spinner"></div></div>
+      <div id="pendingTableWrap"></div>
     </div>
 
-    <div class="tabs">
-      <button class="tab-btn active" id="tabPending" type="button" onclick="showTab('pending')">
-        <span data-i18n="tab_pending">Pending Approval</span>
-        <span class="tab-badge" id="pendingCount">0</span>
-      </button>
-      <button class="tab-btn" id="tabAll" type="button" onclick="showTab('all')">
-        <span data-i18n="tab_all_teachers">All Teachers</span>
-      </button>
+    <div id="allSection" class="teachers-section" style="display:none">
+      <div id="allLoading" class="table-loading"><div class="spinner"></div></div>
+      <div id="allTableWrap"></div>
     </div>
-
-    <div id="alertMsg" class="alert" style="display:none;margin-bottom:16px"></div>
-
-    <section id="pendingSection">
-      <div id="pendingLoading" style="text-align:center;padding:32px"><div class="spinner"></div></div>
-      <div class="teachers-table-wrap" id="pendingTableWrap"></div>
-    </section>
-
-    <section id="allSection" style="display:none">
-      <div id="allLoading" style="text-align:center;padding:32px"><div class="spinner"></div></div>
-      <div class="teachers-table-wrap" id="allTableWrap"></div>
-    </section>
-  </div>
+  </section>
 </main>
 
-<div class="toast-container" id="toastContainer"></div>
+<div class="modal-backdrop" id="teacherModalBackdrop" aria-hidden="true">
+  <div class="teacher-modal" role="dialog" aria-modal="true" aria-labelledby="teacherModalTitle">
+    <div class="teacher-modal-header">
+      <div>
+        <h3 id="teacherModalTitle">Add Teacher</h3>
+        <p id="teacherModalSubtitle">Create a teacher record directly from the admin dashboard.</p>
+      </div>
+      <button class="icon-btn" type="button" id="closeTeacherModalBtn" aria-label="Close">✕</button>
+    </div>
 
-<script src="js/auth.js?v=101"></script>
-<script src="js/i18n.js?v=101"></script>
-<script src="js/nav.js?v=101"></script>
+    <div class="teacher-modal-body">
+      <div class="form-field">
+        <label for="teacherNameInput">Name</label>
+        <input id="teacherNameInput" type="text" autocomplete="off">
+      </div>
+
+      <div class="form-field">
+        <label for="teacherEmailInput">Email</label>
+        <input id="teacherEmailInput" type="email" autocomplete="off">
+      </div>
+
+      <div class="form-grid-2">
+        <div class="form-field">
+          <label for="teacherLanguageInput">Language</label>
+          <select id="teacherLanguageInput">
+            <option value="ar">Arabic</option>
+            <option value="en">English</option>
+          </select>
+        </div>
+
+        <div class="form-field">
+          <label for="teacherStatusInput">Status</label>
+          <select id="teacherStatusInput">
+            <option value="approved">Approved</option>
+            <option value="pending">Pending</option>
+          </select>
+        </div>
+      </div>
+
+      <p class="form-error" id="teacherFormError"></p>
+    </div>
+
+    <div class="teacher-modal-footer">
+      <button class="btn btn-secondary btn-sm" type="button" id="cancelTeacherModalBtn">Cancel</button>
+      <button class="btn btn-primary btn-sm" type="button" id="saveTeacherModalBtn">Save Teacher</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="deleteTeacherBackdrop" aria-hidden="true">
+  <div class="teacher-modal teacher-modal-sm" role="dialog" aria-modal="true" aria-labelledby="deleteTeacherTitle">
+    <div class="teacher-modal-header">
+      <div>
+        <h3 id="deleteTeacherTitle">Remove Teacher</h3>
+        <p>This will deactivate the teacher and remove them from active lists.</p>
+      </div>
+      <button class="icon-btn" type="button" id="closeDeleteModalBtn" aria-label="Close">✕</button>
+    </div>
+
+    <div class="teacher-modal-body">
+      <div class="delete-warning">
+        <strong id="deleteTeacherName">Teacher</strong>
+        <p id="deleteTeacherEmail">—</p>
+      </div>
+      <p class="form-error" id="deleteTeacherError"></p>
+    </div>
+
+    <div class="teacher-modal-footer">
+      <button class="btn btn-secondary btn-sm" type="button" id="cancelDeleteTeacherBtn">Cancel</button>
+      <button class="btn btn-danger btn-sm" type="button" id="confirmDeleteTeacherBtn">Remove</button>
+    </div>
+  </div>
+</div>
+
+<script src="js/auth.js?v=110"></script>
+<script src="js/i18n.js?v=110"></script>
+<script src="js/nav.js?v=110"></script>
 <script src="js/teachers.js?v=110"></script>
 <script>
   I18N.load(localStorage.getItem('firduty_lang') || 'ar').then(() => {
