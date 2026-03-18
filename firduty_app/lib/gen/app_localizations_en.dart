@@ -1,11 +1,12 @@
-// GENERATED CODE - DO NOT MODIFY BY HAND
-
+// ignore: unused_import
+import 'package:intl/intl.dart' as intl;
 import 'app_localizations.dart';
 
 // ignore_for_file: type=lint
 
+/// The translations for English (`en`).
 class AppLocalizationsEn extends AppLocalizations {
-  AppLocalizationsEn([super.locale = 'en']);
+  AppLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
   String get appTitle => 'Firduty';
@@ -89,8 +90,7 @@ class AppLocalizationsEn extends AppLocalizations {
       'Your schedule is being prepared. Please check back later.';
 
   @override
-  String get noPlanForToday =>
-      'No weekly duty plan has been set up for today.';
+  String get noPlanForToday => 'No weekly duty plan has been set up for today.';
 
   @override
   String get location => 'Location';

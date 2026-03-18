@@ -1,21 +1,21 @@
 // today_screen.dart — Teacher's duties for today + attendance confirmation.
 //
-// v3.0 changes:
-//   • Reads `week_status` from API response (new field added in backend v3.0)
-//   • Shows contextual empty-state messages:
-//       - week_status == null          → "No duty plan has been set up yet"
-//       - week_status == "draft"       → "Your schedule is being prepared"
-//       - week_status == "published"
-//         + no duties for this teacher → "No duties scheduled for today"
-//   • Added debugPrint logging of date sent + response to aid diagnosis
-//   • Optimistic confirm UI (mark instantly, revert on error)
-//   • AutomaticKeepAliveClientMixin: scroll position survives tab switches
-//   • No deprecated APIs (.withValues instead of .withOpacity)
+// v3.1 changes:
+//   • Uses ApiService.getTeacherToday() — server resolves "today" in
+//     Asia/Muscat timezone, eliminating device-timezone mismatch.
+//     Previously the app sent DateTime.now() (device local) which was wrong
+//     when the device was in UTC or a non-Oman timezone.
+//   • Debug logging shows which endpoint was called and the full response.
+//   • Contextual empty-state messages based on week_status from response:
+//       null     → "No weekly plan set up for today"
+//       "draft"  → "Schedule being prepared"
+//       "published" + empty duties → "No duties today"
+//   • Optimistic confirm: card shows Confirmed immediately, reverts on error.
+//   • AutomaticKeepAliveClientMixin: scroll position survives tab switches.
 
 import 'package:flutter/foundation.dart' show kDebugMode, debugPrint;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:intl/intl.dart';
 import '../services/api_service.dart';
 import '../gen/app_localizations.dart';
 import '../app_theme.dart';
@@ -35,7 +35,7 @@ class _TodayScreenState extends State<TodayScreen>
   String? _weekStatus; // "published" | "draft" | null
   int _teacherId = -1;
 
-  /// Assignment IDs confirmed during this session (avoids re-fetching).
+  /// Assignment IDs confirmed during this session.
   final Set<int> _confirmedThisSession = {};
 
   @override
@@ -49,8 +49,8 @@ class _TodayScreenState extends State<TodayScreen>
 
   Future<void> _load() async {
     setState(() {
-      _loading   = true;
-      _error     = null;
+      _loading    = true;
+      _error      = null;
       _weekStatus = null;
     });
 
@@ -63,23 +63,19 @@ class _TodayScreenState extends State<TodayScreen>
       }
       _teacherId = teacherId;
 
-      // Use device-local date (correct for teachers in Oman).
-      // If the device timezone is set incorrectly, this date will be wrong.
-      // The backend logs the received date so server-side diagnosis is possible.
-      final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
-
       if (kDebugMode) {
         debugPrint(
-          '[TodayScreen] Loading duties — '
-          'teacher_id=$teacherId  date=$today  '
-          'device_tz=${DateTime.now().timeZoneName}',
+          '[TodayScreen] Calling GET /teachers/$teacherId/today '
+          '(server resolves Oman date — device tz ignored)',
         );
       }
 
-      final data = await ApiService.getTeacherSchedule(
-        teacherId: teacherId,
-        date: today,
-      );
+      // ── KEY CHANGE ──────────────────────────────────────────────────────
+      // We no longer send DateTime.now() to the server.
+      // Instead we call the /today endpoint which lets the server compute
+      // today's date in Asia/Muscat timezone — correct regardless of
+      // whatever timezone the device is set to.
+      final data = await ApiService.getTeacherToday(teacherId: teacherId);
 
       if (kDebugMode) {
         debugPrint(
@@ -108,17 +104,16 @@ class _TodayScreenState extends State<TodayScreen>
     final assignmentId = duty['assignment_id'] as int?;
     if (assignmentId == null) return;
 
-    // Immediate visual update
     setState(() => _confirmedThisSession.add(assignmentId));
 
     try {
       final result = await ApiService.confirmDuty(
-        teacherId: _teacherId,
+        teacherId:    _teacherId,
         assignmentId: assignmentId,
       );
 
       if (!mounted) return;
-      final isAr = Localizations.localeOf(context).languageCode == 'ar';
+      final isAr    = Localizations.localeOf(context).languageCode == 'ar';
       final pts     = result['points_earned'] as int? ?? 0;
       final message = isAr
           ? result['message_ar'] as String? ?? ''
@@ -143,11 +138,9 @@ class _TodayScreenState extends State<TodayScreen>
                   color: Colors.white.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Text(
-                  '+$pts pts',
-                  style: const TextStyle(
-                      fontWeight: FontWeight.bold, color: Colors.white),
-                ),
+                child: Text('+$pts pts',
+                    style: const TextStyle(
+                        fontWeight: FontWeight.bold, color: Colors.white)),
               ),
             ],
           ),
@@ -159,7 +152,6 @@ class _TodayScreenState extends State<TodayScreen>
         ),
       );
     } catch (e) {
-      // Revert optimistic update
       setState(() => _confirmedThisSession.remove(assignmentId));
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -174,35 +166,28 @@ class _TodayScreenState extends State<TodayScreen>
     }
   }
 
-  // ── Contextual empty-state messages ─────────────────────────────────────────
+  // ── Contextual empty-state ───────────────────────────────────────────────────
 
-  /// Choose the right icon + message based on week_status.
-  ///
-  /// | week_status | Meaning                       | Message shown              |
-  /// |-------------|-------------------------------|----------------------------|
-  /// | null        | No week plan for this date    | "No plan set up yet"       |
-  /// | "draft"     | Week exists but not published | "Schedule being prepared"  |
-  /// | "published" | Published, no duties for me   | "No duties today"          |
   Widget _buildEmptyState(AppLocalizations l10n) {
     final IconData icon;
     final String   message;
     final Color    iconColor;
 
     switch (_weekStatus) {
-      case "draft":
+      case 'draft':
         icon      = Icons.edit_calendar_outlined;
         iconColor = FirdutyColors.warning;
-        message   = l10n.scheduleBeingPrepared;   // "Your schedule is being prepared. Please check again later."
+        message   = l10n.scheduleBeingPrepared;
         break;
       case null:
         icon      = Icons.calendar_today_outlined;
         iconColor = FirdutyColors.textMuted;
-        message   = l10n.noPlanForToday;          // "No weekly plan has been set up for today."
+        message   = l10n.noPlanForToday;
         break;
       default: // "published"
         icon      = Icons.event_available;
         iconColor = FirdutyColors.accentGreen;
-        message   = l10n.noDutiesToday;           // "You have no duties scheduled for today."
+        message   = l10n.noDutiesToday;
         break;
     }
 
@@ -211,21 +196,15 @@ class _TodayScreenState extends State<TodayScreen>
 
   @override
   Widget build(BuildContext context) {
-    super.build(context); // required for AutomaticKeepAliveClientMixin
+    super.build(context);
     final l10n = AppLocalizations.of(context);
     final isAr = Localizations.localeOf(context).languageCode == 'ar';
 
-    if (_loading) {
-      return const Center(child: CircularProgressIndicator());
-    }
+    if (_loading) return const Center(child: CircularProgressIndicator());
 
-    if (_error != null) {
-      return _ErrorState(message: _error!, onRetry: _load);
-    }
+    if (_error != null) return _ErrorState(message: _error!, onRetry: _load);
 
-    if (_duties.isEmpty) {
-      return _buildEmptyState(l10n);
-    }
+    if (_duties.isEmpty) return _buildEmptyState(l10n);
 
     return RefreshIndicator(
       onRefresh: _load,
@@ -255,12 +234,15 @@ class _TodayScreenState extends State<TodayScreen>
               (d['already_confirmed'] == true ||
                   _confirmedThisSession.contains(assignmentId));
 
+          final shiftStart = d['shift_start'] as String? ?? '';
+          final shiftEnd   = d['shift_end']   as String? ?? '';
+
           return _DutyCard(
             shiftName:     shiftName,
             locationLabel: locationLabel,
             isBreak:       isBreak,
-            startTime:     (d['shift_start'] as String? ?? '').substring(0, 5),
-            endTime:       (d['shift_end']   as String? ?? '').substring(0, 5),
+            startTime:     shiftStart.length >= 5 ? shiftStart.substring(0, 5) : shiftStart,
+            endTime:       shiftEnd.length   >= 5 ? shiftEnd.substring(0, 5)   : shiftEnd,
             isConfirmed:   isConfirmed,
             onConfirm:     assignmentId != null && !isConfirmed
                 ? () => _confirmDuty(d)
@@ -276,9 +258,9 @@ class _TodayScreenState extends State<TodayScreen>
 // ─── Empty State ──────────────────────────────────────────────────────────────
 
 class _EmptyState extends StatelessWidget {
-  final IconData icon;
-  final Color    iconColor;
-  final String   message;
+  final IconData    icon;
+  final Color       iconColor;
+  final String      message;
   final VoidCallback onRetry;
 
   const _EmptyState({
@@ -309,10 +291,7 @@ class _EmptyState extends StatelessWidget {
               message,
               textAlign: TextAlign.center,
               style: const TextStyle(
-                fontSize: 15,
-                color: FirdutyColors.textMuted,
-                height: 1.5,
-              ),
+                  fontSize: 15, color: FirdutyColors.textMuted, height: 1.5),
             ),
             const SizedBox(height: 20),
             OutlinedButton.icon(
@@ -349,11 +328,9 @@ class _ErrorState extends StatelessWidget {
             const Icon(Icons.wifi_off_rounded,
                 size: 52, color: FirdutyColors.textMuted),
             const SizedBox(height: 16),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: FirdutyColors.textMuted),
-            ),
+            Text(message,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: FirdutyColors.textMuted)),
             const SizedBox(height: 20),
             ElevatedButton.icon(
               onPressed: onRetry,
@@ -412,7 +389,6 @@ class _DutyCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── Coloured top accent bar ─────────────────────────────────────
           Container(
             height: 4,
             decoration: BoxDecoration(
@@ -421,30 +397,22 @@ class _DutyCard extends StatelessWidget {
                   const BorderRadius.vertical(top: Radius.circular(14)),
             ),
           ),
-
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // ── Shift name + confirmed badge ──────────────────────────
                 Row(
                   children: [
-                    Icon(
-                      isBreak ? Icons.groups : Icons.access_time,
-                      color: accentColor,
-                      size: 20,
-                    ),
+                    Icon(isBreak ? Icons.groups : Icons.access_time,
+                        color: accentColor, size: 20),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: Text(
-                        shiftName,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                          color: FirdutyColors.textDark,
-                        ),
-                      ),
+                      child: Text(shiftName,
+                          style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                              color: FirdutyColors.textDark)),
                     ),
                     if (isConfirmed)
                       Container(
@@ -460,29 +428,21 @@ class _DutyCard extends StatelessWidget {
                             Icon(Icons.check_circle,
                                 size: 14, color: FirdutyColors.successDark),
                             const SizedBox(width: 4),
-                            Text(
-                              l10n.confirmed,
-                              style: TextStyle(
-                                color: FirdutyColors.successDark,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
+                            Text(l10n.confirmed,
+                                style: TextStyle(
+                                    color: FirdutyColors.successDark,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600)),
                           ],
                         ),
                       ),
                   ],
                 ),
                 const SizedBox(height: 10),
-
-                // ── Location / Class row ──────────────────────────────────
                 Row(
                   children: [
-                    Icon(
-                      isBreak ? Icons.school : Icons.location_on,
-                      size: 16,
-                      color: FirdutyColors.textMuted,
-                    ),
+                    Icon(isBreak ? Icons.school : Icons.location_on,
+                        size: 16, color: FirdutyColors.textMuted),
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
@@ -494,25 +454,18 @@ class _DutyCard extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 6),
-
-                // ── Time row ─────────────────────────────────────────────
                 Row(
                   children: [
                     const Icon(Icons.schedule,
                         size: 16, color: FirdutyColors.textMuted),
                     const SizedBox(width: 6),
-                    Text(
-                      '$startTime – $endTime',
-                      style: const TextStyle(
-                          fontSize: 14, color: FirdutyColors.textMuted),
-                    ),
+                    Text('$startTime – $endTime',
+                        style: const TextStyle(
+                            fontSize: 14, color: FirdutyColors.textMuted)),
                   ],
                 ),
-
                 if (!isConfirmed) ...[
                   const SizedBox(height: 14),
-
-                  // ── Points hint ───────────────────────────────────────
                   Container(
                     padding: const EdgeInsets.symmetric(
                         horizontal: 12, vertical: 8),
@@ -534,8 +487,6 @@ class _DutyCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 12),
-
-                  // ── Confirm button ────────────────────────────────────
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton.icon(

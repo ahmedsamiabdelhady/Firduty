@@ -1,20 +1,29 @@
 """Teacher CRUD, self-registration, approval, device token, and schedule endpoints.
 
-v2.5 → v3.0  root-cause fixes:
-  - get_teacher_schedule: replaced all lazy-loading with selectinload/joinedload
-    so no DetachedInstanceError can silently drop records.
-  - get_teacher_schedule: added comprehensive logging (teacher, date, week found,
-    week status, days found, assignment count) so "empty today" is diagnosable
-    from server logs.
-  - get_teacher_schedule: now returns `week_status` ("published"|"draft"|null)
-    so Flutter can show a different message when the week is draft vs truly empty.
-  - get_teacher_week: also uses eager loading and returns `week_status`.
-  - Both endpoints only return duties from *published* weeks (correct behaviour
-    — teachers must not see unconfirmed draft rosters).
+v3.1 — timezone-safe mobile endpoints:
+  - GET /{teacher_id}/today
+      Server resolves "today" using Asia/Muscat timezone. The client does NOT
+      send a date; the server computes it. This eliminates device-timezone
+      mismatch as a source of wrong/empty results.
+
+  - GET /{teacher_id}/current-week
+      Server resolves the current Oman work-week start (Sunday) using
+      Asia/Muscat timezone. Client no longer needs to compute the week start.
+
+  Both new endpoints delegate to the same internal helper used by the
+  existing /{id}/schedule?date=... and /{id}/week?week_start=... endpoints,
+  so logic is not duplicated.
+
+v3.0 — root-cause fixes preserved:
+  - Eager loading (selectinload/joinedload) everywhere to prevent
+    DetachedInstanceError silently producing empty duty lists.
+  - Returns week_status so Flutter shows contextual empty-state messages.
+  - Batch-loads confirmations in a single query.
+  - Comprehensive logging on all schedule/week endpoints.
 """
 
 import logging
-from datetime import date as date_type
+from datetime import date as date_type, datetime
 from typing import List, Optional
 
 import pytz
@@ -23,7 +32,7 @@ from sqlalchemy.orm import Session, selectinload, joinedload
 
 from database import get_db
 from models.models import (
-    Teacher, DeviceToken, DayPlan, ShiftLocation, Assignment, WeekPlan, Location, Shift,
+    Teacher, DeviceToken, DayPlan, ShiftLocation, Assignment, WeekPlan,
 )
 from models.points_models import DutyConfirmation
 from schemas.schemas import (
@@ -31,6 +40,7 @@ from schemas.schemas import (
     TeacherOut, TeacherStatusOut, DeviceTokenCreate,
 )
 from routers.auth import get_current_admin
+from services.week_service import get_current_week_start
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/teachers", tags=["teachers"])
@@ -38,16 +48,23 @@ router = APIRouter(prefix="/teachers", tags=["teachers"])
 MUSCAT_TZ = pytz.timezone("Asia/Muscat")
 
 
+# ─── Shared date helpers ──────────────────────────────────────────────────────
+
+def _today_muscat() -> date_type:
+    """Return today's date in Asia/Muscat timezone (Oman)."""
+    return datetime.now(MUSCAT_TZ).date()
+
+
 # ─── Duty serialisation helper ────────────────────────────────────────────────
 
 def _duty_dict(a: Assignment, sl: ShiftLocation, query_date: date_type) -> dict:
     """
     Serialise a duty assignment — duty-type aware.
-    All relationship attributes (sl.shift, sl.location) must be eagerly loaded
-    BEFORE calling this function to avoid lazy-load DetachedInstanceError.
+    ALL relationship attributes on sl (shift, location) must be eagerly loaded
+    before calling this to avoid lazy-load DetachedInstanceError.
     """
-    shift = sl.shift
-    duty_type: str = str(shift.duty_type) if shift.duty_type else "morning_endofday"
+    shift     = sl.shift
+    duty_type = str(shift.duty_type) if shift.duty_type else "morning_endofday"
 
     base: dict = {
         "assignment_id": a.id,
@@ -68,6 +85,227 @@ def _duty_dict(a: Assignment, sl: ShiftLocation, query_date: date_type) -> dict:
 
     base["grade_class"] = a.grade_class
     return base
+
+
+# ─── Shared schedule logic (used by both /schedule and /today) ────────────────
+
+def _build_schedule_response(
+    teacher_id: int,
+    teacher: Teacher,
+    query_date: date_type,
+    db: Session,
+) -> dict:
+    """
+    Core logic for returning a teacher's duties on a specific date.
+
+    Eagerly loads all relationships to prevent DetachedInstanceError.
+    Returns week_status so the Flutter client can show contextual messages.
+    """
+    # Load DayPlan(s) for this date with all nested relationships in ONE query.
+    days = (
+        db.query(DayPlan)
+        .options(
+            joinedload(DayPlan.week_plan),
+            selectinload(DayPlan.shift_locations).joinedload(ShiftLocation.shift),
+            selectinload(DayPlan.shift_locations).joinedload(ShiftLocation.location),
+            selectinload(DayPlan.shift_locations).selectinload(ShiftLocation.assignments),
+        )
+        .filter(DayPlan.date == query_date)
+        .all()
+    )
+
+    logger.info(
+        "[schedule] teacher_id=%d  query_date=%s  day_plans_found=%d",
+        teacher_id, query_date, len(days),
+    )
+
+    if not days:
+        logger.info(
+            "[schedule] teacher_id=%d  query_date=%s  → no DayPlan; "
+            "possible weekend or no week plan created yet",
+            teacher_id, query_date,
+        )
+        return {
+            "teacher_id":   teacher_id,
+            "teacher_name": teacher.name,
+            "week_status":  None,  # no week covers this date
+            "duties":       [],
+        }
+
+    # Determine week status — prefer "published" if multiple rows exist.
+    week_status: Optional[str] = None
+    for day in days:
+        ws = str(day.week_plan.status)
+        logger.info(
+            "[schedule] DayPlan id=%d  week_start=%s  week_status=%s",
+            day.id, day.week_plan.week_start_date, ws,
+        )
+        if ws == "published":
+            week_status = "published"
+            break
+        if week_status is None:
+            week_status = ws
+
+    if week_status != "published":
+        logger.info(
+            "[schedule] teacher_id=%d  week_status=%s → no duties returned "
+            "(week not published yet)",
+            teacher_id, week_status,
+        )
+        return {
+            "teacher_id":   teacher_id,
+            "teacher_name": teacher.name,
+            "week_status":  week_status,
+            "duties":       [],
+        }
+
+    # Collect assignments for this specific teacher.
+    assignment_ids: List[int] = []
+    triples: List[tuple] = []  # (assignment, shift_location, day)
+
+    for day in days:
+        if str(day.week_plan.status) != "published":
+            continue
+        for sl in day.shift_locations:
+            for a in sl.assignments:
+                if int(a.teacher_id or 0) == teacher_id:
+                    assignment_ids.append(a.id)
+                    triples.append((a, sl, day))
+
+    logger.info(
+        "[schedule] teacher_id=%d  query_date=%s  assignments_found=%d",
+        teacher_id, query_date, len(assignment_ids),
+    )
+
+    # Batch-load confirmations (1 query instead of N).
+    conf_map: dict = {}
+    if assignment_ids:
+        conf_map = {
+            c.assignment_id: c
+            for c in db.query(DutyConfirmation).filter(
+                DutyConfirmation.teacher_id == teacher_id,
+                DutyConfirmation.assignment_id.in_(assignment_ids),
+            ).all()
+        }
+
+    duties = []
+    for a, sl, day in triples:
+        conf  = conf_map.get(a.id)
+        entry = _duty_dict(a, sl, query_date)
+        entry["already_confirmed"] = conf is not None
+        entry["points_earned"]     = conf.points_earned if conf else None
+        duties.append(entry)
+
+    logger.info(
+        "[schedule] teacher_id=%d  query_date=%s  returning %d duties  "
+        "week_status=published",
+        teacher_id, query_date, len(duties),
+    )
+
+    return {
+        "teacher_id":   teacher_id,
+        "teacher_name": teacher.name,
+        "week_status":  "published",
+        "duties":       duties,
+    }
+
+
+def _build_week_response(
+    teacher_id: int,
+    teacher: Teacher,
+    ws: date_type,
+    db: Session,
+) -> dict:
+    """
+    Core logic for returning a teacher's duties for an entire week.
+    Eagerly loads all relationships; returns week_status.
+    """
+    week = db.query(WeekPlan).filter(WeekPlan.week_start_date == ws).first()
+
+    if not week:
+        logger.info("[week] teacher_id=%d  week_start=%s  → no WeekPlan", teacher_id, ws)
+        return {
+            "teacher_id":   teacher_id,
+            "teacher_name": teacher.name,
+            "week_status":  None,
+            "duties":       [],
+        }
+
+    week_status = str(week.status)
+    logger.info("[week] teacher_id=%d  week_start=%s  status=%s", teacher_id, ws, week_status)
+
+    if week_status != "published":
+        return {
+            "teacher_id":   teacher_id,
+            "teacher_name": teacher.name,
+            "week_status":  week_status,
+            "duties":       [],
+        }
+
+    # Eagerly reload with all relations.
+    week = (
+        db.query(WeekPlan)
+        .options(
+            selectinload(WeekPlan.day_plans)
+            .selectinload(DayPlan.shift_locations).joinedload(ShiftLocation.shift),
+            selectinload(WeekPlan.day_plans)
+            .selectinload(DayPlan.shift_locations).joinedload(ShiftLocation.location),
+            selectinload(WeekPlan.day_plans)
+            .selectinload(DayPlan.shift_locations).selectinload(ShiftLocation.assignments),
+        )
+        .filter(WeekPlan.week_start_date == ws)
+        .first()
+    )
+    if not week:
+        return {"teacher_id": teacher_id, "teacher_name": teacher.name,
+                "week_status": None, "duties": []}
+
+    assignment_ids: List[int] = []
+    triples: List[tuple] = []
+
+    for day in week.day_plans:
+        for sl in day.shift_locations:
+            for a in sl.assignments:
+                if int(a.teacher_id or 0) == teacher_id:
+                    assignment_ids.append(a.id)
+                    triples.append((a, sl, day))
+
+    conf_map: dict = {}
+    if assignment_ids:
+        conf_map = {
+            c.assignment_id: c
+            for c in db.query(DutyConfirmation).filter(
+                DutyConfirmation.teacher_id == teacher_id,
+                DutyConfirmation.assignment_id.in_(assignment_ids),
+            ).all()
+        }
+
+    duties = []
+    for a, sl, day in triples:
+        conf  = conf_map.get(a.id)
+        entry = _duty_dict(a, sl, day.date)
+        entry["already_confirmed"] = conf is not None
+        entry["points_earned"]     = conf.points_earned if conf else None
+        duties.append(entry)
+
+    logger.info("[week] teacher_id=%d  week=%s  %d duties", teacher_id, ws, len(duties))
+
+    return {
+        "teacher_id":   teacher_id,
+        "teacher_name": teacher.name,
+        "week_status":  "published",
+        "duties":       duties,
+    }
+
+
+def _validate_teacher(teacher_id: int, db: Session) -> Teacher:
+    """Fetch and validate teacher; raises HTTP 404 / 403 as appropriate."""
+    teacher = db.query(Teacher).filter(Teacher.id == teacher_id).first()
+    if not teacher:
+        raise HTTPException(404, "Teacher not found")
+    if str(teacher.status) != "approved":
+        raise HTTPException(403, "Teacher account not yet approved")
+    return teacher
 
 
 # ─── Static-path routes (must come before /{teacher_id}/…) ───────────────────
@@ -100,26 +338,20 @@ def list_pending_teachers(
     db: Session = Depends(get_db),
     _: str = Depends(get_current_admin),
 ) -> List[TeacherOut]:
-    rows = (
+    return (
         db.query(Teacher)
         .filter(Teacher.status == "pending")
         .order_by(Teacher.created_at.desc())
         .all()
     )
-    return rows
 
 
 @router.post("/register", response_model=TeacherOut, status_code=201)
-def register_teacher(
-    data: TeacherRegister,
-    db: Session = Depends(get_db),
-):
+def register_teacher(data: TeacherRegister, db: Session = Depends(get_db)):
     """Self-registration — creates a pending teacher record."""
     if data.email:
         existing = (
-            db.query(Teacher)
-            .filter(Teacher.email == data.email.lower())
-            .first()
+            db.query(Teacher).filter(Teacher.email == data.email.lower()).first()
         )
         if existing:
             raise HTTPException(409, "A teacher with this email is already registered.")
@@ -183,6 +415,85 @@ def approve_teacher(
     return teacher
 
 
+# ── TIMEZONE-SAFE MOBILE ENDPOINTS (preferred for Flutter app) ──────────────
+
+@router.get("/{teacher_id}/today")
+def get_teacher_today(
+    teacher_id: int,
+    db: Session = Depends(get_db),
+) -> dict:
+    """
+    Teacher's duties for TODAY in Oman (Asia/Muscat) timezone.
+
+    ── Why this endpoint exists ───────────────────────────────────────────────
+    The existing  GET /{id}/schedule?date=...  requires the client to send
+    today's date as a query parameter. This works only if the device timezone
+    matches Oman (Asia/Muscat, UTC+4). If the device is in a different
+    timezone, or set to UTC (common on development machines and some Android
+    builds), the wrong date is sent, and the backend finds no DayPlan for that
+    date — producing an empty result even when published duties exist.
+
+    This endpoint solves the problem at the source: the server computes
+    today's date in Asia/Muscat, so the result is always correct regardless of
+    what timezone the client device is set to.
+
+    Response shape (same as /schedule):
+        {
+          "teacher_id":   int,
+          "teacher_name": str,
+          "week_status":  "published" | "draft" | null,
+          "duties":       [...]
+        }
+    """
+    today = _today_muscat()
+
+    logger.info(
+        "[today] teacher_id=%d  server_muscat_date=%s  tz=Asia/Muscat",
+        teacher_id, today,
+    )
+
+    teacher = _validate_teacher(teacher_id, db)
+    return _build_schedule_response(teacher_id, teacher, today, db)
+
+
+@router.get("/{teacher_id}/current-week")
+def get_teacher_current_week(
+    teacher_id: int,
+    db: Session = Depends(get_db),
+) -> dict:
+    """
+    Teacher's duties for the current Oman school week (Sunday–Thursday).
+
+    ── Why this endpoint exists ───────────────────────────────────────────────
+    The existing  GET /{id}/week?week_start=...  requires the client to compute
+    the current week's Sunday start date. If the device timezone is wrong, this
+    calculation can be off by one week (e.g., sending the previous week's
+    Sunday when Oman is already in the next week).
+
+    This endpoint lets the server compute the correct Sunday start in
+    Asia/Muscat timezone, guaranteeing accuracy.
+
+    Response shape (same as /week):
+        {
+          "teacher_id":   int,
+          "teacher_name": str,
+          "week_status":  "published" | "draft" | null,
+          "duties":       [...]
+        }
+    """
+    ws = get_current_week_start()  # uses Asia/Muscat internally
+
+    logger.info(
+        "[current-week] teacher_id=%d  server_week_start=%s  tz=Asia/Muscat",
+        teacher_id, ws,
+    )
+
+    teacher = _validate_teacher(teacher_id, db)
+    return _build_week_response(teacher_id, teacher, ws, db)
+
+
+# ── LEGACY ENDPOINTS (kept for backward compatibility) ───────────────────────
+
 @router.get("/{teacher_id}/schedule")
 def get_teacher_schedule(
     teacher_id: int,
@@ -190,162 +501,27 @@ def get_teacher_schedule(
     db: Session = Depends(get_db),
 ) -> dict:
     """
-    Teacher's duties for a specific date.
+    Teacher's duties for a specific date (client supplies date).
 
-    Only returns duties from *published* week plans.
+    Prefer GET /{id}/today when calling from the Flutter mobile app to avoid
+    timezone mismatch. Use this endpoint only when the client has a reliable
+    local date (e.g., the admin web UI or manual testing).
 
-    Returns:
-        week_status: "published" | "draft" | null
-            - null: no week plan covering this date was found
-            - "draft": a week exists but has not been published yet
-            - "published": week is published (duties list may still be empty
-              if this teacher has no assignments for this day)
-
-    Flutter uses `week_status` to show contextual empty-state messages:
-        draft   → "Your schedule is being prepared. Please check back later."
-        null    → "No weekly plan has been set up for this date."
-        published + empty duties → "You have no duties scheduled for today."
+    Returns week_status: "published" | "draft" | null
     """
-    # ── Parse + validate date ────────────────────────────────────────────────
     try:
         query_date = date_type.fromisoformat(date)
     except ValueError:
         raise HTTPException(400, f"Invalid date format: '{date}'. Use YYYY-MM-DD.")
 
-    # ── Log the incoming request ─────────────────────────────────────────────
     logger.info(
-        "[schedule] teacher_id=%s  requested_date=%s",
+        "[schedule] teacher_id=%d  client_date=%s  "
+        "[NOTE: use /today for timezone-safe resolution]",
         teacher_id, query_date,
     )
 
-    # ── Validate teacher ─────────────────────────────────────────────────────
-    teacher = db.query(Teacher).filter(Teacher.id == teacher_id).first()
-    if not teacher:
-        raise HTTPException(404, "Teacher not found")
-    if str(teacher.status) != "approved":
-        raise HTTPException(403, "Teacher account not yet approved")
-
-    # ── Load DayPlan(s) for this date with ALL needed relationships eagerly ──
-    #
-    # ROOT CAUSE FIX:
-    # The original code accessed day.week_plan, day.shift_locations,
-    # sl.assignments, sl.shift, sl.location all via lazy-loading after the
-    # initial query. With certain SQLAlchemy + PostgreSQL configurations
-    # (especially on Koyeb), this caused DetachedInstanceError or stale data
-    # silently producing an empty duties list even for a published week.
-    #
-    # Solution: load EVERYTHING in one query using selectinload/joinedload.
-    days = (
-        db.query(DayPlan)
-        .options(
-            # Eagerly load the parent WeekPlan to read .status without lazy-load
-            joinedload(DayPlan.week_plan),
-            # Eagerly load shift_locations + shift + location in one go
-            selectinload(DayPlan.shift_locations)
-            .joinedload(ShiftLocation.shift),
-            selectinload(DayPlan.shift_locations)
-            .joinedload(ShiftLocation.location),
-            # Eagerly load assignments (no teacher join needed — we filter by id)
-            selectinload(DayPlan.shift_locations)
-            .selectinload(ShiftLocation.assignments),
-        )
-        .filter(DayPlan.date == query_date)
-        .all()
-    )
-
-    logger.info(
-        "[schedule] date=%s  found %d day_plan(s) in DB",
-        query_date, len(days),
-    )
-
-    if not days:
-        logger.info("[schedule] No DayPlan for date=%s → no week plan covers this date", query_date)
-        return {
-            "teacher_id":   teacher_id,
-            "teacher_name": teacher.name,
-            "week_status":  None,   # no week plan at all for this date
-            "duties":       [],
-        }
-
-    # ── Determine week status (there should be at most one DayPlan per date) ──
-    # If for some reason there are multiple (data inconsistency), prefer published.
-    week_status: Optional[str] = None
-    for day in days:
-        ws = str(day.week_plan.status)
-        logger.info(
-            "[schedule] DayPlan id=%d  week_start=%s  week_status=%s",
-            day.id, day.week_plan.week_start_date, ws,
-        )
-        if ws == "published":
-            week_status = "published"
-            break
-        if week_status is None:
-            week_status = ws  # capture first status if none is published
-
-    if week_status != "published":
-        logger.info(
-            "[schedule] week_status=%s (not published) → returning empty duties list "
-            "with week_status=%s so Flutter can show 'schedule being prepared' message",
-            week_status, week_status,
-        )
-        return {
-            "teacher_id":   teacher_id,
-            "teacher_name": teacher.name,
-            "week_status":  week_status,  # Flutter will show "coming soon" message
-            "duties":       [],
-        }
-
-    # ── Collect duties for this teacher from the published day ───────────────
-    # Load confirmations in a single batch query (avoids N+1)
-    assignment_ids_for_teacher: List[int] = []
-    teacher_assignments: List[tuple] = []  # (assignment, shift_location, day)
-
-    for day in days:
-        if str(day.week_plan.status) != "published":
-            continue
-        for sl in day.shift_locations:
-            for a in sl.assignments:
-                if int(a.teacher_id or 0) == teacher_id:
-                    assignment_ids_for_teacher.append(a.id)
-                    teacher_assignments.append((a, sl, day))
-
-    logger.info(
-        "[schedule] teacher_id=%d  date=%s  found %d assignment(s) in published week",
-        teacher_id, query_date, len(assignment_ids_for_teacher),
-    )
-
-    # Batch-load all confirmations for these assignments (1 query instead of N)
-    if assignment_ids_for_teacher:
-        confirmations_map = {
-            c.assignment_id: c
-            for c in db.query(DutyConfirmation).filter(
-                DutyConfirmation.teacher_id == teacher_id,
-                DutyConfirmation.assignment_id.in_(assignment_ids_for_teacher),
-            ).all()
-        }
-    else:
-        confirmations_map = {}
-
-    # ── Build duty dicts ─────────────────────────────────────────────────────
-    duties = []
-    for a, sl, day in teacher_assignments:
-        conf = confirmations_map.get(a.id)
-        entry = _duty_dict(a, sl, query_date)
-        entry["already_confirmed"] = conf is not None
-        entry["points_earned"]     = conf.points_earned if conf else None
-        duties.append(entry)
-
-    logger.info(
-        "[schedule] teacher_id=%d  date=%s  returning %d duty/duties  week_status=published",
-        teacher_id, query_date, len(duties),
-    )
-
-    return {
-        "teacher_id":   teacher_id,
-        "teacher_name": teacher.name,
-        "week_status":  "published",
-        "duties":       duties,
-    }
+    teacher = _validate_teacher(teacher_id, db)
+    return _build_schedule_response(teacher_id, teacher, query_date, db)
 
 
 @router.get("/{teacher_id}/week")
@@ -355,105 +531,26 @@ def get_teacher_week(
     db: Session = Depends(get_db),
 ) -> dict:
     """
-    Teacher's duties for an entire week.
-    Only returns duties from a *published* week plan.
-    Returns `week_status` so Flutter can show contextual messages.
+    Teacher's duties for a specific week (client supplies week start date).
+
+    Prefer GET /{id}/current-week when calling from the Flutter mobile app.
     """
     try:
         ws = date_type.fromisoformat(week_start)
     except ValueError:
-        raise HTTPException(400, f"Invalid week_start format: '{week_start}'. Use YYYY-MM-DD.")
+        raise HTTPException(400, f"Invalid week_start: '{week_start}'. Use YYYY-MM-DD.")
 
-    logger.info("[week] teacher_id=%s  week_start=%s", teacher_id, ws)
-
-    teacher = db.query(Teacher).filter(Teacher.id == teacher_id).first()
-    if not teacher:
-        raise HTTPException(404, "Teacher not found")
-    if str(teacher.status) != "approved":
-        raise HTTPException(403, "Teacher account not yet approved")
-
-    week = db.query(WeekPlan).filter(WeekPlan.week_start_date == ws).first()
-
-    if not week:
-        logger.info("[week] No WeekPlan for week_start=%s", ws)
-        return {
-            "teacher_id":   teacher_id,
-            "teacher_name": teacher.name,
-            "week_status":  None,
-            "duties":       [],
-        }
-
-    week_status = str(week.status)
-    logger.info("[week] week_start=%s  status=%s", ws, week_status)
-
-    if week_status != "published":
-        return {
-            "teacher_id":   teacher_id,
-            "teacher_name": teacher.name,
-            "week_status":  week_status,
-            "duties":       [],
-        }
-
-    # Eagerly load everything needed for serialisation
-    week = (
-        db.query(WeekPlan)
-        .options(
-            selectinload(WeekPlan.day_plans)
-            .selectinload(DayPlan.shift_locations)
-            .joinedload(ShiftLocation.shift),
-            selectinload(WeekPlan.day_plans)
-            .selectinload(DayPlan.shift_locations)
-            .joinedload(ShiftLocation.location),
-            selectinload(WeekPlan.day_plans)
-            .selectinload(DayPlan.shift_locations)
-            .selectinload(ShiftLocation.assignments),
-        )
-        .filter(WeekPlan.week_start_date == ws)
-        .first()
+    logger.info(
+        "[week] teacher_id=%d  client_week_start=%s  "
+        "[NOTE: use /current-week for timezone-safe resolution]",
+        teacher_id, ws,
     )
-    if not week:
-        return {"teacher_id": teacher_id, "teacher_name": teacher.name,
-                "week_status": None, "duties": []}
 
-    # Collect all assignment IDs for this teacher
-    all_assignment_ids: List[int] = []
-    teacher_triples: List[tuple] = []  # (assignment, sl, day)
+    teacher = _validate_teacher(teacher_id, db)
+    return _build_week_response(teacher_id, teacher, ws, db)
 
-    for day in week.day_plans:
-        for sl in day.shift_locations:
-            for a in sl.assignments:
-                if int(a.teacher_id or 0) == teacher_id:
-                    all_assignment_ids.append(a.id)
-                    teacher_triples.append((a, sl, day))
 
-    # Batch-load confirmations
-    conf_map = {}
-    if all_assignment_ids:
-        conf_map = {
-            c.assignment_id: c
-            for c in db.query(DutyConfirmation).filter(
-                DutyConfirmation.teacher_id == teacher_id,
-                DutyConfirmation.assignment_id.in_(all_assignment_ids),
-            ).all()
-        }
-
-    duties = []
-    for a, sl, day in teacher_triples:
-        conf = conf_map.get(a.id)
-        entry = _duty_dict(a, sl, day.date)
-        entry["already_confirmed"] = conf is not None
-        entry["points_earned"]     = conf.points_earned if conf else None
-        duties.append(entry)
-
-    logger.info("[week] teacher_id=%d  week=%s  %d duties", teacher_id, ws, len(duties))
-
-    return {
-        "teacher_id":   teacher_id,
-        "teacher_name": teacher.name,
-        "week_status":  "published",
-        "duties":       duties,
-    }
-
+# ─── Device token ─────────────────────────────────────────────────────────────
 
 @router.post("/{teacher_id}/device-token")
 def register_device_token(
@@ -470,10 +567,14 @@ def register_device_token(
         existing.teacher_id = teacher_id
         existing.platform   = data.platform
     else:
-        db.add(DeviceToken(teacher_id=teacher_id, token=data.token, platform=data.platform))
+        db.add(DeviceToken(
+            teacher_id=teacher_id, token=data.token, platform=data.platform
+        ))
     db.commit()
     return {"status": "registered"}
 
+
+# ─── CRUD ─────────────────────────────────────────────────────────────────────
 
 @router.get("/{teacher_id}", response_model=TeacherOut)
 def get_teacher(teacher_id: int, db: Session = Depends(get_db)):
