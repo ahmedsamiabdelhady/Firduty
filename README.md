@@ -1,27 +1,29 @@
 # Firduty — School Duty Roster System
 
-**Version 2.3.0** · FastAPI · Flutter · PostgreSQL (Supabase) · Koyeb
+**Version 2.3.0** · FastAPI · Flutter · PostgreSQL (Supabase) · Firebase FCM · Koyeb
 
 ---
 
 ## Table of Contents
 
 1. [Project Overview](#1-project-overview)
-2. [Architecture](#2-architecture)
+2. [System Architecture](#2-system-architecture)
 3. [Project Structure](#3-project-structure)
-4. [Full Installation Guide](#4-full-installation-guide)
-5. [Backend Stack](#5-backend-stack)
-6. [Flutter App](#6-flutter-app)
-7. [Admin Web UI](#7-admin-web-ui)
-8. [Environment Variables](#8-environment-variables)
-9. [Database Setup & Migrations](#9-database-setup--migrations)
-10. [Koyeb Deployment](#10-koyeb-deployment)
-11. [Authentication](#11-authentication)
-12. [API Reference](#12-api-reference)
-13. [Push Notifications](#13-push-notifications)
-14. [Scheduler Jobs](#14-scheduler-jobs)
-15. [Troubleshooting](#15-troubleshooting)
-16. [Changelog](#16-changelog)
+4. [Prerequisites](#4-prerequisites)
+5. [First-Time Setup Checklist](#5-first-time-setup-checklist)
+6. [Backend Setup](#6-backend-setup)
+7. [Database Setup](#7-database-setup)
+8. [Flutter App Setup](#8-flutter-app-setup)
+9. [Firebase Setup](#9-firebase-setup)
+10. [Notifications Setup](#10-notifications-setup)
+11. [Admin UI Setup](#11-admin-ui-setup)
+12. [Environment Variables Reference](#12-environment-variables-reference)
+13. [Running the Full System Locally](#13-running-the-full-system-locally)
+14. [Building for Production](#14-building-for-production)
+15. [Koyeb Deployment](#15-koyeb-deployment)
+16. [Development Workflow](#16-development-workflow)
+17. [Troubleshooting](#17-troubleshooting)
+18. [Production Notes](#18-production-notes)
 
 ---
 
@@ -31,45 +33,46 @@ Firduty automates duty roster management for schools in Oman.
 
 | Actor | What they do |
 |---|---|
-| **Admin** | Creates locations, shifts, and weekly duty plans via a web UI; publishes rosters; approves teacher accounts |
-| **Teacher** | Registers via the Flutter mobile/web app; receives push notifications; confirms duty attendance; earns points |
+| **Admin** | Creates duty locations and shifts; builds weekly plans; approves teacher accounts; monitors the dashboard |
+| **Teacher** | Registers via the Flutter app; receives push notifications about assigned duties; confirms attendance; earns points |
 
 **Core workflow:**
-1. Admin sets up locations and shifts once
-2. Each Thursday at 16:00 (Muscat), the scheduler auto-clones the latest published week as a draft for next week
-3. Admin adjusts assignments in the planner, then publishes
-4. Assigned teachers receive push notifications
-5. Teachers confirm attendance; points are calculated based on punctuality
+1. Admin creates shifts and locations once
+2. Every Thursday at 16:00 (Muscat timezone), the scheduler auto-clones the latest published week as a draft for next week
+3. Admin fills in assignments in the planner and publishes the week
+4. Assigned teachers receive FCM push notifications (Android native + Web Push / iOS PWA)
+5. Teachers confirm duty attendance from the app; points are awarded based on punctuality
 
 ---
 
-## 2. Architecture
+## 2. System Architecture
 
 ```
-┌─────────────────────────────────────────┐
-│           Flutter App (PWA/Android)     │  ← teachers
-│  lib/screens/ + lib/services/           │
-│  Web: Flutter Web + Firebase Web Push   │
-│  Android: native APK + FCM              │
-└──────────────┬──────────────────────────┘
-               │  REST / JSON
+┌─────────────────────────────────────────────┐
+│        Flutter App (Android APK + Web PWA)  │  ← teachers
+│  lib/screens/ · lib/services/              │
+│  Android: FCM native push                   │
+│  Web/iOS: FCM Web Push via service worker   │
+└──────────────┬──────────────────────────────┘
+               │  REST API (JSON)
                ▼
-┌─────────────────────────────────────────┐
-│         FastAPI Backend (Koyeb)         │
-│  routers/ + services/ + jobs/           │
-│  APScheduler (background jobs)          │
-└────────────┬──────────────┬─────────────┘
-             │              │
-     ┌───────▼──────┐  ┌────▼────────────────┐
-     │  PostgreSQL  │  │  Firebase Admin SDK  │
-     │  (Supabase)  │  │  (FCM push notify)   │
-     └──────────────┘  └────────────────────--┘
+┌─────────────────────────────────────────────┐
+│           FastAPI Backend (Koyeb)           │
+│  routers/ · services/ · jobs/               │
+│  APScheduler (weekly auto-clone, monthly    │
+│  points rebuild)                            │
+└──────────┬────────────────┬─────────────────┘
+           │                │
+  ┌────────▼───────┐  ┌─────▼──────────────────┐
+  │  PostgreSQL    │  │  Firebase Admin SDK     │
+  │  (Supabase)    │  │  (FCM push dispatch)    │
+  └────────────────┘  └────────────────────────┘
 
-┌─────────────────────────────────────────┐
-│         Admin Web UI (static HTML/JS)   │  ← school admins
-│  admin_ui/ — no build step required     │
-│  Served from any static host or Koyeb   │
-└──────────────────────────────────────────┘
+┌─────────────────────────────────────────────┐
+│         Admin Web UI (static HTML/JS)       │  ← school admins
+│  admin_ui/ · no build step required         │
+│  Served from any static host or Koyeb       │
+└─────────────────────────────────────────────┘
 ```
 
 ---
@@ -78,165 +81,146 @@ Firduty automates duty roster management for schools in Oman.
 
 ```
 firduty/
+├── backend/                    FastAPI application (Python)
+│   ├── main.py                 App entry point, router registration
+│   ├── config.py               Settings class, all env var reads
+│   ├── database.py             SQLAlchemy engine + session
+│   ├── scheduler.py            APScheduler jobs (auto-clone, monthly reset)
+│   ├── requirements.txt        Python dependencies
+│   ├── alembic.ini             Alembic migration config
+│   ├── .env.example            Copy to .env for local dev
+│   ├── alembic/versions/       Alembic migration scripts
+│   ├── models/                 SQLAlchemy ORM models
+│   ├── schemas/                Pydantic request/response schemas
+│   ├── routers/                FastAPI route handlers
+│   ├── services/               Business logic
+│   └── jobs/                   Scheduler job implementations
 │
-├── backend/                               ← FastAPI backend (Python)
-│   ├── main.py                            ← app entry point, CORS, lifespan, routing
-│   ├── database.py                        ← SQLAlchemy engine + session factory
-│   ├── settings.py                        ← Pydantic settings (reads .env)
-│   ├── scheduler.py                       ← APScheduler setup + /scheduler/status
-│   ├── requirements.txt                   ← pinned Python dependencies
-│   ├── .env.example                       ← environment variable template
-│   │
-│   ├── alembic/                           ← Alembic migration framework
-│   │   ├── alembic.ini
-│   │   ├── env.py
-│   │   └── versions/
-│   │       ├── 0001_initial_schema.py     ← creates all tables from scratch (new installs)
-│   │       └── 0002_teacher_email_status.py  ← adds email + status columns (production fix)
-│   │
-│   ├── models/
-│   │   ├── models.py                      ← all ORM models (Teacher, Shift, Location, WeekPlan …)
-│   │   └── points_models.py               ← re-exports DutyConfirmation, MonthlyPointsSummary
-│   │
-│   ├── schemas/
-│   │   └── schemas.py                     ← all Pydantic request/response schemas
-│   │
-│   ├── routers/
-│   │   ├── auth.py                        ← POST /auth/admin/login, /login/json, GET /auth/validate
-│   │   ├── teachers.py                    ← full teacher CRUD, register, approve, schedule
-│   │   ├── locations.py                   ← location CRUD
-│   │   ├── shifts.py                      ← shift CRUD
-│   │   ├── weeks.py                       ← week plan create/clone/publish/assign
-│   │   ├── points.py                      ← duty confirmation + monthly points
-│   │   ├── reports.py                     ← monthly leaderboard + CSV export
-│   │   └── dashboard.py                   ← GET /admin/dashboard stats
-│   │
-│   ├── services/
-│   │   ├── auth_service.py                ← JWT create_access_token(), decode_token()
-│   │   ├── week_service.py                ← week plan business logic, slot management
-│   │   ├── points_service.py              ← duty confirmation scoring, monthly summaries
-│   │   └── notification_service.py        ← FCM push via firebase-admin
-│   │
-│   └── jobs/
-│       ├── auto_clone.py                  ← weekly auto-clone job (run every Thursday 16:00)
-│       └── monthly_reset.py               ← monthly points rebuild (run 1st of month 20:05)
-│
-├── firduty_app/                           ← Flutter mobile + web app (teachers)
-│   ├── pubspec.yaml                       ← Flutter package config (v2.3.0+3)
-│   ├── l10n.yaml                          ← localisation config (AR + EN)
-│   │
+├── flutter_app/                Flutter mobile + web app (Dart)
 │   ├── lib/
-│   │   ├── main.dart                      ← app entry point, Firebase init, routing
-│   │   ├── app_theme.dart                 ← brand colours, text styles
-│   │   ├── firebase_options.dart          ← generated by flutterfire configure (fill manually)
-│   │   │
-│   │   ├── screens/
-│   │   │   ├── teacher_select_screen.dart ← self-registration form (RegistrationScreen)
-│   │   │   ├── pending_screen.dart        ← shown while status = 'pending'
-│   │   │   ├── today_screen.dart          ← today's duties + confirm button
-│   │   │   ├── week_screen.dart           ← weekly duty calendar
-│   │   │   └── points_screen.dart         ← monthly points leaderboard
-│   │   │
-│   │   ├── services/
-│   │   │   ├── api_service.dart           ← all REST calls, safe JSON decoding, error messages
-│   │   │   └── notification_service.dart  ← FCM token registration, foreground handler
-│   │   │
-│   │   ├── l10n/
-│   │   │   ├── app_ar.arb                 ← Arabic strings
-│   │   │   └── app_en.arb                 ← English strings
-│   │   │
-│   │   └── gen/                           ← generated by `flutter gen-l10n` (do not edit)
-│   │       ├── app_localizations.dart
-│   │       ├── app_localizations_ar.dart
-│   │       └── app_localizations_en.dart
-│   │
-│   ├── assets/
-│   │   ├── logo.png                       ← 512×512 app logo
-│   │   ├── logo_small.png                 ← 256×256
-│   │   └── app_icon.png                   ← 1024×1024 (used by flutter_launcher_icons)
-│   │
-│   └── web/                               ← Flutter Web / PWA files
-│       ├── index.html                     ← PWA shell, Firebase SDK config
-│       ├── manifest.json                  ← PWA manifest (name, icons, display)
-│       ├── firebase-messaging-sw.js       ← service worker — handles background push
-│       └── icons/                         ← PWA icons (192, 512, maskable variants)
+│   │   ├── main.dart           App entry, Firebase init, routing
+│   │   ├── firebase_options.dart  Firebase platform config
+│   │   ├── app_theme.dart      Brand colors + Material 3 theme
+│   │   ├── screens/            UI screens
+│   │   └── services/           API calls + notification service
+│   ├── android/
+│   │   └── app/google-services.json  Firebase Android config
+│   ├── web/
+│   │   ├── index.html          PWA shell + SW registration
+│   │   └── firebase-messaging-sw.js  FCM background push handler
+│   └── pubspec.yaml            Flutter package config
 │
-└── admin_ui/                              ← Admin web interface (pure HTML + JS, no build step)
-    ├── login.html                         ← login form
-    ├── dashboard.html                     ← stats, chart, fairness warnings
-    ├── planner.html                       ← drag-and-drop week planner
-    ├── teachers.html                      ← teacher approval management
-    ├── reports.html                       ← monthly points leaderboard + CSV
-    ├── logo.png                           ← admin UI logo
-    ├── favicon.ico / favicon-*.png        ← favicon set
-    │
-    ├── css/
-    │   └── style.css                      ← all admin UI styles (RTL + LTR aware)
-    │
-    ├── js/
-    │   ├── auth.js                        ← shared: apiFetch(), guardPage(), logout(), authHeaders()
-    │   ├── i18n.js                        ← AR/EN runtime switching, loads i18n/ar.json or en.json
-    │   ├── login.js                       ← JWT login, auto-redirect, Enter key, lang toggle
-    │   ├── dashboard.js                   ← fetches /admin/dashboard, renders charts
-    │   ├── planner.js                     ← week planner logic, SortableJS drag-and-drop
-    │   └── teachers.js                    ← pending/approve endpoints
-    │
-    └── i18n/
-        ├── ar.json                        ← Arabic UI strings
-        └── en.json                        ← English UI strings
+├── admin_ui/                   Admin web interface (pure HTML/JS)
+│   ├── *.html                  Dashboard, planner, teachers, reports pages
+│   ├── css/style.css
+│   └── js/                     Page scripts + shared auth/i18n
+│
+└── migrations/                 Manual SQL migration scripts (legacy)
 ```
 
 ---
 
-## 4. Full Installation Guide
+## 4. Prerequisites
 
-This section covers everything needed to run the complete Firduty system from scratch.
+Install these before starting:
 
-### Prerequisites
+### Required for everyone
 
-| Tool | Version | Install |
+| Tool | Min version | Install |
 |---|---|---|
-| Python | ≥ 3.10 | [python.org](https://www.python.org/downloads/) |
-| Flutter | ≥ 3.19 | [flutter.dev/docs/get-started/install](https://docs.flutter.dev/get-started/install) |
-| Git | any | [git-scm.com](https://git-scm.com/) |
-| Chrome | any | For Flutter Web development |
-| PostgreSQL client (`psql`) | optional | For running manual SQL scripts |
+| Git | any | https://git-scm.com |
+| Python | ≥ 3.10 | https://python.org |
+| Flutter SDK | ≥ 3.19 | https://flutter.dev/docs/get-started/install |
+| Dart | bundled with Flutter | — |
+| Chrome browser | any | For Flutter Web dev |
 
-> Flutter is only needed if you are building or modifying the mobile/web app.
-> The Admin UI has no build requirements — just a browser.
+### Required for Android builds
+
+| Tool | Notes |
+|---|---|
+| Android Studio | Installs Android SDK, emulator tools |
+| Android SDK | API level ≥ 33 recommended |
+| JDK | ≥ 17 (bundled with Android Studio) |
+| USB debug-enabled device **or** Android emulator | For running the app |
+
+### Required for Firebase setup
+
+| Tool | Notes |
+|---|---|
+| Firebase CLI | `npm install -g firebase-tools` then `firebase login` |
+| FlutterFire CLI | `dart pub global activate flutterfire_cli` |
+| Node.js | ≥ 16 (required by Firebase CLI) |
+
+### Required for backend
+
+| Tool | Notes |
+|---|---|
+| Python ≥ 3.10 | `python3 --version` to check |
+| pip | Bundled with Python |
+| PostgreSQL client (`psql`) | Optional — for running SQL manually |
 
 ---
 
-### Step 1 — Clone the repository
+## 5. First-Time Setup Checklist
+
+Run these steps in order for a complete working system:
+
+```
+[ ] 1.  Clone the repository
+[ ] 2.  Set up the backend Python environment
+[ ] 3.  Configure backend .env (database, admin credentials, etc.)
+[ ] 4.  Run Alembic migrations to create the database schema
+[ ] 5.  Start the backend server
+[ ] 6.  Create a Firebase project
+[ ] 7.  Register the Android app in Firebase and download google-services.json
+[ ] 8.  Register the Web app in Firebase
+[ ] 9.  Run flutterfire configure to generate firebase_options.dart
+[ ] 10. Fill in kVapidPublicKey in firebase_options.dart
+[ ] 11. Fill in firebase-messaging-sw.js with real Firebase web config
+[ ] 12. flutter pub get
+[ ] 13. Run Flutter app on Android or Web
+[ ] 14. Open Admin UI, log in, create a shift and location
+[ ] 15. Register as a teacher in the Flutter app
+[ ] 16. Approve the teacher in the Admin UI
+[ ] 17. Assign the teacher to a duty in the Week Planner and publish
+[ ] 18. Verify the teacher receives a push notification
+```
+
+---
+
+## 6. Backend Setup
+
+### 6a. Clone and enter the project
 
 ```bash
 git clone https://github.com/YOUR-USERNAME/firduty.git
 cd firduty
 ```
 
----
-
-### Step 2 — Backend setup
-
-#### 2a. Create a virtual environment and install dependencies
+### 6b. Create a Python virtual environment
 
 ```bash
 cd backend/
-python -m venv .venv
 
 # macOS / Linux
+python3 -m venv .venv
 source .venv/bin/activate
+
+# Windows (PowerShell)
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 
 # Windows (Command Prompt)
 .venv\Scripts\activate.bat
+```
 
-# Windows (PowerShell)
-.venv\Scripts\Activate.ps1
+### 6c. Install Python dependencies
 
+```bash
 pip install -r requirements.txt
 ```
 
-#### 2b. Configure environment variables
+### 6d. Configure environment variables
 
 ```bash
 cp .env.example .env
@@ -245,695 +229,682 @@ cp .env.example .env
 Open `.env` and set at minimum:
 
 ```dotenv
-# Leave blank to use SQLite for local dev (no PostgreSQL needed)
-DATABASE_URL=                          # or: postgresql://user:pass@host:5432/dbname
+# PostgreSQL connection string from Supabase (or local Postgres)
+DATABASE_URL=postgresql://user:password@host:5432/dbname
 
-SECRET_KEY=your-random-64-char-string  # python -c "import secrets; print(secrets.token_hex(32))"
+# JWT signing key — generate with:
+# python -c "import secrets; print(secrets.token_hex(32))"
+SECRET_KEY=your-64-character-random-string
+
+# Admin login credentials for the Admin Web UI
 ADMIN_USERNAME=admin
-ADMIN_PASSWORD=yourpassword
-ALLOWED_ORIGINS=*                      # use specific origins in production
+ADMIN_PASSWORD=your-strong-password
+
+# CORS — use * for local dev, set specific origins in production
+ALLOWED_ORIGINS=*
 ```
 
-Firebase and VAPID keys are optional for local development — push notifications will
-be silently disabled if they are not set.
+> Firebase and VAPID keys are optional for local development.
+> Push notifications will simply not work until they are configured.
 
-#### 2c. Set up the database
-
-**SQLite (default for local dev — no setup needed):**
-```bash
-# DATABASE_URL not set → SQLite file created automatically at backend/firduty.db
-alembic upgrade head
-```
-
-**PostgreSQL (Supabase or local):**
-```bash
-# Set DATABASE_URL in .env first, then:
-alembic upgrade head
-```
-
-#### 2d. Start the backend
+### 6e. Start the backend
 
 ```bash
 uvicorn main:app --reload --port 8000
 ```
 
 The API is now available at:
-- API root: http://localhost:8000
-- Swagger UI: http://localhost:8000/docs
-- Health check: http://localhost:8000/health
+- **API root:** http://localhost:8000
+- **Swagger UI:** http://localhost:8000/docs
+- **Health check:** http://localhost:8000/health
 
 ---
 
-### Step 3 — Admin Web UI setup
+## 7. Database Setup
 
-No build step required. The admin UI is plain HTML + JS.
+### 7a. New installation
 
-**Option A — open directly:**
 ```bash
-# On macOS
-open admin_ui/login.html
-
-# On Linux
-xdg-open admin_ui/login.html
-
-# On Windows
-start admin_ui/login.html
+cd backend/
+alembic upgrade head
 ```
 
-**Option B — serve locally (recommended for full functionality):**
+This creates all required tables from scratch. If `DATABASE_URL` is not set, SQLite is used automatically at `backend/firduty.db` — convenient for local dev with no PostgreSQL required.
+
+### 7b. Production database (Supabase)
+
+1. Create a new project at https://supabase.com
+2. Go to **Project Settings → Database → Connection string (URI)**
+3. Copy the URI and set it as `DATABASE_URL` in your `.env`
+4. Run `alembic upgrade head`
+
+### 7c. Existing database — schema drift fix
+
+If your production database was created before v2.3.0 and is missing the `email`/`status` columns:
+
 ```bash
-cd admin_ui/
-python -m http.server 3000
-```
-Then open: http://localhost:3000/login.html
-
-**Log in:**
-Use `ADMIN_USERNAME` / `ADMIN_PASSWORD` from your `.env`.
-The default API base URL in `login.js` is `https://YOUR-APP-NAME.koyeb.app/`.
-For local development, open browser DevTools → Application → Local Storage and set:
-
-```
-key:   firduty_api
-value: http://localhost:8000/
+cd backend/
+alembic stamp 0001        # mark 0001 as already applied
+alembic upgrade 0002      # apply only the column additions
 ```
 
-Then refresh the page.
-
-> **Note:** `auth.js` must be loaded before each page's own script. Verify all four
-> protected pages (`dashboard.html`, `planner.html`, `teachers.html`, `reports.html`)
-> include `<script src="js/auth.js"></script>` as the first script tag.
+Or run `migrations/004_production_fix.sql` directly in the Supabase SQL editor.
 
 ---
 
-### Step 4 — Flutter app setup
+## 8. Flutter App Setup
 
-#### 4a. Install dependencies
+### 8a. Install dependencies
 
 ```bash
-cd firduty_app/
+cd flutter_app/
 flutter pub get
 ```
 
-#### 4b. Configure Firebase (required for push notifications)
-
-1. Create a Firebase project at [console.firebase.google.com](https://console.firebase.google.com)
-2. Register a **Web app** (for Flutter Web + iOS PWA push):
-   - App nickname: `firduty-web`
-3. Register an **Android app**:
-   - Android package name: match the value in `android/app/build.gradle`
-   - Download `google-services.json` → place at `firduty_app/android/app/google-services.json`
-4. Run `flutterfire configure` inside `firduty_app/`:
-   ```bash
-   dart pub global activate flutterfire_cli
-   flutterfire configure
-   ```
-   This updates `lib/firebase_options.dart` automatically.
-5. Set up VAPID keys for Web Push:
-   - Firebase Console → Project Settings → Cloud Messaging → Web Push certificates → Generate key pair
-   - Copy the public key into `lib/firebase_options.dart` as `kVapidPublicKey`
-   - Add the private key as `VAPID_PRIVATE_KEY` in your backend `.env`
-6. Fill in `web/firebase-messaging-sw.js`:
-   ```js
-   firebase.initializeApp({
-     apiKey: "...",
-     projectId: "...",
-     messagingSenderId: "...",
-     appId: "...",
-   });
-   ```
-
-> **Skip Firebase entirely for UI-only development.** The app will work without push
-> notifications — just remove the `firebase_core` init call in `main.dart` to avoid
-> startup errors.
-
-#### 4c. Run the Flutter app
+### 8b. Verify Flutter environment
 
 ```bash
-cd firduty_app/
-
-# Web in Chrome (recommended for development)
-flutter run -d chrome \
-  --dart-define=API_BASE_URL=http://localhost:8000
-
-# Android emulator / device
-flutter run \
-  --dart-define=API_BASE_URL=http://localhost:8000
-
-# Android on Genymotion emulator
-# (169.254.0.101 is the host machine IP visible from Genymotion)
-flutter run \
-  --dart-define=API_BASE_URL=http://169.254.0.101:8000
+flutter doctor
 ```
 
-> `API_BASE_URL` **must** end without a trailing slash. If omitted, the app builds
-> with a placeholder URL and will display a connection error.
+Resolve any issues shown before continuing.
 
-#### 4d. Build for release
+### 8c. Set the API base URL
+
+The backend URL is injected at build time via `--dart-define`:
 
 ```bash
-cd firduty_app/
+# Local Android emulator (default emulator host IP)
+flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000
 
-# Android APK
-flutter build apk --release \
-  --dart-define=API_BASE_URL=https://YOUR-APP.koyeb.app
-
-# Web (PWA — deploy the build/web/ directory)
-flutter build web --release \
-  --dart-define=API_BASE_URL=https://YOUR-APP.koyeb.app \
-  --base-href "/"
-```
-
----
-
-### Step 5 — Verify the full stack locally
-
-With all three components running, test the end-to-end flow:
-
-1. **Swagger UI** → http://localhost:8000/docs → click 🔓 Authorize → log in
-2. `POST /locations/` → create a test location
-3. `POST /shifts/` → create a test shift
-4. **Admin UI** → http://localhost:3000/login.html → log in
-5. **Flutter app** → http://localhost:8000 (Chrome) → register as a teacher
-6. **Admin UI → Teachers** → approve the registration
-7. **Flutter app** → should now show duty screen
-
----
-
-## 5. Backend Stack
-
-| Component | Technology |
-|---|---|
-| Framework | FastAPI 0.104+ |
-| ASGI server | Uvicorn |
-| Database ORM | SQLAlchemy 2.0 |
-| DB driver | psycopg2-binary (PostgreSQL) |
-| Migrations | **Alembic** |
-| Auth | JWT via python-jose + OAuth2PasswordBearer |
-| Push notifications | firebase-admin (FCM) |
-| Scheduler | APScheduler 3 |
-| Validation | Pydantic v2 (pinned ≥ 2.0) |
-| Timezone | pytz, Asia/Muscat |
-
----
-
-## 6. Flutter App
-
-Located in `firduty_app/`.
-
-| Feature | Details |
-|---|---|
-| Platforms | Android (APK), Web (PWA) |
-| iOS support | iOS Safari 16.4+ via PWA "Add to Home Screen" |
-| Push — Android | Firebase Cloud Messaging (FCM native) |
-| Push — Web/iOS | FCM Web Push via VAPID |
-| Localisation | Arabic (default) + English |
-| State | No external state management — simple setState |
-| API | `lib/services/api_service.dart` |
-
-**Build commands:**
-```bash
-cd firduty_app/
-
-# Android APK
-flutter build apk --release \
-  --dart-define=API_BASE_URL=https://YOUR-APP.koyeb.app
-
-# Web (PWA)
-flutter build web --release \
-  --dart-define=API_BASE_URL=https://YOUR-APP.koyeb.app \
-  --base-href "/"
-```
-
-**Local emulator (Genymotion):**
-```bash
-cd firduty_app/
+# Genymotion emulator
 flutter run --dart-define=API_BASE_URL=http://169.254.0.101:8000
+
+# Physical Android device on same WiFi
+flutter run --dart-define=API_BASE_URL=http://YOUR-LOCAL-IP:8000
+
+# Flutter Web (Chrome)
+flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:8000
+
+# Production
+flutter run --dart-define=API_BASE_URL=https://your-app.koyeb.app
+```
+
+> `API_BASE_URL` must NOT end with a trailing slash.
+
+### 8d. Run on Android
+
+```bash
+# List available devices
+flutter devices
+
+# Run on a connected device or emulator
+flutter run -d <device-id> --dart-define=API_BASE_URL=http://10.0.2.2:8000
+```
+
+### 8e. Run on Web (Chrome)
+
+```bash
+flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:8000
 ```
 
 ---
 
-## 7. Admin Web UI
+## 9. Firebase Setup
 
-Located in `admin_ui/`. Pure HTML + Vanilla JS — no build step.
+Firebase is required for push notifications. The app runs without it, but teachers won't receive push alerts.
 
-| File | Purpose |
-|---|---|
-| `login.html` | JWT login form |
-| `dashboard.html` | Stats, distribution chart, warnings |
-| `planner.html` | Drag-and-drop weekly assignment editor |
-| `teachers.html` | Approve / reject teacher registrations |
-| `reports.html` | Monthly points leaderboard + CSV export |
-| `js/auth.js` | Shared: `apiFetch()`, `guardPage()`, `logout()` |
-| `js/login.js` | Login flow + token persistence |
-| `js/i18n.js` | AR/EN runtime language switcher |
+### 9a. Create a Firebase project
 
-**Required:** add `<script src="js/auth.js"></script>` **before** each page's own
-script on `dashboard.html`, `planner.html`, `teachers.html`, `reports.html`.
+1. Go to https://console.firebase.google.com
+2. Click **Add project**, name it (e.g. `firduty`)
+3. Disable Google Analytics if not needed, or enable it (optional)
+
+### 9b. Register the Android app
+
+1. In your Firebase project, click **Add app → Android**
+2. Set the **Android package name** to match `flutter_app/android/app/build.gradle`:
+   ```
+   com.example.firduty_mobile
+   ```
+3. Download `google-services.json`
+4. Place it at: `flutter_app/android/app/google-services.json`
+
+### 9c. Register the Web app
+
+1. Click **Add app → Web**
+2. Give it a nickname (e.g. `firduty-web`)
+3. You do NOT need Firebase Hosting — just register the app
+4. Note down the config object shown:
+   ```js
+   {
+     apiKey: "...",
+     authDomain: "...",
+     projectId: "...",
+     storageBucket: "...",
+     messagingSenderId: "...",
+     appId: "..."
+   }
+   ```
+
+### 9d. Run FlutterFire CLI to generate firebase_options.dart
+
+```bash
+# Install FlutterFire CLI if not already installed
+dart pub global activate flutterfire_cli
+
+# From inside flutter_app/
+cd flutter_app/
+flutterfire configure
+```
+
+Select your Firebase project when prompted. This generates `lib/firebase_options.dart` with all platform values filled in.
+
+> If `flutterfire configure` fails, you can manually fill in `firebase_options.dart`
+> using the values from your `google-services.json` (Android) and Firebase Console web config.
+
+### 9e. Set up the VAPID key for Web Push
+
+VAPID keys allow Firebase to send Web Push notifications to browsers and iOS Safari PWA.
+
+1. Firebase Console → **Project Settings** → **Cloud Messaging** tab
+2. Scroll to **Web Push certificates**
+3. Click **Generate key pair**
+4. Copy the **Key pair** value (the public key)
+5. Open `flutter_app/lib/firebase_options.dart` and set:
+   ```dart
+   const String kVapidPublicKey = 'YOUR_VAPID_PUBLIC_KEY_HERE';
+   ```
+6. Also set it in `backend/.env`:
+   ```dotenv
+   VAPID_PUBLIC_KEY=YOUR_VAPID_PUBLIC_KEY_HERE
+   ```
+
+### 9f. Update firebase-messaging-sw.js
+
+The file `flutter_app/web/firebase-messaging-sw.js` must contain your real Firebase web config so background push notifications work in the browser.
+
+Open the file and verify the `firebase.initializeApp({...})` block matches the values in `firebase_options.dart → FirebaseOptions.web`.
+
+If you ran `flutterfire configure`, cross-check:
+
+```js
+firebase.initializeApp({
+  apiKey:            "YOUR_API_KEY",       // from firebase_options.dart
+  authDomain:        "YOUR_PROJECT.firebaseapp.com",
+  projectId:         "YOUR_PROJECT_ID",
+  storageBucket:     "YOUR_PROJECT.appspot.com",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId:             "YOUR_WEB_APP_ID",
+});
+```
+
+> **Important:** The service worker is cached by the browser. After updating it,
+> open Chrome DevTools → Application → Service Workers → click **Update** to force reload.
+
+### 9g. Set up Firebase Admin SDK for the backend
+
+The backend uses Firebase Admin SDK to send FCM push notifications.
+
+1. Firebase Console → **Project Settings** → **Service accounts**
+2. Click **Generate new private key**
+3. Download the JSON file
+4. Save it as `backend/firebase-credentials.json`
+5. Set in `backend/.env`:
+   ```dotenv
+   FIREBASE_CREDENTIALS_PATH=./firebase-credentials.json
+   ```
+
+For Koyeb (no file system persistence), use the inline JSON option:
+```dotenv
+FIREBASE_CREDENTIALS_JSON={"type":"service_account","project_id":"...","private_key":"..."}
+```
 
 ---
 
-## 8. Environment Variables
+## 10. Notifications Setup
 
-Set these in your Koyeb service environment, or in `backend/.env` for local dev.
+### Android notifications
+
+- FCM native tokens are used automatically
+- Notification channel `firduty_channel` is created on first launch
+- Android 13+ requires explicit notification permission (requested by the app)
+- Background messages: shown by the OS automatically
+- Foreground messages: shown via `flutter_local_notifications`
+
+**Requirements:**
+- `google-services.json` must be in `flutter_app/android/app/`
+- Firebase Admin SDK credentials must be set in the backend
+
+### Web push / iOS PWA notifications
+
+- FCM Web Push via VAPID keys
+- Works on Chrome, Edge, Firefox, Safari 16.4+ (iOS/iPadOS PWA)
+- Background messages handled by `firebase-messaging-sw.js`
+- Foreground messages: handled by `notification_service.dart`
+
+**Requirements:**
+- `kVapidPublicKey` must be set in `firebase_options.dart`
+- `VAPID_PUBLIC_KEY` must be set in backend `.env`
+- `firebase-messaging-sw.js` must have the real Firebase web config
+- iOS: the user must have added the app to Home Screen ("Add to Home Screen" in Safari)
+- iOS Safari 16.4+ minimum
+
+**iOS limitations:**
+- Push only works when the PWA is installed to the Home Screen
+- iOS Safari does not support background push for regular browser tabs
+- The notification permission dialog may not appear on older iOS
+
+---
+
+## 11. Admin UI Setup
+
+No build step required. Pure HTML/JS.
+
+### Option A — open directly in browser
+
+```bash
+# macOS
+open admin_ui/login.html
+
+# Linux
+xdg-open admin_ui/login.html
+
+# Windows
+start admin_ui/login.html
+```
+
+### Option B — serve locally (recommended)
+
+```bash
+cd admin_ui/
+python3 -m http.server 3000
+```
+Open: http://localhost:3000/login.html
+
+### Configure API URL for local dev
+
+The Admin UI reads the API base URL from `localStorage`. For local development:
+
+1. Open the Admin UI login page in Chrome
+2. Open DevTools → Application → Local Storage → `http://localhost:3000`
+3. Add:
+   - Key: `firduty_api`
+   - Value: `http://localhost:8000`
+4. Refresh the page
+
+### Default credentials
+
+Use the values of `ADMIN_USERNAME` and `ADMIN_PASSWORD` from your `.env`.
+Defaults are `admin` / `admin123` — **change these in production**.
+
+---
+
+## 12. Environment Variables Reference
+
+All backend variables go in `backend/.env` (local) or Koyeb service environment (production).
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `DATABASE_URL` | **Yes** | `sqlite:///./firduty.db` | PostgreSQL connection string from Supabase |
-| `SECRET_KEY` | **Yes** | `dev-secret-key-change-in-production` | JWT signing key — generate with `python -c "import secrets; print(secrets.token_hex(32))"` |
+| `DATABASE_URL` | **Yes** | SQLite | PostgreSQL URI from Supabase (or local Postgres) |
+| `SECRET_KEY` | **Yes** | `dev-secret-key-...` | JWT signing key — 64 random hex chars |
 | `ALGORITHM` | No | `HS256` | JWT algorithm |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | No | `1440` | JWT lifetime (24 hours) |
-| `ADMIN_USERNAME` | **Yes** | `admin` | Admin login username |
-| `ADMIN_PASSWORD` | **Yes** | `admin123` | Admin login password — change in production |
+| `ADMIN_USERNAME` | **Yes** | `admin` | Admin Web UI login username |
+| `ADMIN_PASSWORD` | **Yes** | `admin123` | Admin Web UI login password — **change this** |
 | `FIREBASE_CREDENTIALS_PATH` | Recommended | `./firebase-credentials.json` | Path to Firebase service account JSON |
-| `FIREBASE_CREDENTIALS_JSON` | Alternative to path | — | Entire Firebase JSON as a string (for Koyeb, avoids file volumes) |
+| `FIREBASE_CREDENTIALS_JSON` | Alternative | — | Entire Firebase JSON as an env var string |
 | `VAPID_PRIVATE_KEY` | For web push | — | VAPID private key (base64url) |
-| `VAPID_PUBLIC_KEY` | For web push | — | VAPID public key — also set in `firduty_app/lib/firebase_options.dart` |
+| `VAPID_PUBLIC_KEY` | For web push | — | VAPID public key — must also be in `firebase_options.dart` |
 | `VAPID_CONTACT_EMAIL` | For web push | `admin@yourschool.com` | Email in VAPID claims |
 | `PORT` | No | `8000` | Injected by Koyeb automatically |
 | `ALLOWED_ORIGINS` | **Yes** | `*` | Comma-separated CORS origins |
 | `RUN_SCHEDULER` | No | `true` | Set `false` on extra instances to prevent duplicate jobs |
-| `SCHEDULER_JITTER` | No | `30` | Random seconds added to scheduler triggers |
+| `SCHEDULER_JITTER` | No | `30` | Random seconds added to job triggers |
+
+### Flutter app variable (build-time only)
+
+| Variable | Where | Description |
+|---|---|---|
+| `API_BASE_URL` | `--dart-define` at build/run time | Backend URL, no trailing slash |
+
+### Flutter app file variables
+
+| Variable | File | Description |
+|---|---|---|
+| `kVapidPublicKey` | `lib/firebase_options.dart` | VAPID public key for web push token |
 
 ---
 
-## 9. Database Setup & Migrations
+## 13. Running the Full System Locally
 
-### New installation
-
-```bash
-cd backend/
-alembic upgrade head   # creates all tables from scratch
-```
-
-### Existing production database — schema drift fix
-
-If your production database was created with `Base.metadata.create_all()` before
-v2.3.0, the `teachers` table is missing the `email` and `status` columns.
-
-**Option A — Alembic (recommended):**
-```bash
-cd backend/
-# Skip migration 0001 (tables already exist), apply only 0002
-alembic stamp 0001         # tell Alembic "0001 is already applied"
-alembic upgrade 0002       # apply only the column additions
-```
-
-**Option B — Manual SQL (emergency, e.g. Supabase SQL Editor):**
-```sql
--- Paste contents of migrations/004_production_fix.sql
--- The script is idempotent — safe to run multiple times
-```
-
-**Option C — Supabase SQL Editor:**
-Open `migrations/004_production_fix.sql` and run it directly.
-
-### Migration files
-
-| File | Description |
-|---|---|
-| `alembic/versions/0001_initial_schema.py` | Creates all tables from scratch |
-| `alembic/versions/0002_teacher_email_status.py` | Adds `email` and `status` to teachers + fixes nullable order columns |
-| `migrations/001_duty_types.sql` | Legacy: adds `duty_type` to shifts (manual) |
-| `migrations/002_teacher_registration.sql` | Legacy: adds email + status (manual) |
-| `migrations/003_web_push.sql` | Legacy: documents `device_tokens.platform='web'` |
-| `migrations/004_production_fix.sql` | **Emergency idempotent fix for production** |
-
-### Generating future migrations
+### Terminal 1 — Backend
 
 ```bash
 cd backend/
-# After changing models/models.py:
-alembic revision --autogenerate -m "describe your change"
-alembic upgrade head
+source .venv/bin/activate   # or .venv\Scripts\activate on Windows
+uvicorn main:app --reload --port 8000
 ```
 
-### ORM model summary
+### Terminal 2 — Admin UI
 
-| Table | Key columns |
-|---|---|
-| `teachers` | `id`, `name`, `email` (nullable), `status` (pending/approved), `active`, `preferred_language` |
-| `device_tokens` | `teacher_id`, `token`, `platform` (android/web) |
-| `locations` | `id`, `name_en`, `name_ar`, `order` |
-| `shifts` | `id`, `name_en`, `name_ar`, `start_time`, `end_time`, `order`, `duty_type` |
-| `week_plans` | `id`, `week_start_date` (unique), `status` (draft/published), `version` |
-| `day_plans` | `id`, `week_plan_id`, `date` |
-| `shift_locations` | `id`, `day_plan_id`, `shift_id`, `location_id` (nullable), `slots_count`, `order` |
-| `assignments` | `id`, `shift_location_id`, `slot_index`, `teacher_id` (nullable), `grade_class` |
-| `duty_confirmations` | `id`, `teacher_id`, `assignment_id`, `confirmed_at`, `points_earned` |
-| `monthly_points_summary` | `teacher_id`, `year`, `month`, `total_points` |
+```bash
+cd admin_ui/
+python3 -m http.server 3000
+```
+
+Open http://localhost:3000/login.html
+
+### Terminal 3 — Flutter app
+
+```bash
+cd flutter_app/
+
+# Android emulator
+flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000
+
+# Web
+flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:8000
+```
+
+### End-to-end verification flow
+
+1. Open Swagger UI: http://localhost:8000/docs → Authorize → create a shift and location
+2. Open Admin UI: http://localhost:3000/login.html → log in
+3. Open Flutter app in Chrome → register as a teacher
+4. Admin UI → Teachers → approve the teacher
+5. Flutter app → teacher should now see the home screen
+6. Admin UI → Week Planner → assign the teacher to a slot → Publish Week
+7. Flutter app → teacher receives push notification (if Firebase is configured)
+8. Flutter app → Today tab → Confirm the duty
 
 ---
 
-## 10. Koyeb Deployment
+## 14. Building for Production
 
-### First-time deploy
+### Android APK
 
-1. Push `backend/` to a GitHub repo
-2. Create a new Koyeb service:
+```bash
+cd flutter_app/
+flutter build apk --release \
+  --dart-define=API_BASE_URL=https://your-app.koyeb.app
+```
+
+Output: `build/app/outputs/flutter-apk/app-release.apk`
+
+### Flutter Web (PWA)
+
+```bash
+cd flutter_app/
+flutter build web --release \
+  --dart-define=API_BASE_URL=https://your-app.koyeb.app \
+  --base-href "/"
+```
+
+Output: `build/web/` — deploy this directory to any static host (Netlify, Vercel, Koyeb Static, etc.)
+
+---
+
+## 15. Koyeb Deployment
+
+### Backend
+
+1. Push `backend/` contents to a GitHub repository
+2. Create a Koyeb service:
    - **Type:** Web service
-   - **Runtime:** Python
+   - **Runtime:** Python 3.11
    - **Build command:** `pip install -r requirements.txt`
    - **Run command:** `uvicorn main:app --host 0.0.0.0 --port $PORT`
    - **Root directory:** `backend/`
-3. Set all environment variables listed in Section 8
-4. After first deploy, run migrations (see Section 9)
+3. Set all environment variables from Section 12
+4. After first deploy, run migrations:
+   ```bash
+   # From your local machine, pointing at the production DATABASE_URL:
+   cd backend/
+   alembic upgrade head
+   ```
 
-### Updating production
+### Flutter Web / PWA
+
+Build with `flutter build web --release ...` then deploy `build/web/` to:
+- Netlify: drag-and-drop or `netlify deploy --prod --dir build/web`
+- Vercel: `vercel --prod build/web`
+- Koyeb Static: upload `build/web/`
+
+### Keep-alive (free tier)
+
+The repository includes `.github/workflows/keepalive.yml` which pings the Koyeb service every 14 minutes to prevent the free tier from sleeping.
+
+---
+
+## 16. Development Workflow
+
+### Recommended startup sequence
 
 ```bash
-git push origin main   # triggers automatic redeploy on Koyeb
+# Terminal 1: backend (always first)
+cd backend && source .venv/bin/activate && uvicorn main:app --reload
+
+# Terminal 2: Admin UI (optional)
+cd admin_ui && python3 -m http.server 3000
+
+# Terminal 3: Flutter app
+cd flutter_app && flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:8000
 ```
 
-If you added or changed ORM models:
+### Common commands
+
 ```bash
-# After deploy completes:
-alembic upgrade head   # from your local machine pointing at production DATABASE_URL
+# Install/update Flutter dependencies
+cd flutter_app && flutter pub get
+
+# Regenerate l10n strings (after editing .arb files)
+cd flutter_app && flutter gen-l10n
+
+# Clean Flutter build cache
+cd flutter_app && flutter clean && flutter pub get
+
+# Backend: run tests
+cd backend && pytest
+
+# Backend: new migration after changing models
+cd backend && alembic revision --autogenerate -m "describe change"
+cd backend && alembic upgrade head
 ```
 
-### Procfile (alternative run command)
+### Hot restart vs full restart
 
-```
-web: uvicorn main:app --host 0.0.0.0 --port $PORT
-```
+| Action | Dart side | Firebase side | When to use |
+|---|---|---|---|
+| **Hot reload** (`r`) | Code patched | Unchanged | UI-only changes |
+| **Hot restart** (`R`) | Dart VM restarted | **Web**: JS runtime SURVIVES (Firebase app still alive) | State reset |
+| **Full restart** (stop + run) | Full restart | Full restart | Firebase config changes |
+
+> On Flutter Web, `Firebase.apps.isEmpty` guard prevents the `duplicate-app` error on hot restart.
+> On Android, the Dart VM is torn down on hot restart, so Firebase.apps is always empty — no issue.
 
 ---
 
-## 11. Authentication
+## 17. Troubleshooting
 
-### How it works
+### `[core/duplicate-app] A Firebase App named "[DEFAULT]" already exists`
 
-- Admin credentials are stored as environment variables (`ADMIN_USERNAME`, `ADMIN_PASSWORD`)
-- Login returns a JWT signed with `SECRET_KEY`
-- All protected endpoints require `Authorization: Bearer <token>` header
-- Token lifetime defaults to 24 hours (`ACCESS_TOKEN_EXPIRE_MINUTES=1440`)
+**Cause:** Flutter Web hot restart — the Firebase JS SDK survives between Dart restarts.
 
-### Login endpoints
-
-| Endpoint | Content-Type | Used by |
-|---|---|---|
-| `POST /auth/admin/login` | `application/x-www-form-urlencoded` | **Swagger UI Authorize button** |
-| `POST /auth/admin/login/json` | `application/json` | Admin Web UI (`login.js`) |
-| `GET /auth/validate` | — (JWT required) | Admin UI session check on page load |
-
-Both login endpoints return:
-```json
-{ "access_token": "eyJ...", "token_type": "bearer" }
+**Fix (already applied in this codebase):**
+```dart
+// In main.dart — this is already in place:
+try {
+  if (Firebase.apps.isEmpty) {
+    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  }
+} catch (e) {
+  debugPrint('[Firebase] Init skipped: $e');
+}
 ```
 
-### Logging in from Swagger UI
-
-1. Open `https://YOUR-APP.koyeb.app/docs`
-2. Click the 🔓 **Authorize** button
-3. Enter `ADMIN_USERNAME` and `ADMIN_PASSWORD`
-4. Click **Authorize** — Swagger will attach the token to all subsequent requests
-
-### Admin UI login flow
-
-`login.js` POSTs to `/auth/admin/login/json` with `{"username": "...", "password": "..."}`.
-The returned `access_token` is stored in `localStorage` as `firduty_token`.
-
-On every protected page load, `auth.js` (`guardPage()`) checks `localStorage` for a token
-and optionally calls `GET /auth/validate` to confirm it is still valid.
-
-`apiFetch(path, opts)` automatically attaches `Authorization: Bearer <token>` to every
-API call and redirects to `login.html` on a `401` response.
+If you still see this error: do a **full restart** (stop the app completely and run again).
 
 ---
 
-## 12. API Reference
+### Flutter: no devices found
 
-Base URL: `https://YOUR-APP.koyeb.app`
-
-### Auth
-
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| POST | `/auth/admin/login` | — | OAuth2 form login (Swagger) |
-| POST | `/auth/admin/login/json` | — | JSON login (Admin UI) |
-| GET | `/auth/validate` | JWT | Validate token, return identity |
-
-### Teachers
-
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| GET | `/teachers/` | — | List approved + active teachers |
-| GET | `/teachers/all` | JWT | List ALL teachers (any status) |
-| GET | `/teachers/pending` | JWT | List pending-approval teachers |
-| POST | `/teachers/` | JWT | Create teacher (admin) |
-| POST | `/teachers/register` | — | Self-register (creates pending) |
-| POST | `/teachers/approve-all` | JWT | Approve all pending |
-| PUT | `/teachers/{id}` | JWT | Update name/active/language |
-| DELETE | `/teachers/{id}` | JWT | Deactivate (soft delete) |
-| GET | `/teachers/{id}/status` | — | Status check (Flutter app) |
-| POST | `/teachers/{id}/approve` | JWT | Approve one teacher |
-| GET | `/teachers/{id}/schedule?date=YYYY-MM-DD` | — | Daily duties |
-| GET | `/teachers/{id}/week?week_start=YYYY-MM-DD` | — | Weekly duties |
-| POST | `/teachers/{id}/device-token` | — | Register FCM token |
-
-**Create teacher example (admin):**
-```json
-POST /teachers/
-Authorization: Bearer <token>
-
-{ "name": "Ahmed Al-Rashidi", "preferred_language": "ar" }
-```
-
-**Self-register example (teacher):**
-```json
-POST /teachers/register
-
-{ "name": "Ahmed Al-Rashidi", "email": "ahmed@school.edu.om" }
-```
-
-### Locations
-
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| GET | `/locations/` | — | List all locations |
-| POST | `/locations/` | JWT | Create location |
-| PUT | `/locations/{id}` | JWT | Update location |
-| DELETE | `/locations/{id}` | JWT | Delete location |
-
-### Shifts
-
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| GET | `/shifts/` | — | List all shifts |
-| POST | `/shifts/` | JWT | Create shift |
-| PUT | `/shifts/{id}` | JWT | Update shift |
-| DELETE | `/shifts/{id}` | JWT | Delete shift |
-
-`duty_type` values: `"morning_endofday"` or `"break"`
-
-### Week Plans
-
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| GET | `/weeks/current` | — | Current week plan (or null) |
-| GET | `/weeks/{week_start}` | — | Specific week (YYYY-MM-DD) |
-| POST | `/weeks/{week_start}/create` | JWT | Create empty draft week |
-| POST | `/weeks/{week_start}/clone` | JWT | Clone from latest published |
-| PUT | `/weeks/{week_start}/status` | JWT | Publish / set draft |
-| PUT | `/weeks/{week_start}/shift-locations` | JWT | Set slots for a day+shift |
-| PUT | `/weeks/{week_start}/assignments` | JWT | Assign teachers to slots |
-| PUT | `/weeks/{week_start}/publish-day?day_date=YYYY-MM-DD` | JWT | Publish a single day and notify its assigned teachers |
-
-### Points
-
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| POST | `/points/teachers/{id}/confirm` | — | Confirm duty attendance |
-| GET | `/points/teachers/{id}/monthly?year=&month=` | — | Monthly total + detail |
-| POST | `/points/rebuild?year=&month=` | JWT | Rebuild summary cache |
-
-**Confirmation scoring (Asia/Muscat):**
-- Confirmed before or at shift start → **2 points**
-- Confirmed within 5 minutes after start → **1 point**
-- Confirmed more than 5 minutes late → **0 points**
-
-### Admin Dashboard & Reports
-
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| GET | `/admin/dashboard` | JWT | Stats for current + next week |
-| GET | `/admin/reports/monthly-points?year=&month=` | JWT | Leaderboard |
-| GET | `/admin/reports/monthly-points/export/csv?year=&month=` | JWT | CSV download |
-| GET | `/admin/reports/monthly-points/{teacher_id}?year=&month=` | JWT | Per-teacher detail |
-| POST | `/admin/reports/monthly-points/rebuild?year=&month=` | JWT | Rebuild cache |
-
-### Other
-
-| Method | Path | Description |
-|---|---|---|
-| GET | `/` | Version and status |
-| GET | `/health` | Health check for Koyeb |
-| GET | `/scheduler/status` | Scheduler job status |
-
----
-
-## 13. Push Notifications
-
-### Android
-
-Uses Firebase Cloud Messaging (FCM) native tokens.
-
-1. Download `google-services.json` from Firebase Console
-2. Place at `firduty_app/android/app/google-services.json`
-3. Set `FIREBASE_CREDENTIALS_JSON` or `FIREBASE_CREDENTIALS_PATH` on Koyeb
-
-### Web / iOS PWA
-
-Uses FCM Web Push via VAPID keys.
-
-**iOS requirements:**
-- iOS Safari 16.4+ with "Add to Home Screen" (PWA installed)
-- The VAPID public key must match between backend and Flutter app
-
-**Setup steps:**
-1. Firebase Console → Project Settings → Cloud Messaging → Web Push certificates
-2. Generate a key pair → copy the public key
-3. Set `VAPID_PUBLIC_KEY` in Koyeb env
-4. Set `kVapidPublicKey` in `firduty_app/lib/firebase_options.dart`
-5. Fill `firebase.initializeApp({...})` in `firduty_app/web/firebase-messaging-sw.js`
-
-### Device token registration
-
-`POST /teachers/{id}/device-token`
-```json
-{ "token": "fcm-or-web-push-token", "platform": "android" }
-```
-`platform` values: `"android"` or `"web"`
-
----
-
-## 14. Scheduler Jobs
-
-| Job | Schedule | Logic |
-|---|---|---|
-| `auto_clone` | Every Thursday 16:00 Muscat | Clones the latest published week to next week (draft) |
-| `monthly_reset` | 1st of each month 20:05 Muscat | Rebuilds points summary for previous month; seeds current month |
-
-Both jobs are **idempotent** — running them twice has no harmful effect.
-
-Multi-instance note: if Koyeb scales to more than one instance, each instance runs
-the scheduler. To prevent duplicate job runs: set `RUN_SCHEDULER=true` on one
-instance and `RUN_SCHEDULER=false` on all others.
-
----
-
-## 15. Troubleshooting
-
-### POST /teachers/ → 500 "column email does not exist"
-
-**Cause:** The database was created before the `email`/`status` columns were added to the ORM model.
-
-**Fix:** Run migration 004:
-```sql
--- Paste migrations/004_production_fix.sql in Supabase SQL Editor
-```
-Or via Alembic:
 ```bash
+flutter devices    # list available devices
+flutter emulators  # list available emulators
+flutter emulators --launch <emulator-id>
+```
+
+If Android emulator is not listed:
+- Open Android Studio → Virtual Device Manager
+- Create a new virtual device (Pixel series recommended, API 33+)
+- Start it, then run `flutter devices` again
+
+---
+
+### Flutter Web: CORS error when calling backend
+
+Set `ALLOWED_ORIGINS=*` in `backend/.env` for local development.
+
+For production, set specific origins:
+```dotenv
+ALLOWED_ORIGINS=https://your-admin-ui.netlify.app,https://your-flutter-web.vercel.app
+```
+
+---
+
+### Backend: `DATABASE_URL environment variable is required`
+
+Set `DATABASE_URL` in `backend/.env`. For local SQLite testing:
+```dotenv
+DATABASE_URL=sqlite:///./firduty.db
+```
+
+> Note: `config.py` raises a `ValueError` if `DATABASE_URL` is empty. This is intentional.
+
+---
+
+### Push notifications not working (Android)
+
+1. Check `google-services.json` is in `flutter_app/android/app/`
+2. Check `FIREBASE_CREDENTIALS_PATH` or `FIREBASE_CREDENTIALS_JSON` is set in backend `.env`
+3. Check the teacher's device token was registered: look at `POST /teachers/{id}/device-token` in Swagger
+4. Check Android notification permission: Settings → Apps → Firduty → Notifications → Enable
+
+---
+
+### Push notifications not working (Web / iOS PWA)
+
+1. Verify `firebase-messaging-sw.js` has the **real** Firebase config values (not placeholders)
+2. Verify `kVapidPublicKey` in `firebase_options.dart` is set
+3. Verify `VAPID_PUBLIC_KEY` in backend `.env` is set and matches
+4. Check the service worker is registered: Chrome DevTools → Application → Service Workers
+5. Check notification permission: browser URL bar lock icon → Notifications → Allow
+6. iOS: the app MUST be installed as a PWA (Safari → Share → Add to Home Screen)
+
+**Force-refresh the service worker (Chrome):**
+DevTools → Application → Service Workers → check "Update on reload" → refresh page
+
+---
+
+### Service worker not activating (Chrome)
+
+```
+chrome://serviceworker-internals/
+```
+
+Find your service worker URL and click **Unregister**, then reload the app.
+
+---
+
+### `flutter pub get` fails
+
+```bash
+flutter clean
+flutter pub cache repair
+flutter pub get
+```
+
+---
+
+### Backend 422 Unprocessable Entity from Swagger
+
+**Cause:** Swagger sends `application/x-www-form-urlencoded` but the endpoint may expect JSON.
+
+**Fix:** Use `/auth/admin/login` (form body) for Swagger, and `/auth/admin/login/json` (JSON) for the Admin UI.
+
+---
+
+### `GET /locations/ returns only one item`
+
+**Cause:** Pydantic v1 installed instead of v2.
+
+**Fix:**
+```bash
+cd backend/
+pip install "pydantic>=2.0.0"
+pip install -r requirements.txt
+```
+
+---
+
+### Supabase: `column email does not exist`
+
+Your database schema is outdated. Run:
+```bash
+cd backend/
 alembic stamp 0001
 alembic upgrade 0002
 ```
 
 ---
 
-### GET /locations/ or GET /shifts/ returns only one item
+## 18. Production Notes
 
-**Cause (historical):** Pydantic v1 was installed but schemas used `from_attributes = True` (v2 syntax). Without `orm_mode = True`, Pydantic v1 silently failed to deserialize ORM objects, causing response validation failures for all rows.
+### Security checklist before going live
 
-**Fix (v2.3.0):** `schemas.py` now sets **both** `from_attributes = True` (v2) **and** `orm_mode = True` (v1) on all ORM-backed schemas. `requirements.txt` pins `pydantic>=2.0.0` to prevent the v1 regression.
+- [ ] Change `ADMIN_PASSWORD` to a strong random password
+- [ ] Change `SECRET_KEY` to a 64-character random hex string
+- [ ] Set `ALLOWED_ORIGINS` to specific domains (not `*`)
+- [ ] Store `firebase-credentials.json` securely (Koyeb secrets or env var)
+- [ ] Never commit `.env`, `firebase-credentials.json`, or `google-services.json` to Git
+- [ ] Rotate VAPID keys if they were ever exposed
 
-If you still see this after updating, confirm Pydantic v2 is installed:
-```bash
-python -c "import pydantic; print(pydantic.VERSION)"
+### Notification caveats
+
+- **Android:** Notifications work in both foreground and background
+- **Web Chrome/Edge/Firefox:** Notifications work when the browser is open (even in background tabs)
+- **iOS Safari PWA:** Requires iOS 16.4+; app must be added to Home Screen; background push works when the PWA is installed
+- **iOS Safari (browser tab, not PWA):** Push notifications do NOT work on iOS Safari in a regular tab
+
+### Scheduler
+
+Two background jobs run automatically:
+
+| Job | Schedule | Description |
+|---|---|---|
+| `auto_clone` | Every Thursday 16:00 Muscat | Auto-clones the latest published week as a draft for next week |
+| `monthly_reset` | 1st of each month 20:05 Muscat | Rebuilds monthly points summary for all teachers |
+
+Both jobs are **idempotent** — running them twice is safe.
+
+**Multi-instance note:** If Koyeb scales to multiple instances, each instance runs the scheduler. Set `RUN_SCHEDULER=false` on all instances except one to prevent duplicate runs.
+
+### CORS for production
+
+```dotenv
+ALLOWED_ORIGINS=https://your-admin-ui.example.com,https://your-flutter-web.example.com
 ```
 
----
+### Database
 
-### Swagger UI Authorize → 422 Unprocessable Entity
-
-**Cause:** `/auth/admin/login` was accepting JSON but Swagger sends `application/x-www-form-urlencoded`.
-
-**Fix (v2.3.0):** `/auth/admin/login` now uses `OAuth2PasswordRequestForm = Depends()`.
-The original JSON endpoint is preserved at `/auth/admin/login/json`.
-
----
-
-### CORS errors from Admin UI or Flutter Web
-
-Set `ALLOWED_ORIGINS` to include your admin UI and Flutter Web origins:
+Use Supabase free tier for production. The connection string format is:
 ```
-ALLOWED_ORIGINS=https://your-admin.netlify.app,https://your-app.koyeb.app
+postgresql://postgres:PASSWORD@db.PROJECT-REF.supabase.co:5432/postgres
 ```
 
-For local development: `ALLOWED_ORIGINS=*` (never use `*` in production).
+Enable **Row Level Security (RLS)** on Supabase if direct database access from the frontend is ever used. (Currently only the backend API accesses the database directly.)
 
 ---
 
-### Backend starts but Firebase push fails silently
-
-Firebase initialisation is non-fatal — the app starts even without credentials.
-Check logs for: `"Firebase credentials not found"`.
-Fix: set `FIREBASE_CREDENTIALS_JSON` or ensure `firebase-credentials.json` is accessible.
-
----
-
-### "dart:io import error" in Flutter Web build
-
-`dart:io` is not available on Flutter Web. All I/O in `api_service.dart` uses `dart:convert`
-and `package:http`. Do not import `dart:io` in any file that targets Web.
-
----
-
-### Teacher sees "Account not yet approved"
-
-The teacher registered (status = `pending`) but an admin has not approved them yet.
-Approve via: **Admin UI → Teachers → Pending** or `POST /teachers/{id}/approve`.
-
----
-
-### Koyeb keeps restarting — OOM or crash
-
-Check `/health` endpoint response time. If the scheduler job is running a heavy query
-on startup, set `SCHEDULER_JITTER=60` to spread load. Also ensure only one instance
-runs the scheduler (`RUN_SCHEDULER=true` on one, `false` on others).
-
----
-
-## 16. Changelog
-
-### v2.3.0 (current)
-- **Fix:** `POST /teachers/` HTTP 500 — added `email` + `status` columns via Alembic migration `0002`
-- **Fix:** List endpoints returning single item — added `orm_mode = True` to all Pydantic schemas for v1 compat; pinned `pydantic>=2.0.0` in `requirements.txt`
-- **Fix:** `list[X]` → `List[X]` in all response_model declarations (Python 3.8 compat)
-- **Fix:** `order` columns now `NOT NULL` with `server_default='0'` — prevents Pydantic int validation error on legacy NULL rows
-- **New:** Alembic migration framework — `alembic/`, `alembic.ini`, `alembic/env.py`, two versioned migrations
-- **New:** `migrations/004_production_fix.sql` — idempotent emergency SQL fix
-- **New:** `GET /auth/validate` — token validation endpoint
-- **New:** `POST /auth/admin/login/json` — JSON login for Admin UI
-- **New:** `admin_ui/js/auth.js` — shared `apiFetch()`, `guardPage()`, `logout()`
-- **New:** `services/auth_service.py` — JWT create/decode
-- **New:** `routers/locations.py`, `routers/shifts.py`, `routers/points.py`, `routers/reports.py`
-- **New:** `database.py`, `models/points_models.py`
-- **New:** `routers/__init__.py`, `models/__init__.py`, `services/__init__.py`
-- **Improved:** All routers log DB errors with `logger.exception()` before re-raising HTTP 500
-- **Improved:** `main.py` uses explicit `from routers.X import router as X_router` — no package-style import
-
-### v2.2.0
-- iOS PWA push notifications via Firebase Web Push (VAPID)
-- `DeviceToken.platform` values: `'android'` | `'web'`
-- VAPID environment variables added
-- Flutter Web service worker (`firebase-messaging-sw.js`)
-
-### v2.1.0
-- Break duty type (`duty_type = 'break'`) — grade/class instead of location
-- Duplicate-teacher-per-shift guard in `week_service.py`
-- Safe JSON error handling in `api_service.dart`
-
-### v2.0.0
-- Teacher self-registration and approval flow
-- JWT admin authentication
-- Points system with monthly leaderboard
-- APScheduler background jobs
+*Last updated: v2.3.0 — see CHANGELOG for version history.*

@@ -1,66 +1,124 @@
 // notification_service.dart — Cross-platform push notification service.
 //
-// Platform routing:
-//   Android  → Firebase Cloud Messaging (FCM) via firebase_messaging
-//              + flutter_local_notifications for foreground display
-//   Web/PWA  → FCM Web Push (Firebase JS SDK in service worker)
-//              Foreground messages handled inline; background via SW.
+// Platforms:
+//   Android  → FCM via firebase_messaging + flutter_local_notifications
+//   Web/PWA  → FCM Web Push; background handled by firebase-messaging-sw.js
 //
 // dart:io is NOT imported — unavailable on Flutter Web.
 // All platform branching uses kIsWeb from flutter/foundation.dart.
+//
+// ── Idempotency ─────────────────────────────────────────────────────────────
+// initialize() is safe to call multiple times from multiple code paths:
+//   • StartupScreen calls it when status == approved
+//   • PendingScreen calls it after the admin approves the teacher
+//   • The _initialized flag ensures all setup logic runs exactly once
+//
+// ── Background handler registration ────────────────────────────────────────
+// FirebaseMessaging.onBackgroundMessage() must be a top-level function and
+// must be registered before any other FCM call. It is called at most once,
+// guarded by _backgroundHandlerRegistered.
+//
+// ── Stream subscription management ─────────────────────────────────────────
+// onMessage and onTokenRefresh subscriptions are stored so they can be
+// cancelled before reassignment. This prevents ghost listeners accumulating
+// if the guard is somehow bypassed.
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:async';
+
+import 'package:flutter/foundation.dart' show kIsWeb, kDebugMode, debugPrint;
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+
 import '../firebase_options.dart' show kVapidPublicKey;
 import 'api_service.dart';
 
-// ── Background handler (native Android only) ──────────────────────────────────
-// This pragma is ignored on web — background push is handled by the
-// firebase-messaging-sw.js service worker instead.
+// ── Top-level background message handler ──────────────────────────────────────
+// Must be a TOP-LEVEL function (not a static or closure).
+// The @pragma annotation keeps it alive in release/AOT builds.
+// Web background messages are handled by firebase-messaging-sw.js.
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  // The OS handles the notification display for background messages.
-  // No action needed here unless you want to update local state.
+  // The OS renders the notification for background messages automatically.
+  // Add local state update logic here if needed in the future.
+  debugPrint('[FCM] Background message: ${message.messageId}');
 }
 
+// ─── NotificationService ─────────────────────────────────────────────────────
+
 class NotificationService {
-  static final _messaging = FirebaseMessaging.instance;
+  NotificationService._(); // purely static — never instantiate
 
-  // Local notifications plugin — Android only (not supported on web).
-  static final _localNotifications = FlutterLocalNotificationsPlugin();
+  static final FirebaseMessaging _messaging = FirebaseMessaging.instance;
+  static final FlutterLocalNotificationsPlugin _localNotifications =
+      FlutterLocalNotificationsPlugin();
 
-  /// Initialize notifications for an approved teacher.
+  // ── Idempotency guards ───────────────────────────────────────────────────
+
+  /// True after initialize() has completed successfully at least once.
+  static bool _initialized = false;
+
+  /// True after the FCM background handler has been registered.
+  /// Separate from _initialized because background handler must be
+  /// registered as early as possible, before any other FCM call.
+  static bool _backgroundHandlerRegistered = false;
+
+  // ── Stream subscriptions (stored so we can cancel before reassigning) ────
+
+  static StreamSubscription<RemoteMessage>? _onMessageSub;
+  static StreamSubscription<String>?        _onTokenRefreshSub;
+
+  // ────────────────────────────────────────────────────────────────────────
+
+  /// Initialize FCM for an approved teacher.
   ///
-  /// [platform] should be 'android' for the native app or 'web' for the
-  /// Flutter web build (including iOS PWA). The backend uses this to route
-  /// notifications via the correct delivery path.
+  /// Idempotent — all work is silently skipped on the second call.
+  /// Never throws — notification failures must not crash the app.
+  ///
+  /// [teacherId] The teacher's numeric ID from the backend.
+  /// [platform]  'android' for the native APK, 'web' for Flutter web / iOS PWA.
   static Future<void> initialize({
     required int teacherId,
     required String platform,
   }) async {
-    if (kIsWeb) {
-      await _initWeb(teacherId: teacherId);
-    } else {
-      await _initAndroid(teacherId: teacherId);
+    if (_initialized) {
+      debugPrint('[NotificationService] Already initialized — skipping.');
+      return;
+    }
+
+    debugPrint('[NotificationService] Starting (platform: $platform)…');
+
+    try {
+      if (kIsWeb) {
+        await _initWeb(teacherId: teacherId);
+      } else {
+        await _initAndroid(teacherId: teacherId);
+      }
+      _initialized = true;
+      debugPrint('[NotificationService] Ready.');
+    } catch (e, st) {
+      // Non-fatal: log and continue. Teachers can still view their schedule.
+      debugPrint('[NotificationService] Failed to initialize: $e\n$st');
     }
   }
 
-  // ── Android / Native ────────────────────────────────────────────────────────
+  // ── Android ───────────────────────────────────────────────────────────────
 
   static Future<void> _initAndroid({required int teacherId}) async {
-    // Register background handler
-    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+    // 1. Register background handler FIRST, and only once.
+    if (!_backgroundHandlerRegistered) {
+      FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+      _backgroundHandlerRegistered = true;
+    }
 
-    // Request permission (required on Android 13+)
+    // 2. Request notification permission (required on Android 13+ / API 33+).
     await _messaging.requestPermission(
       alert: true,
       badge: true,
       sound: true,
     );
 
-    // Create the Android notification channel
-    const androidChannel = AndroidNotificationChannel(
+    // 3. Create the high-importance channel required on Android 8+ (API 26+).
+    const channel = AndroidNotificationChannel(
       'firduty_channel',
       'Duty Notifications',
       description: 'Notifications about your duty assignments',
@@ -69,9 +127,9 @@ class NotificationService {
     await _localNotifications
         .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin>()
-        ?.createNotificationChannel(androidChannel);
+        ?.createNotificationChannel(channel);
 
-    // Initialize local notifications plugin (Android + iOS native)
+    // 4. Initialise the local notifications plugin.
     await _localNotifications.initialize(
       const InitializationSettings(
         android: AndroidInitializationSettings('@mipmap/ic_launcher'),
@@ -79,35 +137,31 @@ class NotificationService {
       ),
     );
 
-    // Show local notification when app is in foreground
-    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-      _showLocalNotification(message);
-    });
+    // 5. Foreground message → local notification.
+    //    Cancel before subscribing (belt-and-suspenders).
+    await _onMessageSub?.cancel();
+    _onMessageSub =
+        FirebaseMessaging.onMessage.listen(_showLocalNotification);
 
-    // Get FCM token and register with backend
+    // 6. Get FCM token and register with the backend.
     final token = await _messaging.getToken();
     if (token != null) {
-      await ApiService.registerDeviceToken(
-        teacherId: teacherId,
-        token: token,
-        platform: 'android',
-      );
+      await _registerToken(
+          teacherId: teacherId, token: token, platform: 'android');
     }
 
-    // Re-register on token refresh
-    _messaging.onTokenRefresh.listen((newToken) async {
-      await ApiService.registerDeviceToken(
-        teacherId: teacherId,
-        token: newToken,
-        platform: 'android',
-      );
+    // 7. Refresh token when FCM rotates it.
+    await _onTokenRefreshSub?.cancel();
+    _onTokenRefreshSub = _messaging.onTokenRefresh.listen((newToken) async {
+      await _registerToken(
+          teacherId: teacherId, token: newToken, platform: 'android');
     });
   }
 
-  // ── Web / iOS PWA ───────────────────────────────────────────────────────────
+  // ── Web / iOS PWA ──────────────────────────────────────────────────────────
 
   static Future<void> _initWeb({required int teacherId}) async {
-    // Request Notification permission via the browser
+    // 1. Request browser notification permission.
     final settings = await _messaging.requestPermission(
       alert: true,
       badge: true,
@@ -115,56 +169,69 @@ class NotificationService {
     );
 
     if (settings.authorizationStatus == AuthorizationStatus.denied) {
-      // User denied — notifications will not work. App continues to function.
-      return;
+      debugPrint('[NotificationService] Web notification permission denied.');
+      // Return without setting _initialized = true so a future call can retry.
+      // This is handled by the outer try/catch not setting _initialized.
+      // Re-throw to propagate to caller.
+      throw Exception('Notification permission denied by user.');
     }
 
-    // Get FCM web registration token.
-    // vapidKey is the Web Push VAPID public key from Firebase Console →
-    // Project Settings → Cloud Messaging → Web Push certificates.
+    // 2. Get FCM web registration token using VAPID key.
+    //    kVapidPublicKey comes from firebase_options.dart.
     final token = await _messaging.getToken(vapidKey: kVapidPublicKey);
     if (token != null) {
-      await ApiService.registerDeviceToken(
-        teacherId: teacherId,
-        token: token,
-        platform: 'web',
-      );
+      await _registerToken(
+          teacherId: teacherId, token: token, platform: 'web');
     }
 
-    // Foreground message handler on web
-    // (background messages are handled by firebase-messaging-sw.js)
-    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-      // On web, we can't use flutter_local_notifications.
-      // The message arrives here when the app tab is open and focused.
-      // We could show a custom in-app banner, but for now we log it.
-      // TODO: show a SnackBar/banner using a global key if desired.
+    // 3. Foreground message handler (background is handled by SW).
+    await _onMessageSub?.cancel();
+    _onMessageSub = FirebaseMessaging.onMessage.listen((RemoteMessage msg) {
       if (kDebugMode) {
-        debugPrint('[FCM Web] Foreground message: ${message.notification?.title}');
+        debugPrint('[FCM Web] Foreground: ${msg.notification?.title}');
       }
+      // TODO: show an in-app SnackBar banner here if desired.
     });
 
-    // Re-register on token refresh
-    _messaging.onTokenRefresh.listen((newToken) async {
-      await ApiService.registerDeviceToken(
-        teacherId: teacherId,
-        token: newToken,
-        platform: 'web',
-      );
+    // 4. Refresh token listener.
+    await _onTokenRefreshSub?.cancel();
+    _onTokenRefreshSub = _messaging.onTokenRefresh.listen((newToken) async {
+      await _registerToken(
+          teacherId: teacherId, token: newToken, platform: 'web');
     });
   }
 
-  // ── Private helpers ─────────────────────────────────────────────────────────
+  // ── Shared helpers ────────────────────────────────────────────────────────
 
-  /// Show a local notification — Android only.
-  /// Web background notifications are displayed by the service worker.
+  /// Register a device/web token with the Firduty backend.
+  /// Errors are caught and logged — never rethrown.
+  static Future<void> _registerToken({
+    required int    teacherId,
+    required String token,
+    required String platform,
+  }) async {
+    try {
+      await ApiService.registerDeviceToken(
+        teacherId: teacherId,
+        token:     token,
+        platform:  platform,
+      );
+      debugPrint('[NotificationService] Token registered ($platform).');
+    } catch (e) {
+      debugPrint('[NotificationService] Token registration failed: $e');
+    }
+  }
+
+  /// Display a local notification while the app is foregrounded on Android.
+  /// Web foreground notifications are handled differently (no local plugin).
   static Future<void> _showLocalNotification(RemoteMessage message) async {
-    if (kIsWeb) return; // never called on web, but guard anyway
+    if (kIsWeb) return; // safety guard — this listener is never set on web
 
     final notification = message.notification;
     if (notification == null) return;
 
     await _localNotifications.show(
-      notification.hashCode,
+      notification.hashCode, // stable ID — suppresses duplicates
       notification.title,
       notification.body,
       const NotificationDetails(
@@ -172,17 +239,11 @@ class NotificationService {
           'firduty_channel',
           'Duty Notifications',
           importance: Importance.high,
-          priority: Priority.high,
-          icon: '@mipmap/ic_launcher',
+          priority:   Priority.high,
+          icon:        '@mipmap/ic_launcher',
         ),
         iOS: DarwinNotificationDetails(),
       ),
     );
   }
 }
-
-// ── Debug helper ───────────────────────────────────────────────────────────────
-// ignore: avoid_print
-void debugPrint(String message) => kDebugMode ? print(message) : null;
-// ignore: constant_identifier_names
-const bool kDebugMode = bool.fromEnvironment('dart.vm.product') == false;

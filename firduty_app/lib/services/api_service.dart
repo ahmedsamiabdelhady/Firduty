@@ -13,7 +13,7 @@ class ApiService {
   /// Backend base URL — injected at build time via --dart-define=API_BASE_URL=...
   static const String baseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'https://YOUR-APP-NAME.koyeb.app',
+    defaultValue: 'https://naval-donnamarie-firduty-6e288803.koyeb.app/',
   );
 
   /// Reusable HTTP client — avoids opening a new socket on every request.
