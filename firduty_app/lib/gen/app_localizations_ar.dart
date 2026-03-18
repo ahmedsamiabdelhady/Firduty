@@ -1,12 +1,11 @@
-// ignore: unused_import
-import 'package:intl/intl.dart' as intl;
+// GENERATED CODE - DO NOT MODIFY BY HAND
+
 import 'app_localizations.dart';
 
 // ignore_for_file: type=lint
 
-/// The translations for Arabic (`ar`).
 class AppLocalizationsAr extends AppLocalizations {
-  AppLocalizationsAr([String locale = 'ar']) : super(locale);
+  AppLocalizationsAr([super.locale = 'ar']);
 
   @override
   String get appTitle => 'Firduty';
@@ -84,6 +83,14 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get noDutiesWeek => 'لا توجد مناوبات معيّنة هذا الأسبوع.';
+
+  @override
+  String get scheduleBeingPrepared =>
+      'جارٍ إعداد جدول مناوباتك. يرجى المراجعة لاحقاً.';
+
+  @override
+  String get noPlanForToday =>
+      'لم يتم إعداد خطة مناوبات أسبوعية لهذا اليوم.';
 
   @override
   String get location => 'الموقع';

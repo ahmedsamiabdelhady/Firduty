@@ -102,7 +102,9 @@ firduty/
 │   │   ├── firebase_options.dart  Firebase platform config
 │   │   ├── app_theme.dart      Brand colors + Material 3 theme
 │   │   ├── screens/            UI screens
-│   │   └── services/           API calls + notification service
+│   │   └── services/
+│   │       ├── api_service.dart    All HTTP calls (single URL source of truth)
+│   │       └── notification_service.dart  FCM setup
 │   ├── android/
 │   │   └── app/google-services.json  Firebase Android config
 │   ├── web/
@@ -141,7 +143,7 @@ Install these before starting:
 | Android Studio | Installs Android SDK, emulator tools |
 | Android SDK | API level ≥ 33 recommended |
 | JDK | ≥ 17 (bundled with Android Studio) |
-| USB debug-enabled device **or** Android emulator | For running the app |
+| USB debug-enabled device **or** Android/Genymotion emulator | For running the app |
 
 ### Required for Firebase setup
 
@@ -309,40 +311,135 @@ flutter doctor
 
 Resolve any issues shown before continuing.
 
-### 8c. Set the API base URL
+### 8c. API base URL — quick reference
 
-The backend URL is injected at build time via `--dart-define`:
+The backend URL is injected at build/run time via `--dart-define=API_BASE_URL=...`.
+The table below shows the correct value for each environment:
+
+| Environment | Correct `API_BASE_URL` |
+|---|---|
+| Flutter Web (Chrome) | `http://localhost:8000` |
+| Android Studio Emulator (AVD) | `http://10.0.2.2:8000` |
+| **Genymotion Emulator** | **`http://10.0.3.2:8000`** |
+| Physical device (same WiFi) | `http://<YOUR-LAN-IP>:8000` |
+| Production | `https://your-app.koyeb.app` |
+
+> `API_BASE_URL` must **not** have a trailing slash.
+>
+> To find your LAN IP: `ifconfig | grep "inet "` (macOS/Linux) · `ipconfig` (Windows)
+
+---
+
+## 8d. Genymotion Networking — Full Guide
+
+This section explains how the network path works inside Genymotion and how to
+configure the Flutter app to reach the backend running on your host machine.
+
+### Why a special IP is needed
+
+Android emulators run in a virtual machine that has its own virtual network.
+They cannot use `localhost` because that resolves to the emulator itself, not
+the host machine where the backend is running.
+
+Each emulator platform reserves a special host alias:
+
+| Emulator | Host alias | Notes |
+|---|---|---|
+| **Genymotion** | **`10.0.3.2`** | Standard Genymotion host alias in all versions ≥ 2.0 |
+| Android Studio AVD | `10.0.2.2` | Built into the QEMU-based Android emulator |
+| `localhost` / `127.0.0.1` | ❌ Won't work | Resolves to the emulator itself |
+| `169.254.0.101` | ❌ Wrong | Legacy/bridge IP used in very old Genymotion versions — unreliable |
+
+### Step-by-step: running Firduty on Genymotion
+
+**1. Start the backend on your host machine:**
 
 ```bash
-# Local Android emulator (default emulator host IP)
-flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000
-
-# Genymotion emulator
-flutter run --dart-define=API_BASE_URL=http://169.254.0.101:8000
-
-# Physical Android device on same WiFi
-flutter run --dart-define=API_BASE_URL=http://YOUR-LOCAL-IP:8000
-
-# Flutter Web (Chrome)
-flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:8000
-
-# Production
-flutter run --dart-define=API_BASE_URL=https://your-app.koyeb.app
+cd backend/
+source .venv/bin/activate
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-> `API_BASE_URL` must NOT end with a trailing slash.
+> Use `--host 0.0.0.0` so the backend listens on all interfaces,
+> not just `127.0.0.1`. This is required for the emulator to reach it.
 
-### 8d. Run on Android
+**2. Verify the backend is reachable from the host:**
+
+Open a browser on your host machine and check:
+- Health check: http://localhost:8000/health → should return `{"status":"ok"}`
+- Swagger UI:   http://localhost:8000/docs   → should show the API explorer
+
+**3. Start Genymotion and boot a device.**
+
+**4. Verify connectivity from inside Genymotion (optional but recommended):**
+
+Open the browser inside the Genymotion emulator and navigate to:
+```
+http://10.0.3.2:8000/health
+```
+You should see `{"status":"ok"}`. If you see "Connection refused", check:
+- The backend is running with `--host 0.0.0.0`
+- Your host firewall is not blocking port 8000
+
+**5. Run the Flutter app targeting the Genymotion device:**
+
+```bash
+cd flutter_app/
+
+# List devices — confirm Genymotion appears
+flutter devices
+
+# Run with the correct host alias
+flutter run \
+  -d <genymotion-device-id> \
+  --dart-define=API_BASE_URL=http://10.0.3.2:8000
+```
+
+### Quick command reference
+
+```bash
+# Flutter Web (Chrome)
+flutter run -d chrome \
+  --dart-define=API_BASE_URL=http://localhost:8000
+
+# Android Studio Emulator (AVD)
+flutter run \
+  --dart-define=API_BASE_URL=http://10.0.2.2:8000
+
+# Genymotion Emulator  ← USE THIS FOR GENYMOTION
+flutter run \
+  --dart-define=API_BASE_URL=http://10.0.3.2:8000
+
+# Physical Android device (replace with your actual LAN IP)
+flutter run \
+  --dart-define=API_BASE_URL=http://192.168.1.42:8000
+```
+
+### Finding your LAN IP (for physical device testing)
+
+```bash
+# macOS / Linux
+ifconfig | grep "inet " | grep -v 127.0.0.1
+
+# Windows
+ipconfig | findstr "IPv4"
+```
+
+Use the `192.168.x.x` address you find as the `API_BASE_URL` host.
+
+---
+
+### 8e. Run on Android (any emulator or device)
 
 ```bash
 # List available devices
 flutter devices
 
-# Run on a connected device or emulator
-flutter run -d <device-id> --dart-define=API_BASE_URL=http://10.0.2.2:8000
+# Run — pick the correct IP from the table in 8c
+flutter run -d <device-id> --dart-define=API_BASE_URL=http://10.0.3.2:8000
 ```
 
-### 8e. Run on Web (Chrome)
+### 8f. Run on Web (Chrome)
 
 ```bash
 flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:8000
@@ -426,11 +523,9 @@ The file `flutter_app/web/firebase-messaging-sw.js` must contain your real Fireb
 
 Open the file and verify the `firebase.initializeApp({...})` block matches the values in `firebase_options.dart → FirebaseOptions.web`.
 
-If you ran `flutterfire configure`, cross-check:
-
 ```js
 firebase.initializeApp({
-  apiKey:            "YOUR_API_KEY",       // from firebase_options.dart
+  apiKey:            "YOUR_API_KEY",
   authDomain:        "YOUR_PROJECT.firebaseapp.com",
   projectId:         "YOUR_PROJECT_ID",
   storageBucket:     "YOUR_PROJECT.appspot.com",
@@ -583,8 +678,11 @@ All backend variables go in `backend/.env` (local) or Koyeb service environment 
 ```bash
 cd backend/
 source .venv/bin/activate   # or .venv\Scripts\activate on Windows
-uvicorn main:app --reload --port 8000
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
+
+> Use `--host 0.0.0.0` so the backend is reachable from Genymotion (`10.0.3.2`)
+> and from physical devices on the same WiFi network.
 
 ### Terminal 2 — Admin UI
 
@@ -600,10 +698,13 @@ Open http://localhost:3000/login.html
 ```bash
 cd flutter_app/
 
-# Android emulator
+# Genymotion emulator
+flutter run --dart-define=API_BASE_URL=http://10.0.3.2:8000
+
+# Android Studio emulator (AVD)
 flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000
 
-# Web
+# Flutter Web (Chrome)
 flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:8000
 ```
 
@@ -611,7 +712,7 @@ flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:8000
 
 1. Open Swagger UI: http://localhost:8000/docs → Authorize → create a shift and location
 2. Open Admin UI: http://localhost:3000/login.html → log in
-3. Open Flutter app in Chrome → register as a teacher
+3. Open Flutter app → register as a teacher
 4. Admin UI → Teachers → approve the teacher
 5. Flutter app → teacher should now see the home screen
 6. Admin UI → Week Planner → assign the teacher to a slot → Publish Week
@@ -682,14 +783,18 @@ The repository includes `.github/workflows/keepalive.yml` which pings the Koyeb 
 ### Recommended startup sequence
 
 ```bash
-# Terminal 1: backend (always first)
-cd backend && source .venv/bin/activate && uvicorn main:app --reload
+# Terminal 1: backend (always first) — bind to all interfaces for emulator access
+cd backend && source .venv/bin/activate
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
 # Terminal 2: Admin UI (optional)
 cd admin_ui && python3 -m http.server 3000
 
-# Terminal 3: Flutter app
-cd flutter_app && flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:8000
+# Terminal 3: Flutter app (pick the right URL for your setup)
+cd flutter_app
+flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:8000    # Web
+flutter run --dart-define=API_BASE_URL=http://10.0.3.2:8000               # Genymotion
+flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000               # AVD
 ```
 
 ### Common commands
@@ -747,6 +852,64 @@ If you still see this error: do a **full restart** (stop the app completely and 
 
 ---
 
+### App shows "Could not reach the server" on Genymotion
+
+**Most common cause:** `API_BASE_URL` is set to `localhost`, `127.0.0.1`, or the Android Studio alias `10.0.2.2`. None of these resolve to your host machine from inside Genymotion.
+
+**Fix:** Use the Genymotion host alias `10.0.3.2`:
+
+```bash
+flutter run --dart-define=API_BASE_URL=http://10.0.3.2:8000
+```
+
+**Also check:**
+1. The backend is started with `--host 0.0.0.0` (not the default `127.0.0.1`):
+   ```bash
+   uvicorn main:app --reload --host 0.0.0.0 --port 8000
+   ```
+2. Your host machine firewall is not blocking port 8000
+3. From inside the Genymotion browser, navigate to `http://10.0.3.2:8000/health` — it should return `{"status":"ok"}`
+
+---
+
+### App shows "API_BASE_URL is not configured"
+
+**Cause:** The app was run without `--dart-define=API_BASE_URL=...`.
+
+**Fix:** Always pass the URL:
+```bash
+flutter run --dart-define=API_BASE_URL=http://10.0.3.2:8000   # Genymotion
+flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000   # AVD
+flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:8000  # Web
+```
+
+---
+
+### App shows "Endpoint not found (404)" or "Not Found"
+
+**Cause:** The backend is reachable but the URL path is wrong. Usually caused by a trailing slash in `API_BASE_URL` or a wrong path in a request.
+
+**Fix:**
+1. Make sure `API_BASE_URL` does **not** end with `/`
+   - ❌ `http://10.0.3.2:8000/`
+   - ✅ `http://10.0.3.2:8000`
+2. In debug mode, `api_service.dart` logs every request with the full URL:
+   ```
+   [API] GET http://10.0.3.2:8000/teachers/5/status → 404
+           body: {"detail":"Teacher not found"}
+   ```
+   Check the logged URL and compare it against the Swagger UI at `http://localhost:8000/docs`.
+
+---
+
+### App shows "Server is starting up" (502/503)
+
+**Cause:** The Koyeb free tier is sleeping after inactivity. The first request wakes it up.
+
+**Fix:** Wait 10–20 seconds and try again. Consider setting up the keepalive workflow in `.github/workflows/keepalive.yml` to prevent sleep.
+
+---
+
 ### Flutter: no devices found
 
 ```bash
@@ -759,6 +922,11 @@ If Android emulator is not listed:
 - Open Android Studio → Virtual Device Manager
 - Create a new virtual device (Pixel series recommended, API 33+)
 - Start it, then run `flutter devices` again
+
+For Genymotion:
+- Ensure Genymotion is open and the device is running
+- Ensure the Genymotion ADB bridge is enabled: Genymotion Settings → ADB → Use custom Android SDK tools
+- Point it to your Android SDK path
 
 ---
 

@@ -28,6 +28,8 @@
   "english": "English",
   "noDutiesToday": "No duties assigned for today.",
   "noDutiesWeek": "No duties assigned this week.",
+  "scheduleBeingPrepared": "Your schedule is being prepared. Please check back later.",
+  "noPlanForToday": "No weekly duty plan has been set up for today.",
   "location": "Location",
   "gradeClass": "Class",
   "shift": "Shift",

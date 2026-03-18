@@ -134,5 +134,14 @@
   "no_teachers_yet": "No teacher records found.",
   "teacher_approved_ok": "Teacher approved successfully.",
   "all_approved_ok": "All pending teachers approved",
-  "email": "Email"
+  "email": "Email",
+  "schedule_being_prepared": "Your schedule is being prepared. Please check back later.",
+  "no_plan_for_today": "No weekly duty plan has been set up for today.",
+  "shift_management": "Shift Management",
+  "shift_management_desc": "Edit duty shift names and times.",
+  "no_shifts": "No shifts found. Create shifts to get started.",
+  "confirm_delete_shift": "Delete this shift? This cannot be undone.",
+  "shift_saved": "Shift saved successfully.",
+  "shift_deleted": "Shift deleted.",
+  "invalid_time_range": "End time must be after start time."
 }

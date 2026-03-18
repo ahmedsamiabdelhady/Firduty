@@ -1,13 +1,18 @@
-// today_screen.dart — Teacher's duties for today + confirmation
+// today_screen.dart — Teacher's duties for today + attendance confirmation.
 //
-// UX/Performance improvements (v2.4):
+// v3.0 changes:
+//   • Reads `week_status` from API response (new field added in backend v3.0)
+//   • Shows contextual empty-state messages:
+//       - week_status == null          → "No duty plan has been set up yet"
+//       - week_status == "draft"       → "Your schedule is being prepared"
+//       - week_status == "published"
+//         + no duties for this teacher → "No duties scheduled for today"
+//   • Added debugPrint logging of date sent + response to aid diagnosis
+//   • Optimistic confirm UI (mark instantly, revert on error)
 //   • AutomaticKeepAliveClientMixin: scroll position survives tab switches
-//   • Confirmation uses SnackBar (non-blocking) instead of a dialog overlay
-//   • Optimistic UI: card shows "Confirmed" immediately, reverts on error
-//   • Empty state and error state with retry instead of plain text
-//   • _DutyCard fully const-constructable where possible
-//   • No deprecated APIs (withValues instead of withOpacity)
+//   • No deprecated APIs (.withValues instead of .withOpacity)
 
+import 'package:flutter/foundation.dart' show kDebugMode, debugPrint;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
@@ -27,6 +32,7 @@ class _TodayScreenState extends State<TodayScreen>
   bool _loading = true;
   String? _error;
   List<Map<String, dynamic>> _duties = [];
+  String? _weekStatus; // "published" | "draft" | null
   int _teacherId = -1;
 
   /// Assignment IDs confirmed during this session (avoids re-fetching).
@@ -43,9 +49,11 @@ class _TodayScreenState extends State<TodayScreen>
 
   Future<void> _load() async {
     setState(() {
-      _loading = true;
-      _error = null;
+      _loading   = true;
+      _error     = null;
+      _weekStatus = null;
     });
+
     try {
       final prefs = await SharedPreferences.getInstance();
       final teacherId = prefs.getInt('teacher_id');
@@ -55,30 +63,52 @@ class _TodayScreenState extends State<TodayScreen>
       }
       _teacherId = teacherId;
 
+      // Use device-local date (correct for teachers in Oman).
+      // If the device timezone is set incorrectly, this date will be wrong.
+      // The backend logs the received date so server-side diagnosis is possible.
       final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+
+      if (kDebugMode) {
+        debugPrint(
+          '[TodayScreen] Loading duties — '
+          'teacher_id=$teacherId  date=$today  '
+          'device_tz=${DateTime.now().timeZoneName}',
+        );
+      }
+
       final data = await ApiService.getTeacherSchedule(
         teacherId: teacherId,
         date: today,
       );
 
+      if (kDebugMode) {
+        debugPrint(
+          '[TodayScreen] Response — '
+          'week_status=${data['week_status']}  '
+          'duties=${(data['duties'] as List?)?.length ?? 0}',
+        );
+      }
+
       setState(() {
-        _duties = List<Map<String, dynamic>>.from(data['duties'] ?? []);
-        _loading = false;
+        _weekStatus = data['week_status'] as String?;
+        _duties     = List<Map<String, dynamic>>.from(data['duties'] ?? []);
+        _loading    = false;
       });
     } catch (e) {
+      if (kDebugMode) debugPrint('[TodayScreen] Error: $e');
       setState(() {
-        _error = e.toString().replaceFirst('Exception: ', '');
+        _error   = e.toString().replaceFirst('Exception: ', '');
         _loading = false;
       });
     }
   }
 
-  /// Optimistic confirm: mark instantly, call API, revert on error.
+  /// Optimistic confirm: mark immediately, call API, revert on error.
   Future<void> _confirmDuty(Map<String, dynamic> duty) async {
     final assignmentId = duty['assignment_id'] as int?;
     if (assignmentId == null) return;
 
-    // Optimistic update
+    // Immediate visual update
     setState(() => _confirmedThisSession.add(assignmentId));
 
     try {
@@ -89,10 +119,10 @@ class _TodayScreenState extends State<TodayScreen>
 
       if (!mounted) return;
       final isAr = Localizations.localeOf(context).languageCode == 'ar';
-      final pts = result['points_earned'] as int;
+      final pts     = result['points_earned'] as int? ?? 0;
       final message = isAr
-          ? result['message_ar'] as String
-          : result['message_en'] as String;
+          ? result['message_ar'] as String? ?? ''
+          : result['message_en'] as String? ?? '';
 
       final color = pts == 2
           ? FirdutyColors.primaryGreen
@@ -104,12 +134,11 @@ class _TodayScreenState extends State<TodayScreen>
         SnackBar(
           content: Row(
             children: [
-              Icon(Icons.check_circle, color: Colors.white, size: 20),
+              const Icon(Icons.check_circle, color: Colors.white, size: 20),
               const SizedBox(width: 10),
               Expanded(child: Text(message)),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(12),
@@ -125,13 +154,12 @@ class _TodayScreenState extends State<TodayScreen>
           backgroundColor: color,
           duration: const Duration(seconds: 3),
           behavior: SnackBarBehavior.floating,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           margin: const EdgeInsets.all(12),
         ),
       );
     } catch (e) {
-      // Revert optimistic update on error
+      // Revert optimistic update
       setState(() => _confirmedThisSession.remove(assignmentId));
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -139,12 +167,46 @@ class _TodayScreenState extends State<TodayScreen>
           content: Text(e.toString().replaceFirst('Exception: ', '')),
           backgroundColor: FirdutyColors.danger,
           behavior: SnackBarBehavior.floating,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           margin: const EdgeInsets.all(12),
         ),
       );
     }
+  }
+
+  // ── Contextual empty-state messages ─────────────────────────────────────────
+
+  /// Choose the right icon + message based on week_status.
+  ///
+  /// | week_status | Meaning                       | Message shown              |
+  /// |-------------|-------------------------------|----------------------------|
+  /// | null        | No week plan for this date    | "No plan set up yet"       |
+  /// | "draft"     | Week exists but not published | "Schedule being prepared"  |
+  /// | "published" | Published, no duties for me   | "No duties today"          |
+  Widget _buildEmptyState(AppLocalizations l10n) {
+    final IconData icon;
+    final String   message;
+    final Color    iconColor;
+
+    switch (_weekStatus) {
+      case "draft":
+        icon      = Icons.edit_calendar_outlined;
+        iconColor = FirdutyColors.warning;
+        message   = l10n.scheduleBeingPrepared;   // "Your schedule is being prepared. Please check again later."
+        break;
+      case null:
+        icon      = Icons.calendar_today_outlined;
+        iconColor = FirdutyColors.textMuted;
+        message   = l10n.noPlanForToday;          // "No weekly plan has been set up for today."
+        break;
+      default: // "published"
+        icon      = Icons.event_available;
+        iconColor = FirdutyColors.accentGreen;
+        message   = l10n.noDutiesToday;           // "You have no duties scheduled for today."
+        break;
+    }
+
+    return _EmptyState(icon: icon, iconColor: iconColor, message: message, onRetry: _load);
   }
 
   @override
@@ -154,20 +216,15 @@ class _TodayScreenState extends State<TodayScreen>
     final isAr = Localizations.localeOf(context).languageCode == 'ar';
 
     if (_loading) {
-      return const Center(
-        child: CircularProgressIndicator(),
-      );
+      return const Center(child: CircularProgressIndicator());
     }
 
     if (_error != null) {
-      return _ErrorState(
-        message: _error!,
-        onRetry: _load,
-      );
+      return _ErrorState(message: _error!, onRetry: _load);
     }
 
     if (_duties.isEmpty) {
-      return _EmptyState(message: l10n.noDutiesToday);
+      return _buildEmptyState(l10n);
     }
 
     return RefreshIndicator(
@@ -177,10 +234,9 @@ class _TodayScreenState extends State<TodayScreen>
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
         itemCount: _duties.length,
         itemBuilder: (context, index) {
-          final d = _duties[index];
-          final dutyType =
-              (d['duty_type'] as String?) ?? 'morning_endofday';
-          final isBreak = dutyType == 'break';
+          final d         = _duties[index];
+          final dutyType  = (d['duty_type'] as String?) ?? 'morning_endofday';
+          final isBreak   = dutyType == 'break';
 
           final String locationLabel;
           if (isBreak) {
@@ -191,22 +247,22 @@ class _TodayScreenState extends State<TodayScreen>
                 : ((d['location_name_en'] as String?) ?? '—');
           }
 
-          final shiftName = isAr
-              ? d['shift_name_ar'] as String
-              : d['shift_name_en'] as String;
+          final shiftName   = isAr
+              ? (d['shift_name_ar'] as String? ?? '')
+              : (d['shift_name_en'] as String? ?? '');
           final assignmentId = d['assignment_id'] as int?;
-          final isConfirmed = assignmentId != null &&
+          final isConfirmed  = assignmentId != null &&
               (d['already_confirmed'] == true ||
                   _confirmedThisSession.contains(assignmentId));
 
           return _DutyCard(
-            shiftName: shiftName,
+            shiftName:     shiftName,
             locationLabel: locationLabel,
-            isBreak: isBreak,
-            startTime: (d['shift_start'] as String).substring(0, 5),
-            endTime: (d['shift_end'] as String).substring(0, 5),
-            isConfirmed: isConfirmed,
-            onConfirm: assignmentId != null && !isConfirmed
+            isBreak:       isBreak,
+            startTime:     (d['shift_start'] as String? ?? '').substring(0, 5),
+            endTime:       (d['shift_end']   as String? ?? '').substring(0, 5),
+            isConfirmed:   isConfirmed,
+            onConfirm:     assignmentId != null && !isConfirmed
                 ? () => _confirmDuty(d)
                 : null,
             l10n: l10n,
@@ -220,8 +276,17 @@ class _TodayScreenState extends State<TodayScreen>
 // ─── Empty State ──────────────────────────────────────────────────────────────
 
 class _EmptyState extends StatelessWidget {
-  final String message;
-  const _EmptyState({required this.message});
+  final IconData icon;
+  final Color    iconColor;
+  final String   message;
+  final VoidCallback onRetry;
+
+  const _EmptyState({
+    required this.icon,
+    required this.iconColor,
+    required this.message,
+    required this.onRetry,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -234,23 +299,29 @@ class _EmptyState extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
-                color: FirdutyColors.navBlue.withValues(alpha: 0.08),
+                color: iconColor.withValues(alpha: 0.08),
                 shape: BoxShape.circle,
               ),
-              child: Icon(
-                Icons.event_available,
-                size: 56,
-                color: FirdutyColors.navBlue.withValues(alpha: 0.5),
-              ),
+              child: Icon(icon, size: 48, color: iconColor),
             ),
             const SizedBox(height: 20),
             Text(
               message,
               textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 16,
+              style: const TextStyle(
+                fontSize: 15,
                 color: FirdutyColors.textMuted,
                 height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 20),
+            OutlinedButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh, size: 16),
+              label: const Text('Refresh'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: FirdutyColors.navBlue,
+                side: const BorderSide(color: FirdutyColors.navBlue),
               ),
             ),
           ],
@@ -263,7 +334,7 @@ class _EmptyState extends StatelessWidget {
 // ─── Error State ──────────────────────────────────────────────────────────────
 
 class _ErrorState extends StatelessWidget {
-  final String message;
+  final String       message;
   final VoidCallback onRetry;
   const _ErrorState({required this.message, required this.onRetry});
 
@@ -275,7 +346,7 @@ class _ErrorState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.wifi_off_rounded,
+            const Icon(Icons.wifi_off_rounded,
                 size: 52, color: FirdutyColors.textMuted),
             const SizedBox(height: 16),
             Text(
@@ -288,6 +359,10 @@ class _ErrorState extends StatelessWidget {
               onPressed: onRetry,
               icon: const Icon(Icons.refresh),
               label: const Text('Retry'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: FirdutyColors.navBlue,
+                foregroundColor: Colors.white,
+              ),
             ),
           ],
         ),
@@ -299,13 +374,13 @@ class _ErrorState extends StatelessWidget {
 // ─── Duty Card ────────────────────────────────────────────────────────────────
 
 class _DutyCard extends StatelessWidget {
-  final String shiftName;
-  final String locationLabel;
-  final bool isBreak;
-  final String startTime;
-  final String endTime;
-  final bool isConfirmed;
-  final VoidCallback? onConfirm;
+  final String         shiftName;
+  final String         locationLabel;
+  final bool           isBreak;
+  final String         startTime;
+  final String         endTime;
+  final bool           isConfirmed;
+  final VoidCallback?  onConfirm;
   final AppLocalizations l10n;
 
   const _DutyCard({
@@ -321,8 +396,7 @@ class _DutyCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final accentColor =
-        isBreak ? FirdutyColors.primaryGreen : FirdutyColors.navBlue;
+    final accentColor = isBreak ? FirdutyColors.primaryGreen : FirdutyColors.navBlue;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 14),
@@ -353,7 +427,7 @@ class _DutyCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // ── Shift name row ────────────────────────────────────────
+                // ── Shift name + confirmed badge ──────────────────────────
                 Row(
                   children: [
                     Icon(
@@ -384,8 +458,7 @@ class _DutyCard extends StatelessWidget {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Icon(Icons.check_circle,
-                                size: 14,
-                                color: FirdutyColors.successDark),
+                                size: 14, color: FirdutyColors.successDark),
                             const SizedBox(width: 4),
                             Text(
                               l10n.confirmed,
@@ -454,9 +527,7 @@ class _DutyCard extends StatelessWidget {
                           child: Text(
                             l10n.pointsHint(startTime),
                             style: TextStyle(
-                              fontSize: 12,
-                              color: FirdutyColors.navBlue,
-                            ),
+                                fontSize: 12, color: FirdutyColors.navBlue),
                           ),
                         ),
                       ],
@@ -476,8 +547,7 @@ class _DutyCard extends StatelessWidget {
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 13),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
+                            borderRadius: BorderRadius.circular(10)),
                         elevation: 0,
                       ),
                     ),
