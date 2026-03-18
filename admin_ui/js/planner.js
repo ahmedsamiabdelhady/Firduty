@@ -244,30 +244,34 @@ function filterTeacherSidebar(query) {
 /* ─── Mobile bottom-sheet teacher picker ─────────────────────────────────── */
 
 /**
- * Inject the bottom-sheet DOM once per page load.
- * planner.html may already contain this element; if so this is a no-op.
+ * Inject the bottom-sheet DOM into <body> and wire all listeners.
+ * Called once from initPlanner(). The static HTML was intentionally removed
+ * from planner.html so this function always runs and listeners always attach.
  */
 function ensureMobileBottomSheet() {
-  if (byId('mobileTeacherPicker')) return;
+  // Remove any stale DOM element (e.g. left from a hot-reload in dev)
+  const stale = byId('mobileTeacherPicker');
+  if (stale) stale.remove();
 
   const el = document.createElement('div');
-  el.id = 'mobileTeacherPicker';
+  el.id        = 'mobileTeacherPicker';
   el.className = 'mobile-bottom-sheet';
   el.setAttribute('aria-modal', 'true');
-  el.setAttribute('role', 'dialog');
+  el.setAttribute('role',       'dialog');
   el.style.display = 'none';
   el.innerHTML = `
     <div class="bottom-sheet-backdrop" id="bottomSheetBackdrop"></div>
-    <div class="bottom-sheet-panel" id="bottomSheetPanel">
+    <div class="bottom-sheet-panel"    id="bottomSheetPanel">
       <div class="bottom-sheet-header">
-        <span class="bottom-sheet-title" id="mobilePickerTitle">${I18N.t('pick_teacher')}</span>
-        <button class="bottom-sheet-close" id="bottomSheetClose" aria-label="${I18N.t('close')}">&times;</button>
+        <span class="bottom-sheet-title" id="mobilePickerTitle"></span>
+        <button class="bottom-sheet-close" id="bottomSheetClose"
+                aria-label="${I18N.t('close')}">&times;</button>
       </div>
       <input
         type="search"
         id="mobileTeacherSearch"
         class="bottom-sheet-search"
-        placeholder="${I18N.t('search_teachers')}"
+        placeholder="${I18N.t('search_teachers') || 'Search teachers…'}"
         autocomplete="off"
       >
       <div id="mobileTeacherList" class="bottom-sheet-list"></div>
@@ -275,17 +279,24 @@ function ensureMobileBottomSheet() {
   `;
   document.body.appendChild(el);
 
-  // Event listeners — attached once, never duplicated
+  // ── Listeners — attached exactly once ──────────────────────────────────
   byId('bottomSheetBackdrop').addEventListener('click', closeMobileTeacherPicker);
-  byId('bottomSheetClose').addEventListener('click', closeMobileTeacherPicker);
+  byId('bottomSheetClose').addEventListener('click',    closeMobileTeacherPicker);
   byId('mobileTeacherSearch').addEventListener('input', e => {
     renderMobileTeacherList(e.target.value);
+  });
+
+  // Escape key closes sheet
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeMobileTeacherPicker();
   });
 
   // Swipe-down to close
   let _startY = 0;
   const panel = byId('bottomSheetPanel');
-  panel.addEventListener('touchstart', e => { _startY = e.touches[0].clientY; }, { passive: true });
+  panel.addEventListener('touchstart', e => {
+    _startY = e.touches[0].clientY;
+  }, { passive: true });
   panel.addEventListener('touchend', e => {
     if (e.changedTouches[0].clientY - _startY > 80) closeMobileTeacherPicker();
   }, { passive: true });
@@ -295,25 +306,38 @@ function openMobileTeacherPicker(slId, slotIdx, isBreak) {
   _mobilePicker = { slId, slotIdx, isBreak };
 
   const picker = byId('mobileTeacherPicker');
-  if (!picker) return;
+  if (!picker) { ensureMobileBottomSheet(); return openMobileTeacherPicker(slId, slotIdx, isBreak); }
+
+  // Title: "Assign teacher" for empty, "Replace [name]" for filled
+  const list      = byId(`slots-${slId}`);
+  const slotEl    = list?.querySelector(`[data-slot-idx="${slotIdx}"]`);
+  const isFilled  = slotEl?.classList.contains('filled');
+  const existName = slotEl?.querySelector('[data-teacher-name]')?.dataset.teacherName || '';
+  const titleEl   = byId('mobilePickerTitle');
+  if (titleEl) {
+    titleEl.textContent = isFilled
+      ? `↔ Replace "${existName}"`
+      : (I18N.t('pick_teacher') || 'Assign teacher');
+  }
 
   const searchEl = byId('mobileTeacherSearch');
   if (searchEl) searchEl.value = '';
-
   renderMobileTeacherList('');
 
   picker.style.display = 'flex';
-  // Animate in
+
+  // Slide-up animation
   const panel = byId('bottomSheetPanel');
   if (panel) {
-    panel.style.transform = 'translateY(100%)';
+    panel.style.transition = '';
+    panel.style.transform  = 'translateY(100%)';
     requestAnimationFrame(() => {
       panel.style.transition = 'transform 0.28s cubic-bezier(0.32,0.72,0,1)';
-      panel.style.transform = 'translateY(0)';
+      panel.style.transform  = 'translateY(0)';
     });
   }
 
-  setTimeout(() => { if (searchEl) searchEl.focus(); }, 120);
+  setTimeout(() => { searchEl?.focus(); }, 120);
 }
 
 function closeMobileTeacherPicker() {
@@ -399,12 +423,15 @@ function mobileSelectTeacher(teacherId, teacherName) {
 /* ─── Slot tap handler (mobile) ───────────────────────────────────────────── */
 
 /**
- * Called via onclick from every slot-item.
- * On desktop: does nothing (Sortable handles assignment).
- * On mobile: opens the bottom-sheet picker.
+ * Called via onclick on EVERY slot-item (empty and filled).
+ * Desktop: returns immediately — Sortable handles assignment via drag-and-drop.
+ * Mobile:  opens the bottom-sheet teacher picker.
+ *          For filled slots the sheet title shows "Replace [teacher]".
+ *          The remove-btn on filled slots stops propagation so tapping ✕
+ *          only removes the teacher without opening the picker.
  */
 function onSlotTap(slId, slotIdx) {
-  if (!isMobilePlanner()) return;
+  if (!isMobilePlanner()) return;   // desktop: drag handles this
 
   const list = byId(`slots-${slId}`);
   const col  = list?.closest('.location-column');
@@ -726,13 +753,12 @@ function renderGradeOptions(selected = '') {
 /* ─── Slot rendering ──────────────────────────────────────────────────────── */
 
 function renderSlot(slId, slotIdx, assignment, isBreak, isEditable = true) {
-  // `onSlotTap` is called on click for EVERY slot.
-  // On desktop it returns immediately (isMobilePlanner() === false).
-  // On mobile it opens the bottom-sheet picker.
+  // `onSlotTap` is attached to every slot.
+  // • Desktop: the handler returns immediately because isMobilePlanner() === false.
+  // • Mobile:  opens the bottom-sheet picker (assign or replace).
   const tapAttr = `onclick="onSlotTap(${slId}, ${slotIdx})"`;
 
   if (assignment?.teacher_id) {
-    // Grade/class field — always a <select> (single consistent control)
     const gradeHtml = isBreak
       ? `<div class="grade-select-wrap">
            <label class="grade-label" for="grade-${slId}-${slotIdx}">${I18N.t('grade_class_label')}</label>
@@ -755,8 +781,8 @@ function renderSlot(slId, slotIdx, assignment, isBreak, isEditable = true) {
            ${tapAttr}>
         <div class="teacher-card"
              data-teacher-id="${assignment.teacher_id}"
-             data-teacher-name="${escHtml(assignment.teacher_name)}">
-          <span>${escHtml(assignment.teacher_name)}</span>
+             data-teacher-name="${escHtml(assignment.teacher_name || '')}">
+          <span>${escHtml(assignment.teacher_name || '—')}</span>
           ${isEditable
             ? `<span class="remove-btn"
                      onclick="event.stopPropagation();removeTeacher(${slId}, ${slotIdx})"
@@ -767,6 +793,7 @@ function renderSlot(slId, slotIdx, assignment, isBreak, isEditable = true) {
       </div>`;
   }
 
+  // Empty slot
   return `
     <div class="slot-item"
          data-sl-id="${slId}"
@@ -832,19 +859,27 @@ function isTeacherAssignedInSameShift(slId, teacherId) {
   return false;
 }
 
+/* ── Drag class cleanup helper ──────────────────────────────────────────── */
+function _clearDragClasses() {
+  document.querySelectorAll('.slot-drag-add, .slot-drag-replace').forEach(el => {
+    el.classList.remove('slot-drag-add', 'slot-drag-replace');
+  });
+}
+
 function initDragAndDrop() {
   // ── Mobile: no Sortable whatsoever ──────────────────────────────────────
   if (isMobilePlanner()) return;
-
   if (typeof Sortable === 'undefined') return;
 
   // ── Sidebar (source, clone) ──────────────────────────────────────────────
   const sidebar = byId('teacherList');
   if (sidebar && !sidebar.dataset.sortableInit) {
     new Sortable(sidebar, {
-      group: { name: 'teachers', pull: 'clone', put: false },
-      sort: false,
+      group:     { name: 'teachers', pull: 'clone', put: false },
+      sort:      false,
       animation: 150,
+      // Clean up any lingering drag highlights if user cancels drag from sidebar
+      onEnd() { _clearDragClasses(); },
     });
     sidebar.dataset.sortableInit = 'true';
   }
@@ -856,28 +891,33 @@ function initDragAndDrop() {
     const isBreak = list.dataset.dutyType === 'break';
 
     new Sortable(list, {
-      group: { name: 'teachers', pull: false, put: true },
-      sort: false,       // slots are FIXED — reordering is intentionally disabled
+      group:     { name: 'teachers', pull: false, put: true },
+      sort:      false,   // slots are FIXED — never reorder
       animation: 150,
 
+      // ── Called repeatedly while dragging OVER items ────────────────────
       onMove(evt) {
-        // Visual feedback: distinguish ADD (empty) vs REPLACE (filled) on hover
         const target = evt.related;
-        if (!target) return true;
+        if (!target || !target.classList.contains('slot-item')) return true;
 
+        // Block drop onto locked days immediately
         const col = list.closest('.location-column');
         if (!col || col.dataset.editable !== 'true') return false;
 
-        target.classList.toggle('slot-drag-replace', target.classList.contains('filled'));
-        target.classList.toggle('slot-drag-add',     !target.classList.contains('filled'));
-        return true;
+        // Apply green ADD or orange REPLACE highlight on the target slot
+        const isFilled = target.classList.contains('filled');
+        target.classList.toggle('slot-drag-replace',  isFilled);
+        target.classList.toggle('slot-drag-add',      !isFilled);
+        return true;   // allow the drop
       },
 
+      // ── Called when a clone lands in this list ─────────────────────────
       onAdd(evt) {
-        // Clean up hover classes
-        list.querySelectorAll('.slot-drag-replace, .slot-drag-add').forEach(el => {
-          el.classList.remove('slot-drag-replace', 'slot-drag-add');
-        });
+        // Always clean up highlights first
+        _clearDragClasses();
+
+        // Remove the DOM clone Sortable inserted — we manage DOM ourselves
+        evt.item.remove();
 
         const col     = list.closest('.location-column');
         const dayDate = col?.dataset.day;
@@ -885,49 +925,53 @@ function initDragAndDrop() {
 
         if (!day?.is_editable) {
           showToast(I18N.t('day_locked'), 'error');
-          evt.item.remove();
           return;
         }
 
         const slId        = parseInt(list.dataset.slId, 10);
-        const teacherId   = parseInt(evt.item.dataset.teacherId, 10);
-        const teacherName = evt.item.dataset.teacherName;
+        const teacherId   = parseInt(evt.item.dataset.teacherId,   10);
+        const teacherName = evt.item.dataset.teacherName || '';
+
+        if (!teacherId) return;
 
         if (isTeacherAssignedInSameShift(slId, teacherId)) {
-          showToast(I18N.t('teacher_already_assigned') || 'Teacher already assigned in this duty', 'error');
-          evt.item.remove();
+          showToast(I18N.t('teacher_already_assigned') || 'Already assigned in this shift', 'error');
           return;
         }
 
-        const emptySlot  = list.querySelector('.slot-item:not(.filled)');
+        // Determine drop target: use the DOM element that was highlighted
+        const highlighted = list.querySelector('.slot-drag-replace, .slot-drag-add')
+                         || list.querySelector('.slot-item:not(.filled)');
+        const emptySlot   = list.querySelector('.slot-item:not(.filled)');
         const filledSlots = Array.from(list.querySelectorAll('.slot-item.filled'));
 
-        // If no empty slot exists → replace the last filled slot
-        if (!emptySlot && filledSlots.length > 0) {
+        if (emptySlot) {
+          // Fill the first empty slot
+          const slotIdx = parseInt(emptySlot.dataset.slotIdx, 10);
+          recordAssignment(slId, slotIdx, teacherId, null);
+          emptySlot.outerHTML = renderSlot(slId, slotIdx, {
+            teacher_id:   teacherId,
+            teacher_name: teacherName,
+            slot_index:   slotIdx,
+            grade_class:  null,
+          }, isBreak, true);
+          return;
+        }
+
+        if (filledSlots.length > 0) {
+          // All slots filled → replace the last one
           const targetSlot = filledSlots[filledSlots.length - 1];
           const slotIdx    = parseInt(targetSlot.dataset.slotIdx, 10);
           replaceTeacherInSlot(slId, slotIdx, teacherId, teacherName, isBreak);
-          evt.item.remove();
           showToast(I18N.t('teacher_replaced'));
           return;
         }
 
-        if (!emptySlot) {
-          showToast(I18N.t('no_empty_slot'), 'error');
-          evt.item.remove();
-          return;
-        }
-
-        const slotIdx = parseInt(emptySlot.dataset.slotIdx, 10);
-        recordAssignment(slId, slotIdx, teacherId, null);
-        emptySlot.outerHTML = renderSlot(slId, slotIdx, {
-          teacher_id: teacherId,
-          teacher_name: teacherName,
-          slot_index: slotIdx,
-          grade_class: null,
-        }, isBreak, true);
-        evt.item.remove();
+        showToast(I18N.t('no_empty_slot'), 'error');
       },
+
+      // ── Called when drag ends on THIS list (drop accepted or cancelled) ──
+      onEnd() { _clearDragClasses(); },
     });
 
     list.dataset.sortableInit = 'true';
