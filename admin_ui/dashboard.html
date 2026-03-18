@@ -285,3 +285,102 @@
 <script src="js/dashboard.js?v=3"></script>
 </body>
 </html>
+  <style>
+    /* ── Today at a Glance grid ─────────────────────────────────────────── */
+    .today-grid {
+      display: grid;
+      grid-template-columns: auto auto 1fr 1fr;
+      gap: 20px;
+      align-items: start;
+    }
+    @media (max-width: 860px) {
+      .today-grid { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 480px) {
+      .today-grid { grid-template-columns: 1fr; }
+    }
+
+    .today-ring-wrap {
+      display: flex; flex-direction: column; align-items: center;
+      min-width: 90px;
+    }
+    .today-ring-label { font-size: 0.72rem; color: var(--text-muted); margin-top: 4px; }
+
+    .today-slot-counts { display: flex; flex-direction: column; gap: 8px; min-width: 110px; }
+    .today-slot-row    { display: flex; flex-direction: column; }
+    .today-slot-num    { font-size: 1.6rem; font-weight: 800; line-height: 1; }
+    .today-slot-lbl    { font-size: 0.72rem; color: var(--text-muted); margin-top: 1px; }
+
+    .today-teachers       { min-width: 0; }
+    .today-teachers-label {
+      font-size: 0.78rem; font-weight: 700; color: var(--text-muted);
+      margin-bottom: 8px;
+    }
+    .today-teachers-label.warn { color: var(--danger); }
+    .today-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+
+    .td-chip {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 0.78rem;
+      font-weight: 600;
+    }
+    .td-chip--on  { background: #dcfce7; color: #166534; }
+    .td-chip--off { background: #fee2e2; color: #991b1b; }
+    .td-chip--ok  { background: #dcfce7; color: #166534; }
+
+    /* ── Workload distribution ────────────────────────────────────────── */
+    .wl-badge {
+      font-size: 0.72rem; font-weight: 600; padding: 2px 8px;
+      border-radius: 12px; margin-inline-start: 8px;
+    }
+    .wl-summary {
+      display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px;
+    }
+    .wl-pill {
+      flex: 1 1 140px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 12px;
+      display: flex; flex-direction: column; gap: 3px;
+    }
+    .wl-pill-icon { font-size: 1.2rem; }
+    .wl-pill-name { font-weight: 700; font-size: 0.85rem; color: var(--text); }
+    .wl-pill-val  { font-size: 0.82rem; font-weight: 600; }
+    .wl-pill-tag  { font-size: 0.72rem; color: var(--text-muted); }
+
+    /* ── Confirmation rate layout ─────────────────────────────────────── */
+    .conf-layout {
+      display: flex; gap: 20px; align-items: center; flex-wrap: wrap;
+      margin-bottom: 4px;
+    }
+    .conf-ring-wrap { flex-shrink: 0; text-align: center; }
+
+    .conf-breakdown { flex: 1; min-width: 200px; }
+    .conf-bar-row {
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 8px; font-size: 0.82rem;
+    }
+    .conf-bar-label { width: 130px; flex-shrink: 0; color: var(--text-muted); font-size: 0.78rem; }
+    .conf-bar-track {
+      flex: 1; height: 10px; background: #e9ecef;
+      border-radius: 5px; overflow: hidden; min-width: 60px;
+    }
+    .conf-bar-fill  { height: 10px; border-radius: 5px; transition: width 0.5s ease; }
+    .conf-bar-num   { width: 28px; text-align: end; font-weight: 700; font-size: 0.82rem; }
+    .conf-bar-num.green  { color: var(--primary); }
+    .conf-bar-num.orange { color: #c2410c; }
+    .conf-bar-num.red    { color: var(--danger); }
+    .conf-bar-pct   { width: 36px; text-align: end; color: var(--text-muted); font-size: 0.75rem; }
+
+    /* ── Pill badges used in confirmation table ───────────────────────── */
+    .pill {
+      display: inline-block; padding: 2px 7px; border-radius: 10px;
+      font-size: 0.72rem; font-weight: 600;
+    }
+    .pill-green  { background: #d1fae5; color: #065f46; }
+    .pill-yellow { background: #fef9c3; color: #92400e; }
+    .pill-gray   { background: #f3f4f6; color: #6b7280; }
+  </style>

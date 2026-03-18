@@ -898,16 +898,29 @@ function initDragAndDrop() {
       // ── Called repeatedly while dragging OVER items ────────────────────
       onMove(evt) {
         const target = evt.related;
-        if (!target || !target.classList.contains('slot-item')) return true;
+        if (!target || !target.classList.contains('slot-item')) {
+          _clearDragClasses();
+          return true;
+        }
 
-        // Block drop onto locked days immediately
+        // Block drop onto locked days — return false prevents the drop indicator
         const col = list.closest('.location-column');
-        if (!col || col.dataset.editable !== 'true') return false;
+        if (!col || col.dataset.editable !== 'true') {
+          _clearDragClasses();
+          return false;
+        }
 
-        // Apply green ADD or orange REPLACE highlight on the target slot
+        // Clear ALL previously highlighted slots (only one should glow at a time)
+        _clearDragClasses();
+
+        // Apply the correct class to THIS target slot only
         const isFilled = target.classList.contains('filled');
-        target.classList.toggle('slot-drag-replace',  isFilled);
-        target.classList.toggle('slot-drag-add',      !isFilled);
+        if (isFilled) {
+          target.classList.add('slot-drag-replace');   // red  — will replace
+        } else {
+          target.classList.add('slot-drag-add');       // green — will add
+        }
+
         return true;   // allow the drop
       },
 

@@ -137,37 +137,23 @@
 
     .slot-empty-label { color: #bbb; font-size: 0.8rem; }
 
-    /* Drag-over visual feedback */
-    .slot-drag-add     {
-      outline: 2.5px dashed var(--primary) !important;
-      background: #ecfdf5 !important;
-      box-shadow: inset 0 0 0 2px rgba(127,179,63,0.25) !important;
-    }
-    .slot-drag-replace {
-      outline: 2.5px dashed var(--warning) !important;
-      background: #fffbeb !important;
-      box-shadow: inset 0 0 0 2px rgba(245,166,35,0.25) !important;
-    }
-    /* Add/replace label badge shown during drag-over */
-    .slot-drag-add::after {
-      content: '＋ ADD';
-      display: block;
-      font-size: 0.65rem;
-      font-weight: 800;
-      color: var(--primary);
-      letter-spacing: 0.5px;
-      margin-top: 4px;
-      text-align: center;
-    }
-    .slot-drag-replace::after {
-      content: '⇄ REPLACE';
-      display: block;
-      font-size: 0.65rem;
-      font-weight: 800;
-      color: #b45309;
-      letter-spacing: 0.5px;
-      margin-top: 4px;
-      text-align: center;
+    /* ── Desktop drag-over visual feedback (not shown on mobile) ──────────
+       .slot-drag-add     = green solid box  → teacher will be ADDED
+       .slot-drag-replace = red  solid box   → teacher will REPLACE existing
+    ────────────────────────────────────────────────────────────────────── */
+    @media (min-width: 769px) {
+      .slot-drag-add {
+        outline: 3px solid #22c55e !important;
+        background: #f0fdf4 !important;
+        box-shadow: 0 0 0 6px rgba(34,197,94,0.12) !important;
+        transition: none !important;
+      }
+      .slot-drag-replace {
+        outline: 3px solid #ef4444 !important;
+        background: #fef2f2 !important;
+        box-shadow: 0 0 0 6px rgba(239,68,68,0.12) !important;
+        transition: none !important;
+      }
     }
 
     /* ── Hide Sortable's ghost in slot lists — prevents reorder illusion ── */
@@ -186,6 +172,9 @@
 
     /* Mobile: slots are tappable */
     @media (max-width: 768px) {
+      /* ── Hide teacher sidebar on mobile (assignment via bottom-sheet) ── */
+      .sidebar { display: none !important; }
+
       .slot-item {
         cursor: pointer;
         -webkit-tap-highlight-color: rgba(46,125,167,0.15);
@@ -213,7 +202,6 @@
 
       .locations-grid { flex-direction: column; }
       .location-column { max-width: 100%; }
-      .teacher-list-item--mobile { cursor: default; opacity: 0.7; font-style: italic; }
     }
 
     /* ── Mobile bottom-sheet teacher picker ──────────────────────────── */
