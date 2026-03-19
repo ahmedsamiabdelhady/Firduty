@@ -143,5 +143,6 @@
   "confirm_delete_shift": "Delete this shift? This cannot be undone.",
   "shift_saved": "Shift saved successfully.",
   "shift_deleted": "Shift deleted.",
-  "invalid_time_range": "End time must be after start time."
+  "invalid_time_range": "End time must be after start time.",
+  "shift_time_applies_all": "applies to all days"
 }

@@ -273,6 +273,118 @@
     }
     .week-status-badge.status-draft     { background: #fef9c3; color: #854d0e; }
     .week-status-badge.status-published { background: #dcfce7; color: #166534; }
+
+    /* ── Shift time editor bar ───────────────────────────────────────── */
+    .shift-time-bar {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      margin-bottom: 12px;
+      padding: 6px 12px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      font-size: 0.82rem;
+      color: var(--text-muted);
+    }
+    .shift-time-display { font-weight: 600; color: var(--nav); }
+    .btn-time-edit {
+      background: none; border: none; cursor: pointer;
+      font-size: 0.88rem; padding: 2px 6px;
+      border-radius: 4px; color: var(--text-muted);
+      transition: background 0.12s;
+    }
+    .btn-time-edit:hover { background: var(--border); color: var(--nav); }
+    .shift-time-edit-form {
+      display: none; align-items: center; gap: 6px; flex-wrap: wrap;
+    }
+    .shift-time-in {
+      padding: 4px 8px; border: 1.5px solid var(--border);
+      border-radius: var(--radius); font-size: 0.82rem; font-family: inherit;
+      background: var(--white);
+    }
+    .shift-time-in:focus { outline: none; border-color: var(--nav-light); }
+    .btn-xs {
+      padding: 3px 10px; font-size: 0.78rem; border-radius: var(--radius);
+      cursor: pointer; border: 1px solid transparent; font-family: inherit;
+    }
+    .btn-xs.btn-primary   { background: var(--nav); color: #fff; border-color: var(--nav); }
+    .btn-xs.btn-secondary { background: var(--bg); color: var(--text); border-color: var(--border); }
+    .shift-time-edit-msg { font-size: 0.75rem; color: var(--text-muted); font-style: italic; }
+
+    /* ── Break duty grid ─────────────────────────────────────────────── */
+    /* The break "column" takes the full width of the locations-grid */
+    .location-column.break-location-column {
+      flex: 0 0 100%;
+      max-width: 100%;
+      min-width: unset;
+      background: transparent;
+      border: none;
+      padding: 0;
+      box-shadow: none;
+    }
+    /* Responsive grid of break cells */
+    .break-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+      gap: 10px;
+    }
+    /* Individual break cell (slot-item with additional break styling) */
+    .slot-item.break-cell {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-height: 80px;
+      padding: 8px 10px;
+      border-radius: 10px;
+      border: 1.5px solid var(--border);
+      background: var(--white, #fff);
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .slot-item.break-cell:hover {
+      border-color: var(--nav-light);
+      background: #f8faff;
+    }
+    .slot-item.break-cell.filled {
+      border-color: #a7f3d0;
+      background: #f0fdf4;
+    }
+    /* Drag-over highlight for break cells — override base colors */
+    @media (min-width: 769px) {
+      .slot-item.break-cell.slot-drag-add {
+        outline: 3px solid #22c55e !important;
+        background: #f0fdf4 !important;
+      }
+      .slot-item.break-cell.slot-drag-replace {
+        outline: 3px solid #ef4444 !important;
+        background: #fef2f2 !important;
+      }
+    }
+    /* Grade class badge inside break cell */
+    .break-cell-grade {
+      display: inline-block;
+      font-size: 0.72rem; font-weight: 700;
+      color: #5b21b6; background: #ede9fe;
+      padding: 2px 8px; border-radius: 6px;
+      text-align: center; align-self: flex-start;
+      white-space: nowrap;
+    }
+    /* Teacher chip inside break cell */
+    .break-cell .teacher-card {
+      font-size: 0.82rem;
+    }
+    /* Empty label inside break cell */
+    .break-cell .slot-empty-label {
+      font-size: 0.78rem; color: #bbb;
+      flex: 1;
+    }
+    /* Mobile tap hint on break cells */
+    @media (max-width: 768px) {
+      .slot-item.break-cell:not(.filled) .slot-empty-label::after {
+        content: ' — tap';
+        color: var(--nav-light);
+        font-size: 0.68rem;
+      }
+    }
   </style>
 </head>
 <body>
@@ -309,6 +421,7 @@
     <a class="nav-btn active" href="planner.html"   data-i18n="week_planner">Week Planner</a>
     <a class="nav-btn"        href="reports.html"   data-i18n="monthly_report">Monthly Report</a>
     <a class="nav-btn"        href="teachers.html"  data-i18n="teacher_approval">Teachers</a>
+    <a class="nav-btn"        href="shifts.html"    data-i18n="shift_management">Shifts</a>
   </nav>
 
   <!-- Week Controls -->
