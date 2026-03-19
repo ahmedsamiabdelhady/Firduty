@@ -152,5 +152,6 @@
   "notify_all_teachers": "Notify all assigned teachers",
   "notify_affected_only": "Notify affected teachers only",
   "publish_no_notify": "Publish without notifying",
-  "no_changes_yet": "no assignment changes recorded yet"
+  "no_changes_yet": "no assignment changes recorded yet",
+  "add_shift": "Add Shift"
 }
