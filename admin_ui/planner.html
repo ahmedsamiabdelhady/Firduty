@@ -488,16 +488,16 @@
   <div class="week-controls">
     <label for="weekStartInput" data-i18n="select_week">Select Week:</label>
     <input type="date" id="weekStartInput" onchange="onWeekSelected()">
-    <button class="btn btn-primary btn-sm" onclick="loadWeek()" data-i18n="load_week">Load</button>
+    <button class="btn btn-primary btn-sm" onclick="loadWeek()" data-i18n="load_week">Load Week</button>
 
     <span id="weekStatusBadge" class="week-status-badge" style="display:none"></span>
     <span id="weekVersionBadge" style="font-size:0.8rem;color:#6c757d"></span>
 
     <div style="margin-inline-start:auto;display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn btn-secondary btn-sm" onclick="createWeek()" data-i18n="create_week">Create Week</button>
-      <button class="btn btn-secondary btn-sm" onclick="cloneWeek()"  data-i18n="clone_last_week">Clone</button>
+      <button class="btn btn-secondary btn-sm" onclick="cloneWeek()"  data-i18n="clone_last_week">Clone from Last Week</button>
       <button class="btn btn-warning  btn-sm" onclick="saveDraft()"   data-i18n="save_draft">Save Draft</button>
-      <button class="btn btn-success  btn-sm" onclick="publishWeek()" data-i18n="publish_week">Publish</button>
+      <button class="btn btn-success  btn-sm" onclick="publishWeek()" data-i18n="publish_week">Publish Week</button>
     </div>
   </div>
 
