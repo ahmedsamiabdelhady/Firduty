@@ -56,6 +56,12 @@ class TeacherRegister(BaseModel):
     email: EmailStr
 
 
+class TeacherLogin(BaseModel):
+    """Teacher login using name + email (no password/OTP)."""
+    name:  str
+    email: EmailStr
+
+
 class TeacherCreate(BaseModel):
     """Admin-only: create a teacher directly (defaults to approved + active)."""
     name: str

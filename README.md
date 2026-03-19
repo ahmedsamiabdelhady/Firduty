@@ -1,6 +1,6 @@
 # Firduty — School Duty Roster System
 
-**Version 2.3.0** · FastAPI · Flutter · PostgreSQL (Supabase) · Firebase FCM · Koyeb
+**Version 3.2.0** · FastAPI · Flutter · PostgreSQL (Supabase) · Firebase FCM · Koyeb
 
 ---
 
@@ -1185,6 +1185,163 @@ postgresql://postgres:PASSWORD@db.PROJECT-REF.supabase.co:5432/postgres
 
 Enable **Row Level Security (RLS)** on Supabase if direct database access from the frontend is ever used. (Currently only the backend API accesses the database directly.)
 
+## 20. v3.2.0 Feature Guide
+
+This section documents all changes introduced in v3.2.0.
+
 ---
 
-*Last updated: v3.1.0 — see CHANGELOG for version history.*
+### 20a. Publish Day / Re-publish Day now visible to teachers (Phase 1 fix)
+
+**Root cause (fixed):** `publish_day()` in `week_service.py` set `day.is_published = True`
+but never changed `week.status`. Both teacher schedule endpoints gated visibility on
+`week.status == "published"`, so publishing a single day was completely invisible.
+
+**Three fixes applied:**
+
+1. `week_service.py → publish_day()` — now also promotes `week.status = "published"`
+   when the first day is published (idempotent — safe to call repeatedly).
+
+2. `teachers.py → _build_schedule_response()` — now gates per-day visibility on
+   `day.is_published` rather than `week_plan.status`, so a teacher sees today's
+   duties as soon as that specific day is published, even if other days are still
+   unpublished.
+
+3. `teachers.py → _build_week_response()` — now skips days where `is_published == False`,
+   so the weekly view only shows days that have been explicitly published.
+
+No SQL migrations required — `day_plans.is_published` already existed.
+
+---
+
+### 20b. Duty reminder notifications (Phase 2)
+
+**New backend job:** `jobs/duty_reminders.py` runs every 60 seconds via APScheduler.
+
+| Notification type | When sent | Template key |
+|---|---|---|
+| `reminder_15m` | 14–15 minutes before shift start | `reminder_location` / `reminder_break` |
+| `duty_started` | 0–1 minute past shift start | `start_location` / `start_break` |
+
+**Deduplication:** Each sent notification is recorded in `notification_logs`
+(UNIQUE constraint on `teacher_id + assignment_id + notification_type`).
+The job can safely run multiple times — it uses INSERT-with-conflict to skip
+already-sent rows.
+
+**New Supabase SQL** (run in Supabase SQL Editor):
+
+```sql
+CREATE TABLE IF NOT EXISTS notification_logs (
+    id                SERIAL PRIMARY KEY,
+    teacher_id        INTEGER NOT NULL REFERENCES teachers(id)    ON DELETE CASCADE,
+    assignment_id     INTEGER NOT NULL REFERENCES assignments(id)  ON DELETE CASCADE,
+    notification_type VARCHAR(30)  NOT NULL,
+    sent_at           TIMESTAMP    NOT NULL DEFAULT NOW(),
+    status            VARCHAR(10)  NOT NULL DEFAULT 'sent',
+    CONSTRAINT uq_notif_teacher_assignment_type
+        UNIQUE (teacher_id, assignment_id, notification_type)
+);
+CREATE INDEX IF NOT EXISTS ix_notif_teacher_id ON notification_logs (teacher_id);
+CREATE INDEX IF NOT EXISTS ix_notif_sent_at    ON notification_logs (sent_at);
+```
+
+---
+
+### 20c. Teacher Login flow (Phase 3)
+
+Teachers now log in using **name + email only** — no password, no OTP.
+
+**How it works:**
+
+1. First time: Teacher opens the app → **Login screen**
+   - Taps "Don't have an account?" → **Registration screen**
+   - Fills name + email → `POST /teachers/register` → status = `pending`
+   - Admin approves in Admin UI → status = `approved`
+2. Return visits: Teacher opens app → **Login screen**
+   - Enters same name + email → `POST /teachers/login`
+   - Backend matches email (case-insensitive), soft-verifies name
+   - Returns teacher record; Flutter stores `teacher_id` in SharedPreferences
+   - Navigates to `/home` (approved) or `/pending` (awaiting approval)
+
+**New endpoint:**
+
+```
+POST /teachers/login
+Body: { "name": "Ahmed Ali", "email": "ahmed@school.edu.om" }
+
+200 → teacher record (approved)
+403 → pending or inactive
+404 → no account with that email
+409 → name does not match registered name for that email
+```
+
+**Session persistence:** `teacher_id` is stored in `SharedPreferences`. On every
+app launch, `StartupScreen` reads it and routes directly to the appropriate screen
+— no re-login required until the teacher explicitly logs out.
+
+**Logout:** tap the logout icon (↪ ) in the top-right corner of the HomeScreen.
+This clears `teacher_id` from SharedPreferences and returns to the Login screen.
+
+---
+
+### 20d. Flutter push notification tap navigation (Phase 4)
+
+When a teacher taps a push notification (duty reminder or duty-started), the app:
+
+- If **backgrounded** → `FirebaseMessaging.onMessageOpenedApp` fires → navigates to `/home`
+- If **terminated** → `getInitialMessage()` returns the message on next launch → navigates to `/home`
+
+This is wired via `NotificationService.navigatorKey`, a `GlobalKey<NavigatorState>`
+set on the `MaterialApp` in `main.dart`.
+
+---
+
+### 20e. iOS PWA parity (Phase 5)
+
+The Flutter web build is now fully configured as an iOS PWA:
+
+| Feature | Status |
+|---|---|
+| Full-screen mode ("Add to Home Screen") | ✅ `apple-mobile-web-app-capable` |
+| Status bar styling | ✅ `black-translucent` |
+| Correct home-screen icon | ✅ `apple-touch-icon` (192px + 512px) |
+| Notch/Dynamic Island safe area | ✅ `viewport-fit=cover` |
+| iOS install instructions banner | ✅ Shown in Safari before PWA is installed |
+| PWA manifest updated | ✅ Brand colors, correct names, maskable icons |
+| Background push notifications | ✅ Via FCM Web Push — requires iOS Safari 16.4+ |
+
+**How to install on iPhone:**
+
+1. Open the app URL in **Safari** (not Chrome or other browsers)
+2. The blue install banner will appear at the bottom automatically
+3. Tap the **Share ⬆** button in Safari's toolbar
+4. Choose **"Add to Home Screen"**
+5. Tap **Add** — the app icon appears on the home screen
+6. Open from the icon for full-screen, native-like experience
+
+> **Push notifications on iOS PWA require:**
+> - iOS 16.4 or later
+> - The web app must be installed ("Add to Home Screen") — push does not work from the browser tab
+> - Firebase VAPID key must be configured (see Section 9)
+> - User must grant notification permission when prompted inside the app
+
+---
+
+### 20f. Admin UI — Publish Day flow (Phase 6)
+
+The admin planner already had Publish Day and Re-publish Day buttons. With the Phase 1
+backend fix, these now correctly make duties visible to teachers immediately — no need to
+click "Publish Week" first.
+
+**Workflow for partial publishing:**
+1. Create or clone a week → edit assignments for Monday
+2. Click **Publish Day** on Monday → teachers see Monday's duties immediately
+3. Edit Tuesday → click **Re-publish Day** on Tuesday → teachers see Tuesday
+4. Continue per-day or click **Publish Week** to publish all remaining days at once
+
+The notify-scope dialog (Phase 3.1 from previous session) lets the admin choose
+who receives push notifications on each publish action.
+
+---
+
+*Last updated: v3.2.0 — see CHANGELOG for version history.*

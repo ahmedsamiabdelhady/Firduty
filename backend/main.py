@@ -56,6 +56,13 @@ from scheduler import start_scheduler, stop_scheduler
 from scheduler import router as scheduler_router
 from seed_data import seed_shifts, seed_locations, seed_grade_classes
 
+# ── Model imports — REQUIRED so Base.metadata.create_all() sees every table ──
+# All ORM models that live in separate files must be imported here before
+# bootstrap_database() calls create_all(). Importing the router modules above
+# is not sufficient because routers may not import every model file.
+import models.models          # noqa: F401  — Teacher, Shift, Location, WeekPlan …
+import models.notification_log  # noqa: F401  — NotificationLog (Phase 2 — duty reminders)
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s"
@@ -118,7 +125,7 @@ app = FastAPI(
         "**Authentication:** Click the 🔓 Authorize button and enter your admin "
         "username and password. All protected endpoints will then work from Swagger."
     ),
-    version="2.3.0",
+    version="3.2.0",
     lifespan=lifespan,
 )
 
@@ -143,7 +150,7 @@ app.include_router(scheduler_router)
 
 @app.get("/")
 def root():
-    return {"service": "Firduty API", "version": "2.3.0", "status": "running"}
+    return {"service": "Firduty API", "version": "3.2.0", "status": "running"}
 
 
 @app.get("/health")

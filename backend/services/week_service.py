@@ -729,6 +729,21 @@ def publish_day(
     if not day:
         raise ValueError(f"Day {day_date} not found in week {week.week_start_date}")
 
+    # Phase 1 fix: teacher endpoints check day.is_published for per-day visibility.
+    # They also fall back to week.status for contextual "draft" messages, so we
+    # must promote the week to "published" when the first day is published so that
+    # the teacher Today / This-Week screens actually show the day.
+    # publish_day is idempotent — calling it again on an already-published day is safe.
+    if str(week.status) != "published":
+        # Reload week in this session so the update is tracked correctly
+        _week_obj = db.query(WeekPlan).filter(WeekPlan.id == week.id).first()
+        if _week_obj:
+            _week_obj.status = "published"
+            logger.info(
+                "publish_day: week %s promoted to published (first day publish)",
+                week.week_start_date,
+            )
+
     day.is_published = True
 
     _log_change(db, week, actor, "publish_day", {

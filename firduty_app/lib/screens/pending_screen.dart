@@ -85,7 +85,7 @@ class _PendingScreenState extends State<PendingScreen>
       final prefs = await SharedPreferences.getInstance();
       final teacherId = prefs.getInt('teacher_id');
       if (teacherId == null) {
-        if (mounted) Navigator.pushReplacementNamed(context, '/register');
+        if (mounted) Navigator.pushReplacementNamed(context, '/login');
         return;
       }
 
@@ -111,7 +111,7 @@ class _PendingScreenState extends State<PendingScreen>
         final prefs = await SharedPreferences.getInstance();
         await prefs.remove('teacher_id');
         if (!mounted) return;
-        Navigator.pushReplacementNamed(context, '/register');
+        Navigator.pushReplacementNamed(context, '/login');
         return;
       }
       setState(() {
@@ -131,8 +131,8 @@ class _PendingScreenState extends State<PendingScreen>
       builder: (ctx) => AlertDialog(
         title: Text(isAr ? 'تسجيل الخروج' : 'Sign out'),
         content: Text(isAr
-            ? 'هل تريد إلغاء طلبك والعودة لصفحة التسجيل؟'
-            : 'Cancel your registration request and return to sign-up?'),
+            ? 'هل تريد الخروج والعودة لصفحة تسجيل الدخول؟'
+            : 'Sign out and return to the login screen?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -148,10 +148,12 @@ class _PendingScreenState extends State<PendingScreen>
     );
 
     if (confirmed == true) {
+      _pollTimer?.cancel();
+      await NotificationService.reset();
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove('teacher_id');
       if (!mounted) return;
-      Navigator.pushReplacementNamed(context, '/register');
+      Navigator.pushReplacementNamed(context, '/login');
     }
   }
 

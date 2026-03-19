@@ -1,14 +1,13 @@
 {
   "name": "Firduty — Duty Roster",
   "short_name": "Firduty",
-  "description": "Al-Firdous International Private School — Duty Roster Manager",
-  "start_url": ".",
+  "start_url": "/",
   "display": "standalone",
   "background_color": "#2E7DA7",
   "theme_color": "#2E7DA7",
+  "description": "Firduty — School Duty Roster Management for Teachers",
   "orientation": "portrait-primary",
   "prefer_related_applications": false,
-  "scope": "/",
   "lang": "ar",
   "dir": "rtl",
   "categories": ["education", "productivity"],
@@ -38,7 +37,6 @@
       "purpose": "maskable"
     }
   ],
-  "screenshots": [],
   "shortcuts": [
     {
       "name": "Today's Duties",

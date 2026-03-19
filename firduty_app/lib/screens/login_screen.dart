@@ -1,11 +1,10 @@
-// teacher_select_screen.dart — Teacher self-registration form
+// login_screen.dart — Teacher login screen
 //
-// UX improvements (v2.4):
-//   • Tighter layout with card wrapping the form fields
-//   • Email format validated client-side before API call
-//   • Submit button shows "Submitting…" with spinner while loading
-//   • Keyboard action "Next" / "Done" for natural field flow
-//   • Error displayed inside a styled banner, not raw text
+// Teachers log in with name + email only (no password, no OTP).
+// On success the teacher_id is stored in SharedPreferences and the app
+// navigates to /pending (if still awaiting approval) or /home (if approved).
+//
+// Matches the registration screen layout for visual consistency.
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -13,20 +12,20 @@ import '../services/api_service.dart';
 import '../gen/app_localizations.dart';
 import '../app_theme.dart';
 
-class RegistrationScreen extends StatefulWidget {
-  const RegistrationScreen({super.key});
+class LoginScreen extends StatefulWidget {
+  const LoginScreen({super.key});
 
   @override
-  State<RegistrationScreen> createState() => _RegistrationScreenState();
+  State<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _RegistrationScreenState extends State<RegistrationScreen> {
-  final _formKey = GlobalKey<FormState>();
+class _LoginScreenState extends State<LoginScreen> {
+  final _formKey   = GlobalKey<FormState>();
   final _nameCtrl  = TextEditingController();
   final _emailCtrl = TextEditingController();
   final _emailFocus = FocusNode();
 
-  bool _submitting = false;
+  bool    _submitting = false;
   String? _errorMsg;
 
   @override
@@ -42,17 +41,23 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     setState(() { _submitting = true; _errorMsg = null; });
 
     try {
-      final result = await ApiService.registerTeacher(
+      final result = await ApiService.loginTeacher(
         name:  _nameCtrl.text.trim(),
         email: _emailCtrl.text.trim().toLowerCase(),
       );
 
       final teacherId = result['id'] as int;
+      final status    = result['status'] as String? ?? 'pending';
+
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt('teacher_id', teacherId);
 
       if (!mounted) return;
-      Navigator.pushReplacementNamed(context, '/pending');
+      if (status == 'approved') {
+        Navigator.pushReplacementNamed(context, '/home');
+      } else {
+        Navigator.pushReplacementNamed(context, '/pending');
+      }
     } catch (e) {
       setState(() {
         _errorMsg = e.toString().replaceFirst('Exception: ', '');
@@ -76,14 +81,14 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // ── Logo ───────────────────────────────────────────────
+                  // ── Logo ──────────────────────────────────────────────────
                   Center(
                     child: Image.asset('assets/logo.png',
-                        width: 140, height: 140),
+                        width: 120, height: 120),
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    l10n.registerTitle,
+                    l10n.loginTitle,
                     textAlign: TextAlign.center,
                     style: const TextStyle(
                         fontSize: 14,
@@ -92,31 +97,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                   ),
                   const SizedBox(height: 28),
 
-                  // ── Already have account? ─────────────────────────────
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        l10n.alreadyHaveAccount,
-                        style: const TextStyle(
-                            color: FirdutyColors.textMuted, fontSize: 13),
-                      ),
-                      TextButton(
-                        onPressed: () =>
-                            Navigator.pushReplacementNamed(context, '/login'),
-                        child: Text(
-                          l10n.login,
-                          style: const TextStyle(
-                              color: FirdutyColors.navBlue,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 13),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-
-                  // ── Form card ──────────────────────────────────────────
+                  // ── Form card ──────────────────────────────────────────────
                   Card(
                     elevation: 2,
                     shape: RoundedRectangleBorder(
@@ -165,7 +146,8 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                                   _emailFocus.requestFocus(),
                               decoration: InputDecoration(
                                 labelText: l10n.fullName,
-                                prefixIcon: const Icon(Icons.person_outline),
+                                prefixIcon:
+                                    const Icon(Icons.person_outline),
                               ),
                               validator: (v) {
                                 if (v == null || v.trim().isEmpty) {
@@ -202,7 +184,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                             ),
                             const SizedBox(height: 24),
 
-                            // Submit button
+                            // Login button
                             SizedBox(
                               height: 50,
                               child: ElevatedButton(
@@ -217,15 +199,14 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                                 ),
                                 child: _submitting
                                     ? const SizedBox(
-                                        height: 20,
-                                        width: 20,
+                                        height: 20, width: 20,
                                         child: CircularProgressIndicator(
                                           color: Colors.white,
                                           strokeWidth: 2,
                                         ),
                                       )
                                     : Text(
-                                        l10n.register,
+                                        l10n.login,
                                         style: const TextStyle(
                                             fontSize: 16,
                                             fontWeight: FontWeight.w600),
@@ -236,6 +217,29 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                         ),
                       ),
                     ),
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  // ── Switch to Register ────────────────────────────────────
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(l10n.noAccount,
+                          style: const TextStyle(
+                              color: FirdutyColors.textMuted,
+                              fontSize: 13)),
+                      TextButton(
+                        onPressed: () =>
+                            Navigator.pushReplacementNamed(
+                                context, '/register'),
+                        child: Text(l10n.register,
+                            style: const TextStyle(
+                                color: FirdutyColors.navBlue,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13)),
+                      ),
+                    ],
                   ),
                 ],
               ),

@@ -1,7 +1,6 @@
 {
   "@@locale": "ar",
   "appTitle": "Firduty",
-
   "registerTitle": "إنشاء حسابك",
   "fullName": "الاسم الكامل",
   "email": "البريد الإلكتروني",
@@ -10,12 +9,15 @@
   "nameRequired": "الاسم مطلوب",
   "emailRequired": "يرجى إدخال بريد إلكتروني صحيح",
   "emailAlreadyRegistered": "هذا البريد الإلكتروني مسجّل مسبقًا. يرجى استخدام بريد آخر.",
-
+  "loginTitle": "تسجيل الدخول إلى حسابك",
+  "login": "دخول",
+  "noAccount": "ليس لديك حساب؟",
+  "alreadyHaveAccount": "لديك حساب بالفعل؟",
+  "logout": "تسجيل الخروج",
   "pendingTitle": "بانتظار الموافقة",
   "pendingMessage": "تم استلام طلب تسجيلك. سيقوم المسؤول بمراجعة حسابك والموافقة عليه قريبًا.",
   "checkStatus": "تحقق من الحالة",
   "useAnotherAccount": "استخدام حساب آخر",
-
   "selectTeacher": "اختر المعلم",
   "teacher": "المعلم",
   "chooseTeacher": "اختر اسمك",

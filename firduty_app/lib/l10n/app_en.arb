@@ -1,7 +1,6 @@
 {
   "@@locale": "en",
   "appTitle": "Firduty",
-
   "registerTitle": "Create Your Account",
   "fullName": "Full Name",
   "email": "Email Address",
@@ -10,12 +9,15 @@
   "nameRequired": "Name is required",
   "emailRequired": "Please enter a valid email address",
   "emailAlreadyRegistered": "This email is already registered. Please use a different email.",
-
+  "loginTitle": "Sign In to Your Account",
+  "login": "Sign In",
+  "noAccount": "Don't have an account?",
+  "alreadyHaveAccount": "Already registered?",
+  "logout": "Sign Out",
   "pendingTitle": "Waiting for Approval",
   "pendingMessage": "Your account registration has been submitted. An administrator will review and approve your account shortly.",
   "checkStatus": "Check Status",
   "useAnotherAccount": "Use a different account",
-
   "selectTeacher": "Select Teacher",
   "teacher": "Teacher",
   "chooseTeacher": "Choose your name",

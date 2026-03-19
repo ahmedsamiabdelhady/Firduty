@@ -36,7 +36,7 @@ from models.models import (
 )
 from models.points_models import DutyConfirmation
 from schemas.schemas import (
-    TeacherCreate, TeacherRegister, TeacherUpdate,
+    TeacherCreate, TeacherLogin, TeacherRegister, TeacherUpdate,
     TeacherOut, TeacherStatusOut, DeviceTokenCreate,
 )
 from routers.auth import get_current_admin
@@ -132,13 +132,20 @@ def _build_schedule_response(
             "duties":       [],
         }
 
-    # Determine week status — prefer "published" if multiple rows exist.
+    # Phase 1 fix: gate visibility on day.is_published, not week_plan.status.
+    # This makes Publish Day / Re-publish Day instantly visible to teachers
+    # without requiring the entire week to be published first.
+    # week_status is still read from week_plan.status for contextual messages
+    # (so the Flutter "schedule being prepared" message still works).
+
     week_status: Optional[str] = None
     for day in days:
         ws = str(day.week_plan.status)
         logger.info(
-            "[schedule] DayPlan id=%d  week_start=%s  week_status=%s",
+            "[schedule] DayPlan id=%d  week_start=%s  week_status=%s  "
+            "is_published=%s",
             day.id, day.week_plan.week_start_date, ws,
+            getattr(day, "is_published", False),
         )
         if ws == "published":
             week_status = "published"
@@ -146,10 +153,13 @@ def _build_schedule_response(
         if week_status is None:
             week_status = ws
 
-    if week_status != "published":
+    # If the week is a pure draft and no day is published, return draft status
+    # so Flutter shows "schedule being prepared".
+    any_day_published = any(getattr(d, "is_published", False) for d in days)
+    if not any_day_published and week_status != "published":
         logger.info(
-            "[schedule] teacher_id=%d  week_status=%s → no duties returned "
-            "(week not published yet)",
+            "[schedule] teacher_id=%d  week_status=%s  no days published → "
+            "returning draft empty state",
             teacher_id, week_status,
         )
         return {
@@ -159,12 +169,22 @@ def _build_schedule_response(
             "duties":       [],
         }
 
-    # Collect assignments for this specific teacher.
+    # If the week is published OR at least one day is published,
+    # return duties for days that are individually published.
+    effective_status = "published" if (week_status == "published" or any_day_published) else week_status
+
+    # Collect assignments only for days that are marked is_published.
     assignment_ids: List[int] = []
     triples: List[tuple] = []  # (assignment, shift_location, day)
 
     for day in days:
-        if str(day.week_plan.status) != "published":
+        # Only show duties for days that have been explicitly published
+        if not getattr(day, "is_published", False):
+            logger.info(
+                "[schedule] Skipping DayPlan id=%d  date=%s  "
+                "(is_published=False)",
+                day.id, day.date,
+            )
             continue
         for sl in day.shift_locations:
             for a in sl.assignments:
@@ -205,7 +225,7 @@ def _build_schedule_response(
     return {
         "teacher_id":   teacher_id,
         "teacher_name": teacher.name,
-        "week_status":  "published",
+        "week_status":  effective_status,
         "duties":       duties,
     }
 
@@ -264,6 +284,14 @@ def _build_week_response(
     triples: List[tuple] = []
 
     for day in week.day_plans:
+        # Phase 1 fix: only include days that have been explicitly published.
+        # This ensures Publish Day / Re-publish Day shows only the intended days.
+        if not getattr(day, "is_published", False):
+            logger.info(
+                "[week] Skipping DayPlan id=%d  date=%s  (is_published=False)",
+                day.id, day.date,
+            )
+            continue
         for sl in day.shift_locations:
             for a in sl.assignments:
                 if int(a.teacher_id or 0) == teacher_id:
@@ -288,8 +316,11 @@ def _build_week_response(
         entry["points_earned"]     = conf.points_earned if conf else None
         duties.append(entry)
 
-    logger.info("[week] teacher_id=%d  week=%s  %d duties", teacher_id, ws, len(duties))
+    logger.info("[week] teacher_id=%d  week=%s  %d duties (published days only)",
+                teacher_id, ws, len(duties))
 
+    # Use "published" even if only some days are published — Flutter shows
+    # duties for the specific days that are available.
     return {
         "teacher_id":   teacher_id,
         "teacher_name": teacher.name,
@@ -367,6 +398,52 @@ def register_teacher(data: TeacherRegister, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(teacher)
     logger.info("Teacher registered: id=%d, name=%s", teacher.id, teacher.name)
+    return teacher
+
+
+@router.post("/login", response_model=TeacherOut, status_code=200)
+def login_teacher(data: TeacherLogin, db: Session = Depends(get_db)):
+    """
+    Teacher login — name + email only (no password, no OTP).
+
+    Matches the teacher record by email (case-insensitive).
+    Also verifies the supplied name loosely (case-insensitive, stripped)
+    to prevent one teacher from accidentally accessing another's account.
+
+    Returns the teacher record so the Flutter app can store teacher_id.
+    Returns 404 if no record matches.
+    Returns 403 if the account is still pending approval.
+    Returns 409 if the name doesn't match the registered name for that email.
+    """
+    email_lower = data.email.lower().strip()
+    name_stripped = data.name.strip().lower()
+
+    teacher = db.query(Teacher).filter(Teacher.email == email_lower).first()
+    if not teacher:
+        raise HTTPException(
+            404,
+            "No account found with this email. "
+            "Please register first or check your email address.",
+        )
+    # Soft name check — prevents using another teacher's email accidentally
+    if teacher.name.strip().lower() != name_stripped:
+        raise HTTPException(
+            409,
+            "The name you entered does not match the registered name for this email. "
+            "Please check and try again.",
+        )
+    if str(teacher.status) == "pending":
+        raise HTTPException(
+            403,
+            "Your account is pending admin approval. "
+            "Please check back later.",
+        )
+    if not bool(teacher.active):
+        raise HTTPException(
+            403,
+            "Your account has been deactivated. Contact the admin.",
+        )
+    logger.info("Teacher login: id=%d  email=%s", teacher.id, email_lower)
     return teacher
 
 

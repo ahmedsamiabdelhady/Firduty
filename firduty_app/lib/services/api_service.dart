@@ -169,6 +169,58 @@ class ApiService {
     throw Exception(_errorMessage(res, 'Registration failed'));
   }
 
+  /// Login with name + email — returns the teacher record on success.
+  /// Throws descriptive Exception on 404 (not found), 409 (name mismatch),
+  /// 403 (pending / inactive).
+  static Future<Map<String, dynamic>> loginTeacher({
+    required String name,
+    required String email,
+  }) async {
+    _checkBaseUrl();
+    final url   = '$baseUrl/teachers/login';
+    final start = DateTime.now();
+    late http.Response res;
+
+    try {
+      res = await _client
+          .post(
+            Uri.parse(url),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'name': name, 'email': email}),
+          )
+          .timeout(_timeout);
+    } catch (e) {
+      debugPrint('[API] POST $url → CONNECTION ERROR: $e');
+      throw Exception(
+        'Could not reach the server.\n'
+        'Make sure the backend is running and API_BASE_URL is correct.',
+      );
+    }
+
+    _log('POST', url, res, start);
+
+    if (res.statusCode == 200) {
+      final body = _tryDecode(res);
+      if (body != null) return body;
+      throw Exception('Unexpected response from server.');
+    }
+    if (res.statusCode == 404) {
+      throw Exception(
+          'No account found with this email. Please register first.');
+    }
+    if (res.statusCode == 409) {
+      throw Exception(
+          'The name you entered does not match the registered name for this email.');
+    }
+    if (res.statusCode == 403) {
+      final body = _tryDecode(res);
+      throw Exception(
+          (body?['detail'] as String?) ??
+          'Your account is pending admin approval.');
+    }
+    throw Exception(_errorMessage(res, 'Login failed'));
+  }
+
   static Future<Map<String, dynamic>> getTeacherStatus(int teacherId) async {
     _checkBaseUrl();
     final url   = _pathStatus(teacherId);

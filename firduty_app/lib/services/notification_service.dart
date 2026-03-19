@@ -26,6 +26,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart' show kIsWeb, kDebugMode, debugPrint;
+import 'package:flutter/material.dart' show GlobalKey, NavigatorState;
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
@@ -143,6 +144,12 @@ class NotificationService {
     _onMessageSub =
         FirebaseMessaging.onMessage.listen(_showLocalNotification);
 
+    // 5b. Handle notification taps when app is in background (onMessageOpenedApp)
+    //     or terminated (getInitialMessage). Both navigate to the Today screen.
+    FirebaseMessaging.onMessageOpenedApp.listen(_handleNotificationTap);
+    final initial = await _messaging.getInitialMessage();
+    if (initial != null) _handleNotificationTap(initial);
+
     // 6. Get FCM token and register with the backend.
     final token = await _messaging.getToken();
     if (token != null) {
@@ -202,6 +209,37 @@ class NotificationService {
   }
 
   // ── Shared helpers ────────────────────────────────────────────────────────
+
+  // ── Logout / reset ───────────────────────────────────────────────────────────
+  /// Call this when a teacher logs out so the next login can re-register tokens.
+  /// Cancels stream subscriptions and resets the idempotency guard.
+  static Future<void> reset() async {
+    await _onMessageSub?.cancel();
+    await _onTokenRefreshSub?.cancel();
+    _onMessageSub = null;
+    _onTokenRefreshSub = null;
+    _initialized = false;
+    debugPrint('[NotificationService] Reset — ready for next login.');
+  }
+
+  // ── Navigator key ──────────────────────────────────────────────────────────
+  // Set this from main.dart so we can navigate from notification taps
+  // without a BuildContext.
+  //
+  //   NotificationService.navigatorKey = GlobalKey<NavigatorState>();
+  //   MaterialApp(navigatorKey: NotificationService.navigatorKey, ...)
+  //
+  static GlobalKey<NavigatorState>? navigatorKey;
+
+  /// Navigate to the Today screen in response to a notification tap.
+  /// Works whether the app was backgrounded or terminated.
+  static void _handleNotificationTap(RemoteMessage message) {
+    debugPrint('[NotificationService] Notification tapped: ${message.messageId}');
+    navigatorKey?.currentState?.pushNamedAndRemoveUntil(
+      '/home',
+      (route) => false,
+    );
+  }
 
   /// Register a device/web token with the Firduty backend.
   /// Errors are caught and logged — never rethrown.

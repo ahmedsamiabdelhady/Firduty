@@ -36,6 +36,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'firebase_options.dart';
 import 'screens/teacher_select_screen.dart' show RegistrationScreen;
+import 'screens/login_screen.dart';
 import 'screens/pending_screen.dart';
 import 'screens/today_screen.dart';
 import 'screens/week_screen.dart';
@@ -87,10 +88,17 @@ class FirdutyApp extends StatefulWidget {
 class _FirdutyAppState extends State<FirdutyApp> {
   Locale? _locale;
 
+  // Navigator key wired into MaterialApp so NotificationService can navigate
+  // to /home when a notification is tapped while the app is in the background
+  // or terminated.
+  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
+
   @override
   void initState() {
     super.initState();
     _initLocale();
+    // Pass the navigator key to NotificationService so background taps work.
+    NotificationService.navigatorKey = _navigatorKey;
   }
 
   Future<void> _initLocale() async {
@@ -115,6 +123,7 @@ class _FirdutyAppState extends State<FirdutyApp> {
       title: 'Firduty',
       debugShowCheckedModeBanner: false,
       theme: buildFirdutyTheme(),
+      navigatorKey: _navigatorKey,
       locale: _locale,
       localizationsDelegates: const [
         AppLocalizations.delegate,
@@ -129,6 +138,10 @@ class _FirdutyAppState extends State<FirdutyApp> {
           case '/':
             return MaterialPageRoute(
               builder: (_) => StartupScreen(onLocaleChange: _changeLocale),
+            );
+          case '/login':
+            return MaterialPageRoute(
+              builder: (_) => const LoginScreen(),
             );
           case '/register':
             return MaterialPageRoute(
@@ -184,7 +197,9 @@ class _StartupScreenState extends State<StartupScreen> {
 
     if (teacherId == null) {
       if (!mounted) return;
-      Navigator.pushReplacementNamed(context, '/register');
+      // No stored session → show login screen.
+      // Teachers can tap "Register" from the login screen if they don't have an account.
+      Navigator.pushReplacementNamed(context, '/login');
       return;
     }
 
@@ -210,7 +225,7 @@ class _StartupScreenState extends State<StartupScreen> {
       if (e.toString().contains('404')) {
         await prefs.remove('teacher_id');
         if (!mounted) return;
-        Navigator.pushReplacementNamed(context, '/register');
+        Navigator.pushReplacementNamed(context, '/login');
       } else {
         // Server unreachable — show pending screen so teacher can retry.
         if (!mounted) return;
@@ -280,6 +295,17 @@ class _HomeScreenState extends State<HomeScreen> {
               isAr ? 'EN' : 'عربي',
               style: const TextStyle(color: Colors.white, fontSize: 14),
             ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.logout, color: Colors.white),
+            tooltip: isAr ? 'تسجيل الخروج' : 'Sign Out',
+            onPressed: () async {
+              await NotificationService.reset();
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.remove('teacher_id');
+              if (!context.mounted) return;
+              Navigator.pushReplacementNamed(context, '/login');
+            },
           ),
         ],
       ),
