@@ -23,6 +23,9 @@ let pendingAssignments = {};   // slId  → { slotIdx → { teacher_id, grade_cl
 let pendingSlots       = {};   // key   → { dayDate, shiftId, locationId, slotsCount }
 let selectedDate       = null; // date string chosen in the date picker
 
+// Teacher IDs touched in the current editing session (for scoped notifications)
+let _changedTeacherIds = new Set();
+
 // Mobile bottom-sheet state
 let _mobilePicker = { slId: null, slotIdx: null, isBreak: false };
 
@@ -624,9 +627,10 @@ function renderDayPanel(dayPlan, isEditable) {
     : `<span class="day-badge day-badge--locked">${I18N.t('locked')}</span>`;
 
   const publishBtn = dayPlan.is_published
-    ? `<span class="published-badge">&#10003; ${I18N.t('published') || 'Published'}</span>`
+    ? `<button class="btn btn-warning btn-sm" id="publish-day-btn-${dayPlan.date}"
+           onclick="publishDay('${dayPlan.date}')">↻ ${I18N.t('republish_day') || 'Re-publish Day'}</button>`
     : `<button class="btn btn-success btn-sm" id="publish-day-btn-${dayPlan.date}"
-         onclick="publishDay('${dayPlan.date}')">${I18N.t('publish_day') || 'Publish Day'}</button>`;
+           onclick="publishDay('${dayPlan.date}')">${I18N.t('publish_day') || 'Publish Day'}</button>`;
 
   const shiftTabsHtml = shifts.map((s, i) => {
     const dutyBadge = s.shift.duty_type === 'break'
@@ -1161,6 +1165,8 @@ function initDragAndDrop() {
 function recordAssignment(slId, slotIdx, teacherId, gradeClass) {
   if (!pendingAssignments[slId]) pendingAssignments[slId] = {};
   pendingAssignments[slId][slotIdx] = { teacher_id: teacherId, grade_class: gradeClass };
+  // Track affected teacher for scoped-notification choice on next publish
+  if (teacherId) _changedTeacherIds.add(teacherId);
 }
 
 function replaceTeacherInSlot(slId, slotIdx, teacherId, teacherName, isBreak) {
@@ -1255,6 +1261,82 @@ function changeSlots(dayDate, shiftId, locationId, delta) {
   }
 }
 
+/* ─── Notify-scope dialog ─────────────────────────────────────────────────── */
+
+/**
+ * Show a modal asking the admin how to notify teachers after a publish action.
+ *
+ * Returns a Promise resolving to:
+ *   { scope: 'all' }
+ *   { scope: 'affected', ids: Set<number> }
+ *   { scope: 'none' }
+ *   null   ← admin cancelled — do NOT publish
+ *
+ * The DOM element is created fresh on each call and removed after the
+ * admin makes a choice, so there are no stale-state issues.
+ */
+function askNotifyScope(isWeekPublish) {
+  return new Promise(resolve => {
+    byId('notifyScopeDialog')?.remove();
+
+    const affectedCount = _changedTeacherIds.size;
+    const teacherWord   = I18N.t('teacher') || 'teacher';
+    const affectedLabel = affectedCount > 0
+      ? ` (${affectedCount} ${teacherWord}${affectedCount !== 1 ? 's' : ''})`
+      : ` (${I18N.t('no_changes_yet') || 'no changes recorded'})`;
+
+    const heading = isWeekPublish
+      ? (I18N.t('confirm_publish_week') || 'Publish the entire week?')
+      : (I18N.t('confirm_publish_day')  || 'Publish this day?');
+
+    const overlay = document.createElement('div');
+    overlay.id        = 'notifyScopeDialog';
+    overlay.className = 'notify-scope-overlay';
+    overlay.innerHTML = `
+      <div class="notify-scope-card" role="dialog" aria-modal="true">
+        <h3 class="notify-scope-title">${escHtml(heading)}</h3>
+        <p class="notify-scope-sub">${I18N.t('notify_scope_question') || 'Who should receive a push notification?'}</p>
+        <div class="notify-scope-options">
+          <button class="nsbtn nsbtn--all"      id="nsBtnAll">
+            🔔 ${I18N.t('notify_all_teachers')   || 'Notify all assigned teachers'}
+          </button>
+          <button class="nsbtn nsbtn--affected"  id="nsBtnAffected"
+                  ${affectedCount === 0 ? 'disabled title="No assignment changes recorded in this session"' : ''}>
+            📋 ${I18N.t('notify_affected_only')  || 'Notify affected teachers only'}${escHtml(affectedLabel)}
+          </button>
+          <button class="nsbtn nsbtn--none"      id="nsBtnNone">
+            🔕 ${I18N.t('publish_no_notify')     || 'Publish without notifying'}
+          </button>
+          <button class="nsbtn nsbtn--cancel"    id="nsBtnCancel">
+            ✕ ${I18N.t('cancel') || 'Cancel'}
+          </button>
+        </div>
+      </div>`;
+
+    document.body.appendChild(overlay);
+    requestAnimationFrame(() => overlay.classList.add('notify-scope-visible'));
+
+    function close(result) {
+      overlay.classList.remove('notify-scope-visible');
+      setTimeout(() => overlay.remove(), 220);
+      document.removeEventListener('keydown', onEsc);
+      resolve(result);
+    }
+
+    byId('nsBtnAll').onclick      = () => close({ scope: 'all' });
+    byId('nsBtnAffected').onclick = () => {
+      if (affectedCount === 0) return;   // guard: button disabled but be safe
+      close({ scope: 'affected', ids: new Set(_changedTeacherIds) });
+    };
+    byId('nsBtnNone').onclick     = () => close({ scope: 'none' });
+    byId('nsBtnCancel').onclick   = () => close(null);
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(null); });
+
+    function onEsc(e) { if (e.key === 'Escape') close(null); }
+    document.addEventListener('keydown', onEsc);
+  });
+}
+
 /* ─── Save / Publish / Clone ──────────────────────────────────────────────── */
 
 async function saveDraft() {
@@ -1327,18 +1409,29 @@ async function flushPendingChanges() {
 
 async function publishWeek() {
   if (!currentWeekData) return;
-  if (!confirm(I18N.t('confirm_publish'))) return;
+
+  const choice = await askNotifyScope(true);
+  if (!choice) return;   // admin cancelled
 
   try {
+    const affectedIds = [..._changedTeacherIds];   // snapshot before flush resets pending
     await flushPendingChanges();
+
     const weekStart = currentWeekData.week_start_date;
+    const body = {
+      status:              'published',
+      notify_scope:        choice.scope,
+      notify_teacher_ids:  choice.scope === 'affected' ? affectedIds : null,
+    };
+
     const res = await apiFetch(`/weeks/${weekStart}/status`, {
       method: 'PUT',
-      body:   JSON.stringify({ status: 'published' }),
+      body:   JSON.stringify(body),
     });
 
     if (res?.ok) {
-      currentWeekData = await res.json();
+      _changedTeacherIds = new Set();
+      currentWeekData    = await res.json();
       renderWeek();
       updateStatusBadge(currentWeekData.status);
       showToast(I18N.t('success_published'));
@@ -1354,15 +1447,26 @@ async function publishWeek() {
 async function publishDay(dayDate) {
   if (!currentWeekData) return;
 
+  const choice = await askNotifyScope(false);
+  if (!choice) return;   // admin cancelled
+
   const publishBtn = byId(`publish-day-btn-${dayDate}`);
   if (publishBtn) { publishBtn.disabled = true; publishBtn.textContent = I18N.t('loading'); }
 
   try {
+    const affectedIds = [..._changedTeacherIds];
     await flushPendingChanges();
+
     const weekStart = currentWeekData.week_start_date;
-    const res = await apiFetch(`/weeks/${weekStart}/publish-day?day_date=${dayDate}`, { method: 'PUT' });
+    let url = `/weeks/${weekStart}/publish-day?day_date=${dayDate}&notify_scope=${choice.scope}`;
+    if (choice.scope === 'affected' && affectedIds.length > 0) {
+      url += affectedIds.map(id => `&notify_teacher_ids=${id}`).join('');
+    }
+
+    const res = await apiFetch(url, { method: 'PUT' });
 
     if (res?.ok) {
+      _changedTeacherIds = new Set();
       let data = null;
       try { data = await res.json(); } catch (_) {}
 
@@ -1382,10 +1486,15 @@ async function publishDay(dayDate) {
   } catch (err) {
     showToast(err.message || I18N.t('error_generic'), 'error');
   }
-  // Note: button is restored by renderWeek() above on success;
-  // on failure, restore it manually
+  // Restore button on failure
   const btn = byId(`publish-day-btn-${dayDate}`);
-  if (btn) { btn.disabled = false; btn.textContent = I18N.t('publish_day') || 'Publish Day'; }
+  if (btn) {
+    btn.disabled = false;
+    const day = currentWeekData?.day_plans?.find(d => d.date === dayDate);
+    btn.textContent = day?.is_published
+      ? (`↻ ${I18N.t('republish_day') || 'Re-publish Day'}`)
+      : (I18N.t('publish_day') || 'Publish Day');
+  }
 }
 
 async function createWeek() {

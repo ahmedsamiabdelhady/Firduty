@@ -167,6 +167,11 @@
       overflow: hidden !important;
       pointer-events: none !important;
     }
+    /* Break grid: ghost must be removed from grid flow entirely so it
+       doesn't push other cells sideways during a drag */
+    .break-grid .sortable-ghost {
+      display: none !important;
+    }
     /* Dim sidebar item while it's being dragged */
     .teacher-list .sortable-chosen { opacity: 0.5; }
 
@@ -385,6 +390,61 @@
         font-size: 0.68rem;
       }
     }
+    /* ── Notify-scope modal ──────────────────────────────────────────── */
+    .notify-scope-overlay {
+      position: fixed; inset: 0; z-index: 600;
+      background: rgba(15,23,42,0.45);
+      display: flex; align-items: center; justify-content: center;
+      opacity: 0; transition: opacity 0.18s ease;
+      padding: 16px;
+    }
+    .notify-scope-overlay.notify-scope-visible { opacity: 1; }
+
+    .notify-scope-card {
+      background: #fff;
+      border-radius: 18px;
+      box-shadow: 0 16px 48px rgba(15,23,42,0.22);
+      padding: 28px 26px 22px;
+      max-width: 420px; width: 100%;
+      transform: translateY(12px);
+      transition: transform 0.2s cubic-bezier(0.34,1.2,0.64,1);
+    }
+    .notify-scope-overlay.notify-scope-visible .notify-scope-card {
+      transform: translateY(0);
+    }
+    .notify-scope-title {
+      font-size: 1.05rem; font-weight: 700; color: var(--nav);
+      margin: 0 0 6px;
+    }
+    .notify-scope-sub {
+      font-size: 0.84rem; color: var(--text-muted); margin: 0 0 18px;
+    }
+    .notify-scope-options { display: flex; flex-direction: column; gap: 8px; }
+
+    .nsbtn {
+      display: block; width: 100%;
+      padding: 11px 16px;
+      border-radius: 10px; border: 1.5px solid var(--border);
+      background: var(--bg); color: var(--text);
+      font-size: 0.88rem; font-family: inherit; font-weight: 500;
+      text-align: start; cursor: pointer;
+      transition: background 0.12s, border-color 0.12s;
+      line-height: 1.45;
+    }
+    .nsbtn:hover:not(:disabled) { background: var(--surface); border-color: var(--nav-light); }
+    .nsbtn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    .nsbtn--all      { border-color: #93c5fd; }
+    .nsbtn--all:hover:not(:disabled) { background: #eff6ff; border-color: #3b82f6; }
+    .nsbtn--affected { border-color: #86efac; }
+    .nsbtn--affected:hover:not(:disabled) { background: #f0fdf4; border-color: #22c55e; }
+    .nsbtn--none     { border-color: #fca5a5; }
+    .nsbtn--none:hover:not(:disabled) { background: #fef2f2; border-color: #ef4444; }
+    .nsbtn--cancel   {
+      background: none; border-color: transparent; color: var(--text-muted);
+      font-weight: 400; font-size: 0.82rem;
+    }
+    .nsbtn--cancel:hover { background: var(--bg); }
   </style>
 </head>
 <body>

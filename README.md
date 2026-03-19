@@ -830,7 +830,119 @@ cd backend && alembic upgrade head
 
 ---
 
-## 17. Troubleshooting
+## 17. Planner Feature Guide
+
+This section documents features added in v3.x that change admin workflow.
+
+---
+
+### 17a. Re-publishing after edits (always-on Publish button)
+
+**Previous behaviour:** After a day was published, the "Publish Day" button was replaced with a static "Published ✓" badge. The admin could not re-publish after making corrections.
+
+**New behaviour:** The Publish Day button is **always clickable**:
+
+| Day state | Button label | Button colour |
+|---|---|---|
+| Never published | Publish Day | Green |
+| Previously published | ↻ Re-publish Day | Amber |
+
+The Publish Week button in the toolbar is also always available.
+
+Both actions are **idempotent on the backend** — calling publish on an already-published week or day is safe. The week's version counter increments on each full-week publish.
+
+**How to edit and re-publish:**
+1. Load the week in the planner.
+2. Drag/tap teachers to re-assign slots.
+3. Click **↻ Re-publish Day** (for a single day) or **Publish Week** (for all days).
+4. The notify-scope dialog appears — choose who to notify.
+
+---
+
+### 17b. Notify-scope dialog
+
+Every publish action (Publish Week and Re-publish Day) now shows a modal instead of the old `confirm()` browser prompt. This lets the admin choose exactly who receives a push notification.
+
+```
+┌─────────────────────────────────────────────┐
+│  Publish the entire week?                   │
+│  Who should receive a push notification?    │
+│                                             │
+│  🔔 Notify all assigned teachers            │
+│  📋 Notify affected teachers only (3)       │
+│  🔕 Publish without notifying               │
+│  ✕  Cancel                                  │
+└─────────────────────────────────────────────┘
+```
+
+| Choice | Who gets notified | When to use |
+|---|---|---|
+| **Notify all** | Every teacher currently assigned in the week/day | First publish of a week |
+| **Notify affected only** | Only teachers whose assignments changed in this editing session | Corrections after initial publish |
+| **Publish without notifying** | Nobody | Admin proofing/testing, or when teachers have already been told verbally |
+| **Cancel** | Nobody; no publish happens | Abort |
+
+**"Affected teachers"** are tracked automatically by the planner. Any teacher dragged into or removed from a slot in the current session is added to the affected set. The count is shown in the button label. The set resets after a successful publish.
+
+**API behaviour:** The `notify_scope` field is sent in the publish request body:
+
+```json
+PUT /weeks/2025-03-02/status
+{
+  "status": "published",
+  "notify_scope": "affected",
+  "notify_teacher_ids": [12, 34, 57]
+}
+```
+
+`notify_scope` values: `"all"` | `"affected"` | `"none"`
+
+For Publish Day, the same params are passed as query parameters:
+```
+PUT /weeks/2025-03-02/publish-day?day_date=2025-03-03&notify_scope=affected&notify_teacher_ids=12&notify_teacher_ids=34
+```
+
+---
+
+### 17c. Break duty grid (fixed slots, static labels)
+
+Break duties (First Break, Second Break) are now rendered as a **responsive CSS grid** instead of a single column.
+
+- Each cell shows the **grade class label** (e.g. `1/A`, `2/B`) as a fixed badge — always visible, even when no teacher is assigned.
+- Grade class labels are **pre-seeded** in the database and are not user-selectable. The admin only needs to drag a teacher to the correct cell.
+- Slots are **fixed** — Sortable's ghost element is hidden with `display:none` inside the grid so cells never shift sideways during a drag.
+- No +/− slot count controls for break duties (the number of classes is fixed by the school structure).
+
+**On desktop:** Drag a teacher from the sidebar onto any break cell.
+**On mobile:** Tap a break cell → bottom-sheet teacher picker opens → select teacher.
+
+---
+
+### 17d. Shift time editing in the planner
+
+Every shift panel shows a compact time bar:
+
+```
+🕐 07:00 – 07:40  ✏️
+```
+
+Clicking ✏️ expands an inline editor:
+
+```
+🕐 07:00 – 07:40  ✏️
+         [07:00] – [07:40]  [Save]  [Cancel]  — applies to all days
+```
+
+Saving calls `PUT /shifts/{id}` with the new times. Because shift times are stored globally in the `shifts` table (not per-day), the change automatically applies to:
+- All days in the current week (planner re-renders immediately)
+- All future weeks (they JOIN to the same shift row)
+- Mobile duty cards (next refresh)
+
+**Validation:** End time must be strictly after start time — enforced client-side before any API call and server-side in the shift endpoint.
+
+---
+
+## 18. Troubleshooting
 
 ### `[core/duplicate-app] A Firebase App named "[DEFAULT]" already exists`
 
@@ -1027,7 +1139,7 @@ alembic upgrade 0002
 
 ---
 
-## 18. Production Notes
+## 19. Production Notes
 
 ### Security checklist before going live
 
@@ -1075,4 +1187,4 @@ Enable **Row Level Security (RLS)** on Supabase if direct database access from t
 
 ---
 
-*Last updated: v2.3.0 — see CHANGELOG for version history.*
+*Last updated: v3.1.0 — see CHANGELOG for version history.*

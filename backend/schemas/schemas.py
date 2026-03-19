@@ -27,7 +27,7 @@ class _OrmBase(BaseModel):
     """Base class for all schemas that are populated from SQLAlchemy ORM objects."""
     class Config:
         from_attributes = True   # Pydantic v2
-        from_attributes = True   # Pydantic v2
+        orm_mode        = True   # Pydantic v1 compat
 
 
 # ─── Auth ─────────────────────────────────────────────────────────────────────
@@ -46,17 +46,6 @@ class AdminIdentity(BaseModel):
     username: str
     role: str = "admin"
     expires_at: Optional[int] = None   # Unix timestamp from JWT 'exp' claim
-
-
-# ─── App Settings ─────────────────────────────────────────────────────────────
-
-class AppSettingOut(_OrmBase):
-    key: str
-    value: str
-
-
-class AppSettingUpdate(BaseModel):
-    value: str
 
 
 # ─── Teacher ──────────────────────────────────────────────────────────────────
@@ -80,8 +69,6 @@ class TeacherUpdate(BaseModel):
     name: Optional[str] = None
     active: Optional[bool] = None
     preferred_language: Optional[str] = None
-    email: Optional[str] = None
-    status: Optional[str] = None
 
 
 class TeacherStatusOut(_OrmBase):
@@ -104,17 +91,6 @@ class TeacherOut(_OrmBase):
 # ─── Device Token ─────────────────────────────────────────────────────────────
 
 class DeviceTokenCreate(BaseModel):
-    """
-    Register a push notification token for a teacher.
-
-    platform = 'android'
-        FCM registration token from FirebaseMessaging.getToken() on Android.
-
-    platform = 'web'
-        FCM web registration token from FirebaseMessaging.getToken(vapidKey=…)
-        in the Flutter Web app. Firebase delivers this via Web Push (VAPID)
-        to the browser's service worker. Works on iOS Safari 16.4+ PWA.
-    """
     token: str
     platform: str   # 'android' | 'web'
 
@@ -137,7 +113,7 @@ class LocationOut(_OrmBase):
     id: int
     name_en: str
     name_ar: str
-    order: int = 0   # default=0: guards against legacy NULL rows in DB
+    order: int = 0
 
 
 # ─── Shift ────────────────────────────────────────────────────────────────────
@@ -166,7 +142,7 @@ class ShiftOut(_OrmBase):
     name_ar: str
     start_time: time
     end_time: time
-    order: int = 0   # default=0: guards against legacy NULL rows in DB
+    order: int = 0
     duty_type: str
 
 
@@ -185,7 +161,7 @@ class ShiftLocationOut(_OrmBase):
     shift_id: int
     location_id: Optional[int] = None
     slots_count: int = 1
-    order: int = 0   # default=0: guards against legacy NULL rows
+    order: int = 0
     shift: ShiftOut
     location: Optional[LocationOut] = None
     assignments: List[AssignmentOut] = []
@@ -226,6 +202,12 @@ class AssignmentUpdate(BaseModel):
 
 class WeekStatusUpdate(BaseModel):
     status: str   # 'draft' | 'published'
+    # ── Notification scope (for publish actions) ───────────────────────────────
+    # "all"      → notify every teacher currently assigned in the week/day
+    # "affected" → notify only the teacher IDs listed in notify_teacher_ids
+    # "none"     → publish silently, no push notifications sent
+    notify_scope: str = "all"
+    notify_teacher_ids: Optional[List[int]] = None  # used when scope = "affected"
 
 
 class ShiftTimeUpdate(BaseModel):

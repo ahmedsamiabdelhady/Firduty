@@ -301,9 +301,17 @@ def update_week_status(
 ):
     week = _get_week_or_404(db, week_start)
 
+    notify_ids: Optional[set[int]] = (
+        set(data.notify_teacher_ids) if data.notify_teacher_ids else None
+    )
+
     try:
         if data.status == "published":
-            publish_week(db, week, actor=admin)
+            publish_week(
+                db, week, actor=admin,
+                notify_scope=data.notify_scope or "all",
+                notify_teacher_ids=notify_ids,
+            )
             success_message = f"Week {week_start} published successfully"
         else:
             week.status = data.status
@@ -329,13 +337,24 @@ def update_week_status(
 def publish_single_day(
     week_start: date,
     day_date: date = Query(..., description="The exact day to publish (YYYY-MM-DD)"),
+    notify_scope: str = Query("all", description="'all' | 'affected' | 'none'"),
+    notify_teacher_ids: Optional[List[int]] = Query(
+        None,
+        description="Teacher IDs to notify when notify_scope='affected'"
+    ),
     db: Session = Depends(get_db),
     admin=Depends(get_current_admin),
 ):
+    from typing import List as _List
     week = _get_week_or_404(db, week_start)
+    ids_set: Optional[set[int]] = set(notify_teacher_ids) if notify_teacher_ids else None
 
     try:
-        publish_day(db, week, day_date, actor=admin)
+        publish_day(
+            db, week, day_date, actor=admin,
+            notify_scope=notify_scope,
+            notify_teacher_ids=ids_set,
+        )
     except ValueError as exc:
         _raise_service_error(exc)
 

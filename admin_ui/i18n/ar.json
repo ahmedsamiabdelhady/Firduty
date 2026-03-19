@@ -144,5 +144,13 @@
   "shift_saved": "تم حفظ الفترة بنجاح.",
   "shift_deleted": "تم حذف الفترة.",
   "invalid_time_range": "يجب أن يكون وقت الانتهاء بعد وقت البدء.",
-  "shift_time_applies_all": "يُطبَّق على جميع الأيام"
+  "shift_time_applies_all": "يُطبَّق على جميع الأيام",
+  "republish_day": "إعادة نشر اليوم",
+  "confirm_publish_week": "هل تريد نشر الأسبوع كاملاً؟",
+  "confirm_publish_day": "هل تريد نشر هذا اليوم؟",
+  "notify_scope_question": "من يجب أن يستقبل إشعار الدفع؟",
+  "notify_all_teachers": "إشعار جميع المعلمين المعيّنين",
+  "notify_affected_only": "إشعار المعلمين المتأثرين فقط",
+  "publish_no_notify": "نشر بدون إشعار",
+  "no_changes_yet": "لم يتم تسجيل تغييرات في التعيينات بعد"
 }

@@ -144,5 +144,13 @@
   "shift_saved": "Shift saved successfully.",
   "shift_deleted": "Shift deleted.",
   "invalid_time_range": "End time must be after start time.",
-  "shift_time_applies_all": "applies to all days"
+  "shift_time_applies_all": "applies to all days",
+  "republish_day": "Re-publish Day",
+  "confirm_publish_week": "Publish the entire week?",
+  "confirm_publish_day": "Publish this day?",
+  "notify_scope_question": "Who should receive a push notification?",
+  "notify_all_teachers": "Notify all assigned teachers",
+  "notify_affected_only": "Notify affected teachers only",
+  "publish_no_notify": "Publish without notifying",
+  "no_changes_yet": "no assignment changes recorded yet"
 }

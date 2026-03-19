@@ -639,13 +639,25 @@ def update_assignment(
 
 # ─── Publishing ───────────────────────────────────────────────────────────────
 
-def publish_week(db: Session, week: WeekPlan, actor: str = "admin") -> WeekPlan:
+def publish_week(
+    db: Session,
+    week: WeekPlan,
+    actor: str = "admin",
+    notify_scope: str = "all",
+    notify_teacher_ids: Optional[set[int]] = None,
+) -> WeekPlan:
     """
-    Publish the full week.
+    Publish the full week (idempotent — safe to call on already-published weeks).
 
-    Fix: removed hasattr(day, 'is_published') — the field is NOT NULL in both
-    the model and the DB.  A missing column is a real error that should
-    surface immediately rather than being silently skipped.
+    Parameters
+    ----------
+    notify_scope
+        "all"      → notify every teacher assigned anywhere in the week.
+        "affected" → notify only the IDs in notify_teacher_ids.
+        "none"     → publish silently, no push notifications.
+    notify_teacher_ids
+        Used only when notify_scope == "affected".
+        Typically the teacher IDs that changed in this editing session.
     """
     week = (
         db.query(WeekPlan)
@@ -666,11 +678,23 @@ def publish_week(db: Session, week: WeekPlan, actor: str = "admin") -> WeekPlan:
     for day in week.day_plans:
         day.is_published = True   # direct assignment — no hasattr guard needed
 
-    _log_change(db, week, actor, "publish", {"version": week.version})
+    _log_change(db, week, actor, "publish", {
+        "version": week.version,
+        "notify_scope": notify_scope,
+    })
     db.commit()
     db.refresh(week)
-    logger.info("Week %s published (v%s)", week.week_start_date, week.version)
-    _notify_assigned_teachers(db, week)
+    logger.info(
+        "Week %s published (v%s) notify_scope=%s",
+        week.week_start_date, week.version, notify_scope,
+    )
+
+    if notify_scope == "all":
+        _notify_assigned_teachers(db, week)
+    elif notify_scope == "affected" and notify_teacher_ids:
+        _notify_assigned_teachers(db, week, teacher_ids=notify_teacher_ids)
+    # "none": no notifications sent
+
     return week
 
 
@@ -679,12 +703,18 @@ def publish_day(
     week: WeekPlan,
     day_date: date,
     actor: str = "admin",
+    notify_scope: str = "all",
+    notify_teacher_ids: Optional[set[int]] = None,
 ) -> DayPlan:
     """
-    Publish a single day.
+    Publish a single day (idempotent — safe to call on already-published days).
 
-    Fix: removed hasattr(day, 'is_published') — raises ValueError if the
-    field is missing so the issue surfaces clearly.
+    Parameters
+    ----------
+    notify_scope
+        "all"      → notify every teacher assigned on this day.
+        "affected" → notify only the IDs in notify_teacher_ids that are on this day.
+        "none"     → publish silently.
     """
     day = (
         db.query(DayPlan)
@@ -699,25 +729,33 @@ def publish_day(
     if not day:
         raise ValueError(f"Day {day_date} not found in week {week.week_start_date}")
 
-    # Direct attribute assignment — no hasattr guard.
-    # If is_published is missing from the schema/DB, this raises AttributeError
-    # which is caught by the router and returned as 500, alerting us immediately.
     day.is_published = True
 
-    _log_change(db, week, actor, "publish_day", {"day": str(day_date)})
+    _log_change(db, week, actor, "publish_day", {
+        "day": str(day_date),
+        "notify_scope": notify_scope,
+    })
     db.commit()
     db.refresh(day)
-    logger.info("Published day %s in week %s", day_date, week.week_start_date)
+    logger.info(
+        "Published day %s in week %s notify_scope=%s",
+        day_date, week.week_start_date, notify_scope,
+    )
 
-    # Notify only the teachers assigned on this specific day
-    teacher_ids: set[int] = set()
+    # Collect teachers assigned on this specific day
+    day_teacher_ids: set[int] = set()
     for sl in day.shift_locations:
         for a in sl.assignments:
             if a.teacher_id is not None:
-                teacher_ids.add(int(a.teacher_id))
+                day_teacher_ids.add(int(a.teacher_id))
 
-    if teacher_ids:
-        _notify_assigned_teachers(db, week, teacher_ids=teacher_ids)
+    if notify_scope == "all" and day_teacher_ids:
+        _notify_assigned_teachers(db, week, teacher_ids=day_teacher_ids)
+    elif notify_scope == "affected" and notify_teacher_ids:
+        targets = notify_teacher_ids & day_teacher_ids
+        if targets:
+            _notify_assigned_teachers(db, week, teacher_ids=targets)
+    # "none": no notifications
 
     return day
 
