@@ -338,14 +338,13 @@ def publish_single_day(
     week_start: date,
     day_date: date = Query(..., description="The exact day to publish (YYYY-MM-DD)"),
     notify_scope: str = Query("all", description="'all' | 'affected' | 'none'"),
-    notify_teacher_ids: Optional[List[int]] = Query(
+    notify_teacher_ids: Optional[list[int]] = Query(
         None,
         description="Teacher IDs to notify when notify_scope='affected'"
     ),
     db: Session = Depends(get_db),
     admin=Depends(get_current_admin),
 ):
-    from typing import List as _List
     week = _get_week_or_404(db, week_start)
     ids_set: Optional[set[int]] = set(notify_teacher_ids) if notify_teacher_ids else None
 
