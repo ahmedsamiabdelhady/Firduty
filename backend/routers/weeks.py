@@ -8,7 +8,7 @@ Fixes vs v2.4:
 """
 
 from datetime import date
-from typing import Optional
+from typing import Optional, list
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session, selectinload
