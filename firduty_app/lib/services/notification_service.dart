@@ -132,7 +132,7 @@ class NotificationService {
 
     // 4. Initialise the local notifications plugin.
     await _localNotifications.initialize(
-      const InitializationSettings(
+      settings: const InitializationSettings(
         android: AndroidInitializationSettings('@mipmap/ic_launcher'),
         iOS: DarwinInitializationSettings(),
       ),
@@ -269,16 +269,16 @@ class NotificationService {
     if (notification == null) return;
 
     await _localNotifications.show(
-      notification.hashCode, // stable ID — suppresses duplicates
-      notification.title,
-      notification.body,
-      const NotificationDetails(
+      id:                  notification.hashCode, // stable ID — suppresses duplicates
+      title:               notification.title,
+      body:                notification.body,
+      notificationDetails: const NotificationDetails(
         android: AndroidNotificationDetails(
           'firduty_channel',
           'Duty Notifications',
           importance: Importance.high,
           priority:   Priority.high,
-          icon:        '@mipmap/ic_launcher',
+          icon:       '@mipmap/ic_launcher',
         ),
         iOS: DarwinNotificationDetails(),
       ),

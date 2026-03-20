@@ -153,5 +153,13 @@
   "notify_affected_only": "إشعار المعلمين المتأثرين فقط",
   "publish_no_notify": "نشر بدون إشعار",
   "no_changes_yet": "لم يتم تسجيل تغييرات في التعيينات بعد",
-  "add_shift": "إضافة فترة"
+  "add_shift": "إضافة فترة",
+  "delete_teacher": "حذف المعلم",
+  "delete_teacher_confirm": "حذف المعلم",
+  "delete_teacher_warning_prefix": "⚠️ سيتم حذف",
+  "delete_teacher_warning_suffix": "وسيتم حذف بياناته المرتبطة فقط: المناوبات، التأكيدات، الملخصات الشهرية، وتوكنات الأجهزة.",
+  "teacher_deleted_ok": "تم حذف المعلم بنجاح",
+  "teacher_updated_ok": "تم تحديث بيانات المعلم بنجاح",
+  "teacher_created_ok": "تم إنشاء المعلم بنجاح",
+  "is_required": "مطلوب"
 }

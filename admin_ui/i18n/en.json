@@ -153,5 +153,13 @@
   "notify_affected_only": "Notify affected teachers only",
   "publish_no_notify": "Publish without notifying",
   "no_changes_yet": "no assignment changes recorded yet",
-  "add_shift": "Add Shift"
+  "add_shift": "Add Shift",
+  "delete_teacher": "Delete Teacher",
+  "delete_teacher_confirm": "Delete Teacher",
+  "delete_teacher_warning_prefix": "⚠️ This will permanently delete",
+  "delete_teacher_warning_suffix": "Only this teacher and their related assignments, confirmations, monthly summaries, and device tokens will be deleted.",
+  "teacher_deleted_ok": "Teacher deleted successfully",
+  "teacher_updated_ok": "Teacher updated successfully",
+  "teacher_created_ok": "Teacher created successfully",
+  "is_required": "is required"
 }

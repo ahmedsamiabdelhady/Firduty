@@ -21,12 +21,12 @@ dependencies:
   shared_preferences: ^2.2.3
 
   # Firebase — supports Android (native) and Web (FCM web push / iOS Safari PWA)
-  firebase_core: ^2.30.1
-  firebase_messaging: ^14.9.4
+  firebase_core: ^2.32.0
+  firebase_messaging: ^14.7.10
 
   # Local notification display — Android only.
   # Guarded with kIsWeb in notification_service.dart (not invoked on web).
-  flutter_local_notifications: ^17.2.2
+  flutter_local_notifications: ^21.0.0
 
   # Internationalisation utilities (DateFormat etc.)
   # Must be ^0.20.2 — flutter_localizations (SDK) pins intl to 0.20.2.

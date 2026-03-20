@@ -218,7 +218,7 @@
   <div class="header-actions">
     <button class="btn btn-lang btn-sm"
             data-lang-toggle
-            onclick="I18N.toggle().then(()=>location.reload())">عربي | EN</button>
+            >عربي | EN</button>
     <button class="btn btn-lang btn-sm" onclick="logout()" data-i18n="logout">Logout</button>
   </div>
 </header>
@@ -313,16 +313,17 @@
 <!-- ── Remove Teacher Modal ───────────────────────────────────────────────────── -->
 <div class="t-modal-overlay hidden" id="removeTeacherModal" onclick="onModalOverlayClick(event,'removeTeacherModal')">
   <div class="t-modal">
-    <h3 data-i18n="delete">Deactivate Teacher</h3>
+    <h3 data-i18n="delete_teacher">Delete Teacher</h3>
     <div class="remove-warning">
-      ⚠️ This will deactivate <span id="removeTeacherName" class="remove-teacher-name"></span>.
-      They will no longer appear in the planner or receive notifications.
+      <span data-i18n="delete_teacher_warning_prefix">⚠️ This will permanently delete</span>
+      <span id="removeTeacherName" class="remove-teacher-name"></span>.
+      <span data-i18n="delete_teacher_warning_suffix">Only this teacher and their related assignments, confirmations, monthly summaries, and device tokens will be deleted.</span>
     </div>
     <input type="hidden" id="removeTeacherId">
     <div class="t-modal-actions">
       <button class="btn btn-secondary btn-sm" onclick="closeRemoveModal()" data-i18n="cancel">Cancel</button>
       <button class="btn btn-danger btn-sm" id="removeConfirmBtn" onclick="confirmRemoveTeacher()">
-        <span data-i18n="delete">Deactivate</span>
+        <span data-i18n="delete_teacher_confirm">Delete Teacher</span>
       </button>
     </div>
   </div>

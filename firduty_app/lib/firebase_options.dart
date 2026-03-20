@@ -36,30 +36,31 @@ class DefaultFirebaseOptions {
   }
 
   // ── Web / iOS PWA ─────────────────────────────────────────────────────────
-  // Get these from: Firebase Console → Project Settings → Your apps → Web
+
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey:            'AIzaSyD0lAw3ym33tl8PVh7xjZBDJ64QhKbwv1k',            // TODO
-    appId:             '1:442695383131:web:011bbb04af4dde2448677e',             // TODO
-    messagingSenderId: '442695383131',              // TODO
-    projectId:         'firduty-dede5',             // TODO
-    authDomain:        'firduty-dede5.firebaseapp.com', // TODO
-    storageBucket:     'firduty-dede5.firebasestorage.app', // TODO
-    // VAPID key for Web Push (FCM web):
-    // Firebase Console → Project Settings → Cloud Messaging → Web Push certificates
-    // → Generate key pair → copy the Key pair value
-    measurementId:     'G-Y4DN8HJPC5',        // TODO (optional)
+    apiKey: 'AIzaSyD0lAw3ym33tl8PVh7xjZBDJ64QhKbwv1k',
+    appId: '1:442695383131:web:1ac5166bec55253b48677e',
+    messagingSenderId: '442695383131',
+    projectId: 'firduty-dede5',
+    authDomain: 'firduty-dede5.firebaseapp.com',
+    storageBucket: 'firduty-dede5.firebasestorage.app',
+    measurementId: 'G-CF2WM5SL5D',
   );
+
+  // Get these from: Firebase Console → Project Settings → Your apps → Web
 
   // ── Android ───────────────────────────────────────────────────────────────
   // These values come from google-services.json.
-  // Place that file at flutter_app/android/app/google-services.json.
+
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey:            'YOUR_ANDROID_API_KEY',        // TODO
-    appId:             'YOUR_ANDROID_APP_ID',         // TODO
-    messagingSenderId: 'YOUR_SENDER_ID',              // TODO
-    projectId:         'YOUR_PROJECT_ID',             // TODO
-    storageBucket:     'YOUR_PROJECT_ID.appspot.com', // TODO
+    apiKey: 'AIzaSyAN-zKgXX3rBEuO-ujq2KA5FoUS7eljOfE',
+    appId: '1:442695383131:android:286520ab33cf231548677e',
+    messagingSenderId: '442695383131',
+    projectId: 'firduty-dede5',
+    storageBucket: 'firduty-dede5.firebasestorage.app',
   );
+
+  // Place that file at flutter_app/android/app/google-services.json.
 }
 
 // ── VAPID Public Key ──────────────────────────────────────────────────────────
@@ -70,4 +71,4 @@ class DefaultFirebaseOptions {
 // Also set this as VAPID_PUBLIC_KEY in the backend .env.
 //
 // ignore: constant_identifier_names
-const String kVapidPublicKey = 'YOUR_VAPID_PUBLIC_KEY'; // TODO
+const String kVapidPublicKey = 'BD-hd89_Ah_4XM135fFtuK3UbVNDFPqB0SyhJqnuxtloz9Cw5MRktvdyQZXWm_mcHiz5NjoP6i0K7Qn9CHfxJao'; // TODO

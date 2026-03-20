@@ -330,3 +330,9 @@ if (document.readyState === 'loading') {
 } else {
   initReports();
 }
+
+document.addEventListener('DOMContentLoaded', async () => {
+  await I18N.init();
+  guardPage();
+  await loadShifts();
+});

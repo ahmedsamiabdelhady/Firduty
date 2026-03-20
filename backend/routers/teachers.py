@@ -668,11 +668,17 @@ def create_teacher(
     _: str = Depends(get_current_admin),
 ):
     """Admin-created teacher (immediately approved)."""
+    email_lower = data.email.lower() if data.email else None
+    if email_lower:
+        existing = db.query(Teacher).filter(Teacher.email == email_lower).first()
+        if existing:
+            raise HTTPException(409, "A teacher with this email already exists.")
+
     teacher = Teacher(
         name=data.name,
-        email=data.email.lower() if data.email else None,
+        email=email_lower,
         status="approved",
-        active=True,
+        active=bool(getattr(data, "active", True)),
         preferred_language=getattr(data, "preferred_language", "ar"),
     )
     db.add(teacher)
@@ -697,6 +703,24 @@ def update_teacher(
         if hasattr(data, "model_dump")
         else data.dict(exclude_unset=True)
     )
+
+    if "email" in payload:
+        email_value = payload["email"]
+        email_lower = email_value.lower() if email_value else None
+        existing = None
+        if email_lower:
+            existing = (
+                db.query(Teacher)
+                .filter(Teacher.email == email_lower, Teacher.id != teacher_id)
+                .first()
+            )
+        if existing:
+            raise HTTPException(409, "A teacher with this email already exists.")
+        payload["email"] = email_lower
+
+    if "status" in payload and payload["status"] not in {"pending", "approved"}:
+        raise HTTPException(400, "Invalid status. Use 'pending' or 'approved'.")
+
     for field, value in payload.items():
         setattr(teacher, field, value)
 
@@ -705,14 +729,75 @@ def update_teacher(
     return teacher
 
 
-@router.delete("/{teacher_id}", status_code=204)
-def deactivate_teacher(
+@router.delete("/{teacher_id}", status_code=200)
+def delete_teacher(
     teacher_id: int,
     db: Session = Depends(get_db),
     _: str = Depends(get_current_admin),
 ):
+    """Permanently delete one teacher and only that teacher's related data."""
     teacher = db.query(Teacher).filter(Teacher.id == teacher_id).first()
     if not teacher:
         raise HTTPException(404, "Teacher not found")
-    teacher.active = False
+
+    assignment_ids = [
+        row[0]
+        for row in db.query(Assignment.id).filter(Assignment.teacher_id == teacher_id).all()
+    ]
+
+    deleted_confirmations = 0
+    if assignment_ids:
+        deleted_confirmations = (
+            db.query(DutyConfirmation)
+            .filter(DutyConfirmation.assignment_id.in_(assignment_ids))
+            .delete(synchronize_session=False)
+        )
+
+    deleted_assignments = (
+        db.query(Assignment)
+        .filter(Assignment.teacher_id == teacher_id)
+        .delete(synchronize_session=False)
+    )
+
+    deleted_monthly_summaries = (
+        db.query(MonthlyPointsSummary)
+        .filter(MonthlyPointsSummary.teacher_id == teacher_id)
+        .delete(synchronize_session=False)
+    )
+
+    deleted_device_tokens = (
+        db.query(DeviceToken)
+        .filter(DeviceToken.teacher_id == teacher_id)
+        .delete(synchronize_session=False)
+    )
+
+    # Safety cleanup in case any confirmation exists directly for the teacher
+    # but is not covered by the teacher's current assignment rows.
+    deleted_confirmations += (
+        db.query(DutyConfirmation)
+        .filter(DutyConfirmation.teacher_id == teacher_id)
+        .delete(synchronize_session=False)
+    )
+
+    db.delete(teacher)
     db.commit()
+
+    logger.info(
+        "Teacher deleted: id=%d assignments=%d confirmations=%d monthly_summaries=%d device_tokens=%d",
+        teacher_id,
+        deleted_assignments,
+        deleted_confirmations,
+        deleted_monthly_summaries,
+        deleted_device_tokens,
+    )
+
+    return {
+        "status": "deleted",
+        "teacher_id": teacher_id,
+        "deleted": {
+            "assignments": deleted_assignments,
+            "duty_confirmations": deleted_confirmations,
+            "monthly_points_summary": deleted_monthly_summaries,
+            "device_tokens": deleted_device_tokens,
+        },
+    }

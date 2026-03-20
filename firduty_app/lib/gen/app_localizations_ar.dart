@@ -1,11 +1,12 @@
-// GENERATED CODE - DO NOT MODIFY BY HAND
-
+// ignore: unused_import
+import 'package:intl/intl.dart' as intl;
 import 'app_localizations.dart';
 
 // ignore_for_file: type=lint
 
+/// The translations for Arabic (`ar`).
 class AppLocalizationsAr extends AppLocalizations {
-  AppLocalizationsAr([super.locale = 'ar']);
+  AppLocalizationsAr([String locale = 'ar']) : super(locale);
 
   @override
   String get appTitle => 'Firduty';
@@ -34,6 +35,21 @@ class AppLocalizationsAr extends AppLocalizations {
   @override
   String get emailAlreadyRegistered =>
       'هذا البريد الإلكتروني مسجّل مسبقًا. يرجى استخدام بريد آخر.';
+
+  @override
+  String get loginTitle => 'تسجيل الدخول إلى حسابك';
+
+  @override
+  String get login => 'دخول';
+
+  @override
+  String get noAccount => 'ليس لديك حساب؟';
+
+  @override
+  String get alreadyHaveAccount => 'لديك حساب بالفعل؟';
+
+  @override
+  String get logout => 'تسجيل الخروج';
 
   @override
   String get pendingTitle => 'بانتظار الموافقة';
@@ -89,8 +105,7 @@ class AppLocalizationsAr extends AppLocalizations {
       'جارٍ إعداد جدول مناوباتك. يرجى المراجعة لاحقاً.';
 
   @override
-  String get noPlanForToday =>
-      'لم يتم إعداد خطة مناوبات أسبوعية لهذا اليوم.';
+  String get noPlanForToday => 'لم يتم إعداد خطة مناوبات أسبوعية لهذا اليوم.';
 
   @override
   String get location => 'الموقع';
@@ -171,21 +186,4 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get month => 'الشهر';
-
-  // ── Auth / Login ─────────────────────────────────────────────────────────
-
-  @override
-  String get loginTitle => 'تسجيل الدخول إلى حسابك';
-
-  @override
-  String get login => 'دخول';
-
-  @override
-  String get noAccount => 'ليس لديك حساب؟';
-
-  @override
-  String get alreadyHaveAccount => 'لديك حساب بالفعل؟';
-
-  @override
-  String get logout => 'تسجيل الخروج';
 }

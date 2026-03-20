@@ -5,7 +5,7 @@
  *  - List pending / all teachers in tabbed view
  *  - Approve individual teachers or all pending at once
  *  - Add new teacher via modal (POST /teachers/)
- *  - Deactivate teacher via modal (DELETE /teachers/{id})
+ *  - Permanently delete teacher via modal (DELETE /teachers/{id})
  *  - Live search/filter inside each tab
  *
  * Auth: handled by auth.js (loaded before this script).
@@ -159,7 +159,7 @@ function renderTeacherList(container, teachers, showApprove) {
         <button class="btn btn-secondary btn-sm" onclick="startEditRow(${t.id})">✏️</button>
         <button class="btn btn-danger btn-sm"
                 onclick="openRemoveModal(${t.id},'${escHtml(t.name).replace(/'/g,'&#39;')}')"
-                title="Deactivate">🗑</button>
+                title="${I18N.t('delete_teacher') || I18N.t('delete')}">🗑</button>
       </div>`;
 
     return `
@@ -217,31 +217,31 @@ function startEditRow(id) {
   // Name cell
   document.getElementById(`cell-name-${id}`).innerHTML = `
     <input class="inline-edit-input" id="edit-name-${id}"
-           value="${escHtml(teacher.name)}" placeholder="Name">`;
+           value="${escHtml(teacher.name)}" placeholder="${I18N.t('name')}">`;
 
   // Email cell
   document.getElementById(`cell-email-${id}`).innerHTML = `
     <input class="inline-edit-input" id="edit-email-${id}" type="email"
-           value="${escHtml(teacher.email || '')}" placeholder="Email">`;
+           value="${escHtml(teacher.email || '')}" placeholder="${I18N.t('email')}">`;
 
   // Status cell
   document.getElementById(`cell-status-${id}`).innerHTML = `
     <select class="inline-edit-select" id="edit-status-${id}">
-      <option value="approved" ${teacher.status === 'approved' ? 'selected' : ''}>Approved</option>
-      <option value="pending"  ${teacher.status === 'pending'  ? 'selected' : ''}>Pending</option>
+      <option value="approved" ${teacher.status === 'approved' ? 'selected' : ''}>${I18N.t('status_approved')}</option>
+      <option value="pending"  ${teacher.status === 'pending'  ? 'selected' : ''}>${I18N.t('status_pending')}</option>
     </select>`;
 
   // Language cell
   document.getElementById(`cell-lang-${id}`).innerHTML = `
     <select class="inline-edit-select" id="edit-lang-${id}">
-      <option value="ar" ${(teacher.preferred_language ?? 'ar') === 'ar' ? 'selected' : ''}>Arabic</option>
-      <option value="en" ${(teacher.preferred_language ?? 'ar') === 'en' ? 'selected' : ''}>English</option>
+      <option value="ar" ${(teacher.preferred_language ?? 'ar') === 'ar' ? 'selected' : ''}>${I18N.t('arabic')}</option>
+      <option value="en" ${(teacher.preferred_language ?? 'ar') === 'en' ? 'selected' : ''}>${I18N.t('english')}</option>
     </select>`;
 
   // Actions cell
   document.getElementById(`cell-actions-${id}`).innerHTML = `
     <div style="display:flex;gap:5px">
-      <button class="btn btn-edit-save btn-sm" onclick="saveEditRow(${id})">💾 Save</button>
+      <button class="btn btn-edit-save btn-sm" onclick="saveEditRow(${id})">💾 ${I18N.t('save')}</button>
       <button class="btn btn-edit-cancel btn-sm" onclick="cancelEditRow(${id})">✕</button>
     </div>`;
 
@@ -263,7 +263,7 @@ async function saveEditRow(id) {
 
   if (!name) {
     document.getElementById(`edit-name-${id}`)?.focus();
-    showAlert('Name is required', 'danger');
+    showAlert(`${I18N.t('name')} ${I18N.t('is_required')}`, 'danger');
     return;
   }
 
@@ -285,16 +285,16 @@ async function saveEditRow(id) {
       let detail = I18N.t('error_generic');
       try { const d = await res.json(); detail = d.detail || detail; } catch (_) {}
       showAlert(detail, 'danger');
-      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '💾 Save'; }
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = `💾 ${I18N.t('save')}`; }
       return;
     }
 
-    showToast('Teacher updated', 'success');
+    showToast(I18N.t('teacher_updated_ok'), 'success');
     await loadAll();
   } catch (err) {
     console.error('saveEditRow failed:', err);
     showAlert(I18N.t('error_generic'), 'danger');
-    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '💾 Save'; }
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = `💾 ${I18N.t('save')}`; }
   }
 }
 
@@ -316,7 +316,7 @@ async function approveTeacher(id) {
       if (btn) { btn.disabled = false; btn.textContent = I18N.t('approve'); }
       return;
     }
-    showToast(I18N.t('teacher_approved_ok'), 'success');
+    showToast(I18N.t('teacher_created_ok'), 'success');
     await loadAll();
   } catch (err) {
     console.error('approveTeacher failed:', err);
@@ -385,7 +385,7 @@ async function saveNewTeacher() {
 
   if (!name) {
     nameEl?.focus();
-    showAlert(I18N.t('name') + ' is required', 'danger');
+    showAlert(`${I18N.t('name')} ${I18N.t('is_required')}`, 'danger');
     return;
   }
 
@@ -425,7 +425,7 @@ async function saveNewTeacher() {
   }
 }
 
-/* ─── Remove (Deactivate) Teacher Modal ───────────────────────────────────── */
+/* ─── Remove (Delete) Teacher Modal ───────────────────────────────────── */
 function openRemoveModal(id, name) {
   const idEl   = byId('removeTeacherId');
   const nameEl = byId('removeTeacherName');
@@ -450,8 +450,7 @@ async function confirmRemoveTeacher() {
 
   try {
     const res = await apiFetch(`/teachers/${id}`, { method: 'DELETE' });
-    // 204 No Content = success
-    if (!res || (!res.ok && res.status !== 204)) {
+    if (!res || !res.ok) {
       let detail = I18N.t('error_generic');
       try { const d = await res.json(); detail = d.detail || detail; } catch (_) {}
       showAlert(detail, 'danger');
@@ -459,7 +458,7 @@ async function confirmRemoveTeacher() {
     }
 
     closeRemoveModal();
-    showToast('Teacher deactivated', 'info');
+    showToast(I18N.t('teacher_deleted_ok'), 'success');
     await loadAll();
   } catch (err) {
     console.error('confirmRemoveTeacher failed:', err);
@@ -467,7 +466,7 @@ async function confirmRemoveTeacher() {
   } finally {
     if (btn) {
       btn.disabled = false;
-      btn.textContent = I18N.t('delete') || 'Deactivate';
+      btn.textContent = I18N.t('delete_teacher_confirm') || I18N.t('delete');
     }
   }
 }
@@ -487,6 +486,17 @@ document.addEventListener('keydown', e => {
   if (!byId('removeTeacherModal')?.classList.contains('hidden')) closeRemoveModal();
 });
 
+
+document.addEventListener('languageChanged', () => {
+  try {
+    I18N.applyTranslations(document);
+    renderTeacherList(document.getElementById('pendingTableWrap'), _allPending, true);
+    renderTeacherList(document.getElementById('allTableWrap'), _allTeachers, false);
+  } catch (err) {
+    console.error('teachers languageChanged rerender failed:', err);
+  }
+});
+
 /* ─── Page init ───────────────────────────────────────────────────────────── */
 async function initTeachersPage() {
   // Auth guard (belt-and-suspenders — inline script already redirects)
@@ -494,6 +504,7 @@ async function initTeachersPage() {
   if (!token) { window.location.replace('login.html'); return; }
 
   try {
+    await I18N.init();
     showTab('pending');
     await loadAll();
   } catch (err) {

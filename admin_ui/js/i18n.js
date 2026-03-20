@@ -48,6 +48,10 @@ const I18N = {
     this.applyTranslations(document);
     this.updateLanguageButtons();
 
+    document.dispatchEvent(new CustomEvent('languageChanged', {
+      detail: { lang: this.currentLang }
+    }));
+
     return this.currentLang;
   },
 
