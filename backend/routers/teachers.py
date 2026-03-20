@@ -34,7 +34,7 @@ from database import get_db
 from models.models import (
     Teacher, DeviceToken, DayPlan, ShiftLocation, Assignment, WeekPlan,
 )
-from models.points_models import DutyConfirmation
+from models.models import DutyConfirmation, MonthlyPointsSummary
 from schemas.schemas import (
     TeacherCreate, TeacherLogin, TeacherRegister, TeacherUpdate,
     TeacherOut, TeacherStatusOut, DeviceTokenCreate,
