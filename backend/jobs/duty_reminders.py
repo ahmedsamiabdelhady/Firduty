@@ -29,7 +29,7 @@ Safety:
 import sys
 import os
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import pytz
 
@@ -38,7 +38,7 @@ if _backend_path not in sys.path:
     sys.path.insert(0, _backend_path)
 
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, selectinload, joinedload
+from sqlalchemy.orm import Session, joinedload
 
 from database import SessionLocal
 from models.models import (
@@ -89,48 +89,90 @@ def _assignment_context(a: Assignment) -> dict:
     }
 
 
-def _already_sent(db: Session, teacher_id: int, assignment_id: int, notif_type: str) -> bool:
-    """Return True if this notification has already been sent."""
-    return (
-        db.query(NotificationLog)
-        .filter(
-            NotificationLog.teacher_id        == teacher_id,
-            NotificationLog.assignment_id     == assignment_id,
-            NotificationLog.notification_type == notif_type,
-        )
-        .first()
-    ) is not None
-
-
-def _mark_sent(
+def _claim_notification(
     db: Session,
     teacher_id: int,
     assignment_id: int,
     notif_type: str,
-    status: str = "sent",
-) -> None:
+) -> bool:
     """
-    Insert a deduplication row. On conflict (already sent) do nothing.
-    Uses a savepoint so a duplicate-key error doesn't roll back the whole tx.
+    Atomically claim a notification slot using the UNIQUE constraint.
+
+    Returns True only for the first caller that inserts the row. Any later
+    duplicate attempt rolls back and returns False, so no second send happens.
     """
     log = NotificationLog(
         teacher_id=teacher_id,
         assignment_id=assignment_id,
         notification_type=notif_type,
         sent_at=_utcnow(),
-        status=status,
+        status="pending",
     )
     try:
         db.add(log)
-        db.flush()
+        db.commit()
+        return True
     except IntegrityError:
-        db.rollback()   # duplicate — already sent, silently skip
+        db.rollback()
+        return False
+
+
+def _update_claim_status(
+    db: Session,
+    teacher_id: int,
+    assignment_id: int,
+    notif_type: str,
+    status: str,
+) -> None:
+    row = (
+        db.query(NotificationLog)
+        .filter(
+            NotificationLog.teacher_id == teacher_id,
+            NotificationLog.assignment_id == assignment_id,
+            NotificationLog.notification_type == notif_type,
+        )
+        .first()
+    )
+    if row is None:
+        return
+
+    row.status = status
+    row.sent_at = _utcnow()
+    db.commit()
 
 
 def _get_teacher_tokens(db: Session, teacher_id: int) -> list[str]:
-    """Return all FCM tokens for a teacher."""
-    rows = db.query(DeviceToken).filter(DeviceToken.teacher_id == teacher_id).all()
-    return [r.token for r in rows]
+    """
+    Return one freshest token per installation for a teacher.
+
+    This protects against duplicated sends when stale rows exist for the same
+    installation after token rotation. If installation_id has not been migrated
+    yet, this still de-dupes exact repeated tokens as a fallback.
+    """
+    rows = (
+        db.query(DeviceToken)
+        .filter(DeviceToken.teacher_id == teacher_id)
+        .order_by(DeviceToken.last_seen_at.desc(), DeviceToken.created_at.desc())
+        .all()
+    )
+
+    by_installation: dict[str, str] = {}
+    seen_tokens: set[str] = set()
+
+    for row in rows:
+        token = (row.token or "").strip()
+        if not token or token in seen_tokens:
+            continue
+
+        installation_id = str(getattr(row, "installation_id", "") or "").strip()
+        key = installation_id or f"token:{token}"
+        if key in by_installation:
+            continue
+
+        by_installation[key] = token
+        seen_tokens.add(token)
+
+    return list(by_installation.values())
 
 
 def _get_teacher_lang(db: Session, teacher_id: int) -> str:
@@ -143,13 +185,13 @@ def _get_teacher_lang(db: Session, teacher_id: int) -> str:
 # ── Notification dispatch ─────────────────────────────────────────────────────
 
 def _send_one(db: Session, ctx: dict, notif_type: str) -> None:
-    """Send one notification if not already sent. Fully idempotent."""
-    teacher_id    = ctx["teacher_id"]
+    """Send exactly one notification per teacher/assignment/type."""
+    teacher_id = ctx["teacher_id"]
     assignment_id = ctx["assignment_id"]
 
-    if _already_sent(db, teacher_id, assignment_id, notif_type):
+    if not _claim_notification(db, teacher_id, assignment_id, notif_type):
         logger.debug(
-            "[reminders] skip %s for teacher=%d assignment=%d (already sent)",
+            "[reminders] skip %s for teacher=%d assignment=%d (already claimed)",
             notif_type, teacher_id, assignment_id,
         )
         return
@@ -160,16 +202,17 @@ def _send_one(db: Session, ctx: dict, notif_type: str) -> None:
             "[reminders] teacher=%d has no device tokens — skipping %s",
             teacher_id, notif_type,
         )
-        _mark_sent(db, teacher_id, assignment_id, notif_type, "skipped")
-        db.commit()
+        try:
+            _update_claim_status(db, teacher_id, assignment_id, notif_type, "skipped")
+        except Exception:
+            db.rollback()
         return
 
     lang = _get_teacher_lang(db, teacher_id)
 
     try:
-        from services.notification_service import (
-            notify_duty_reminder, notify_duty_start,
-        )
+        from services.notification_service import notify_duty_reminder, notify_duty_start
+
         if notif_type == "reminder_15m":
             notify_duty_reminder(
                 teacher_tokens=tokens,
@@ -187,21 +230,26 @@ def _send_one(db: Session, ctx: dict, notif_type: str) -> None:
                 location=ctx["location_ar"] if lang == "ar" else ctx["location_en"],
                 grade_class=ctx.get("grade_class"),
             )
+        else:
+            logger.warning(
+                "[reminders] unknown notification type '%s' for teacher=%d assignment=%d",
+                notif_type, teacher_id, assignment_id,
+            )
+            _update_claim_status(db, teacher_id, assignment_id, notif_type, "failed")
+            return
 
-        _mark_sent(db, teacher_id, assignment_id, notif_type, "sent")
-        db.commit()
+        _update_claim_status(db, teacher_id, assignment_id, notif_type, "sent")
         logger.info(
-            "[reminders] sent %s → teacher=%d assignment=%d",
-            notif_type, teacher_id, assignment_id,
+            "[reminders] sent %s → teacher=%d assignment=%d tokens=%d",
+            notif_type, teacher_id, assignment_id, len(tokens),
         )
     except Exception as exc:
         logger.error(
-            "[reminders] failed to send %s for teacher=%d: %s",
-            notif_type, teacher_id, exc,
+            "[reminders] failed to send %s for teacher=%d assignment=%d: %s",
+            notif_type, teacher_id, assignment_id, exc,
         )
-        _mark_sent(db, teacher_id, assignment_id, notif_type, "failed")
         try:
-            db.commit()
+            _update_claim_status(db, teacher_id, assignment_id, notif_type, "failed")
         except Exception:
             db.rollback()
 
@@ -258,12 +306,12 @@ def run_duty_reminders() -> None:
 
                 ctx = _assignment_context(a)
 
-                # 15-minute reminder window: [14, 15) minutes before start
+                # Reminder window is one scheduler tick wide. Duplicate runs are
+                # still safe because _claim_notification() is atomic.
                 if 14 <= minutes_away < 15:
                     _send_one(db, ctx, "reminder_15m")
                     reminder_count += 1
 
-                # Duty-started window: [0, 1) minutes past start
                 if -1 < minutes_away <= 0:
                     _send_one(db, ctx, "duty_started")
                     start_count += 1

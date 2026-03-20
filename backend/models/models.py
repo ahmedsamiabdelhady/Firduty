@@ -87,6 +87,12 @@ class DeviceToken(Base):
     """
     Push notification tokens for a teacher.
 
+    One row represents one app/browser installation.
+    installation_id is generated on the client and remains stable for that
+    installation. When Firebase rotates the token, the backend should update the
+    existing row for the same (teacher_id, installation_id) instead of inserting
+    a new row.
+
     platform = 'android'
         token = FCM registration token (standard string)
 
@@ -97,13 +103,24 @@ class DeviceToken(Base):
                 service worker (iOS Safari 16.4+ supported).
     """
     __tablename__ = "device_tokens"
-    id         = Column(Integer, primary_key=True, index=True)
+    __table_args__ = (
+        UniqueConstraint(
+            "teacher_id",
+            "installation_id",
+            name="uq_device_tokens_teacher_installation",
+        ),
+        Index("ix_device_tokens_teacher_platform", "teacher_id", "platform"),
+        Index("ix_device_tokens_installation_id", "installation_id"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
     teacher_id = Column(Integer, ForeignKey("teachers.id"), nullable=False)
-    token      = Column(String(500), nullable=False, unique=True)
-    platform   = Column(String(10), nullable=False)   # 'android' | 'web'
+    token = Column(String(500), nullable=False, unique=True)
+    installation_id = Column(String(100), nullable=False)
+    platform = Column(String(10), nullable=False)   # 'android' | 'web'
     created_at = Column(DateTime, server_default=func.now())
     last_seen_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
-    teacher    = relationship("Teacher", back_populates="device_tokens")
+    teacher = relationship("Teacher", back_populates="device_tokens")
 
 
 # ─── Location ─────────────────────────────────────────────────────────────────

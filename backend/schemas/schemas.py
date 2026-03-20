@@ -104,6 +104,16 @@ class DeviceTokenCreate(BaseModel):
     installation_id: str
 
 
+class DeviceTokenOut(BaseModel):
+    id: int
+    teacher_id: int
+    token: str
+    platform: str
+    installation_id: str
+    created_at: datetime | None = None
+    last_seen_at: datetime | None = None
+
+
 class DeviceTokenDelete(BaseModel):
     installation_id: str
 
