@@ -858,60 +858,85 @@ def delete_teacher(
     db: Session = Depends(get_db),
     _: str = Depends(get_current_admin),
 ):
-    """Permanently delete one teacher and only that teacher's related data."""
+    """Permanently delete a teacher and every row tied to that teacher."""
     teacher = db.query(Teacher).filter(Teacher.id == teacher_id).first()
     if not teacher:
         raise HTTPException(404, "Teacher not found")
 
-    assignment_ids = [
-        row[0]
-        for row in db.query(Assignment.id).filter(Assignment.teacher_id == teacher_id).all()
-    ]
+    try:
+        assignment_ids = [
+            row[0]
+            for row in db.query(Assignment.id)
+            .filter(Assignment.teacher_id == teacher_id)
+            .all()
+        ]
 
-    deleted_confirmations = 0
-    if assignment_ids:
-        deleted_confirmations = (
+        deleted_notification_logs = 0
+        if assignment_ids:
+            deleted_notification_logs = db.execute(
+                text("""
+                    DELETE FROM notification_logs
+                    WHERE teacher_id = :teacher_id
+                       OR assignment_id = ANY(:assignment_ids)
+                """),
+                {
+                    "teacher_id": teacher_id,
+                    "assignment_ids": assignment_ids,
+                },
+            ).rowcount or 0
+        else:
+            deleted_notification_logs = db.execute(
+                text("DELETE FROM notification_logs WHERE teacher_id = :teacher_id"),
+                {"teacher_id": teacher_id},
+            ).rowcount or 0
+
+        deleted_confirmations = 0
+        if assignment_ids:
+            deleted_confirmations += (
+                db.query(DutyConfirmation)
+                .filter(DutyConfirmation.assignment_id.in_(assignment_ids))
+                .delete(synchronize_session=False)
+            )
+
+        deleted_confirmations += (
             db.query(DutyConfirmation)
-            .filter(DutyConfirmation.assignment_id.in_(assignment_ids))
+            .filter(DutyConfirmation.teacher_id == teacher_id)
             .delete(synchronize_session=False)
         )
 
-    deleted_assignments = (
-        db.query(Assignment)
-        .filter(Assignment.teacher_id == teacher_id)
-        .delete(synchronize_session=False)
-    )
+        deleted_assignments = (
+            db.query(Assignment)
+            .filter(Assignment.teacher_id == teacher_id)
+            .delete(synchronize_session=False)
+        )
 
-    deleted_monthly_summaries = (
-        db.query(MonthlyPointsSummary)
-        .filter(MonthlyPointsSummary.teacher_id == teacher_id)
-        .delete(synchronize_session=False)
-    )
+        deleted_monthly_summaries = (
+            db.query(MonthlyPointsSummary)
+            .filter(MonthlyPointsSummary.teacher_id == teacher_id)
+            .delete(synchronize_session=False)
+        )
 
-    deleted_device_tokens = (
-        db.query(DeviceToken)
-        .filter(DeviceToken.teacher_id == teacher_id)
-        .delete(synchronize_session=False)
-    )
+        deleted_device_tokens = (
+            db.query(DeviceToken)
+            .filter(DeviceToken.teacher_id == teacher_id)
+            .delete(synchronize_session=False)
+        )
 
-    # Safety cleanup in case any confirmation exists directly for the teacher
-    # but is not covered by the teacher's current assignment rows.
-    deleted_confirmations += (
-        db.query(DutyConfirmation)
-        .filter(DutyConfirmation.teacher_id == teacher_id)
-        .delete(synchronize_session=False)
-    )
-
-    db.delete(teacher)
-    db.commit()
+        db.delete(teacher)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.exception("Failed to delete teacher id=%d", teacher_id)
+        raise HTTPException(500, f"Failed to delete teacher: {exc}") from exc
 
     logger.info(
-        "Teacher deleted: id=%d assignments=%d confirmations=%d monthly_summaries=%d device_tokens=%d",
+        "Teacher deleted: id=%d assignments=%d confirmations=%d monthly_summaries=%d device_tokens=%d notification_logs=%d",
         teacher_id,
         deleted_assignments,
         deleted_confirmations,
         deleted_monthly_summaries,
         deleted_device_tokens,
+        deleted_notification_logs,
     )
 
     return {
@@ -922,5 +947,6 @@ def delete_teacher(
             "duty_confirmations": deleted_confirmations,
             "monthly_points_summary": deleted_monthly_summaries,
             "device_tokens": deleted_device_tokens,
+            "notification_logs": deleted_notification_logs,
         },
     }

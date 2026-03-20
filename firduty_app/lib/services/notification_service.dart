@@ -75,6 +75,7 @@ class NotificationService {
       ValueNotifier(NotificationBellState.unknown);
 
   static bool _initialized = false;
+  static int? _initializedForTeacherId;
   static bool _backgroundHandlerRegistered = false;
   static StreamSubscription<RemoteMessage>? _onMessageSub;
   static StreamSubscription<String>? _onTokenRefreshSub;
@@ -232,6 +233,7 @@ class NotificationService {
     _onMessageSub = null;
     _onTokenRefreshSub = null;
     _initialized = false;
+    _initializedForTeacherId = null;
   }
 
   static Future<void> reset({int? teacherId}) async {
@@ -252,6 +254,7 @@ class NotificationService {
     _onMessageSub = null;
     _onTokenRefreshSub = null;
     _initialized = false;
+    _initializedForTeacherId = null;
     debugPrint('[NotificationService] Reset — ready for next login.');
   }
 
@@ -260,9 +263,22 @@ class NotificationService {
     required String platform,
     required bool promptForPermission,
   }) async {
-    if (_initialized) {
-      debugPrint('[NotificationService] Already initialized — skipping.');
+    if (_initialized && _initializedForTeacherId == teacherId) {
+      debugPrint('[NotificationService] Already initialized for this teacher — skipping.');
       return;
+    }
+
+    if (_initialized && _initializedForTeacherId != teacherId) {
+      debugPrint(
+        '[NotificationService] Teacher changed '
+        '($_initializedForTeacherId -> $teacherId) — reconfiguring.',
+      );
+      await _onMessageSub?.cancel();
+      await _onTokenRefreshSub?.cancel();
+      _onMessageSub = null;
+      _onTokenRefreshSub = null;
+      _initialized = false;
+      _initializedForTeacherId = null;
     }
 
     try {
@@ -282,9 +298,12 @@ class NotificationService {
       }
 
       _initialized = true;
+      _initializedForTeacherId = teacherId;
       bellState.value = NotificationBellState.enabled;
       debugPrint('[NotificationService] Ready.');
     } catch (e, st) {
+      _initialized = false;
+      _initializedForTeacherId = null;
       debugPrint('[NotificationService] Failed to initialize: $e, $st');
     }
   }
