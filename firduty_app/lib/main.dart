@@ -60,6 +60,7 @@ Future<void> main() async {
         options: DefaultFirebaseOptions.currentPlatform,
       );
       debugPrint('[Firebase] Initialized successfully.');
+      await NotificationService.syncStatus();
     } else {
       debugPrint('[Firebase] Already initialized — skipping.');
     }
@@ -141,11 +142,11 @@ class _FirdutyAppState extends State<FirdutyApp> {
             );
           case '/login':
             return MaterialPageRoute(
-              builder: (_) => const LoginScreen(),
+              builder: (_) => LoginScreen(onLocaleChange: _changeLocale),
             );
           case '/register':
             return MaterialPageRoute(
-              builder: (_) => const RegistrationScreen(),
+              builder: (_) => RegistrationScreen(onLocaleChange: _changeLocale),
             );
           case '/pending':
             return MaterialPageRoute(
@@ -274,6 +275,23 @@ class _HomeScreenState extends State<HomeScreen> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    _ensureNotificationsReady();
+  }
+
+  Future<void> _ensureNotificationsReady() async {
+    final prefs = await SharedPreferences.getInstance();
+    final teacherId = prefs.getInt('teacher_id');
+    if (teacherId == null) return;
+    final platform = kIsWeb ? 'web' : 'android';
+    await NotificationService.initialize(
+      teacherId: teacherId,
+      platform: platform,
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
     final l10n   = AppLocalizations.of(context);
     final isAr   = Localizations.localeOf(context).languageCode == 'ar';
@@ -296,6 +314,7 @@ class _HomeScreenState extends State<HomeScreen> {
               style: const TextStyle(color: Colors.white, fontSize: 14),
             ),
           ),
+          const _NotificationBellButton(iconColor: Colors.white),
           IconButton(
             icon: const Icon(Icons.logout, color: Colors.white),
             tooltip: isAr ? 'تسجيل الخروج' : 'Sign Out',
@@ -336,6 +355,39 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+
+class _NotificationBellButton extends StatelessWidget {
+  final Color iconColor;
+  const _NotificationBellButton({this.iconColor = FirdutyColors.navBlue});
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<bool>(
+      valueListenable: NotificationService.isEnabled,
+      builder: (context, enabled, _) {
+        return IconButton(
+          tooltip: enabled ? 'Disable notifications' : 'Enable notifications',
+          icon: Icon(
+            enabled
+                ? Icons.notifications_active_rounded
+                : Icons.notifications_none_rounded,
+            color: iconColor,
+          ),
+          onPressed: () async {
+            final prefs = await SharedPreferences.getInstance();
+            final teacherId = prefs.getInt('teacher_id');
+            final platform = kIsWeb ? 'web' : 'android';
+            await NotificationService.toggle(
+              teacherId: teacherId,
+              platform: platform,
+            );
+          },
+        );
+      },
     );
   }
 }

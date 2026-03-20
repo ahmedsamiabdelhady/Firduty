@@ -185,5 +185,11 @@ class AppLocalizationsAr extends AppLocalizations {
   String get close => 'إغلاق';
 
   @override
+  String get languageButtonEnglish => 'EN';
+
+  @override
+  String get languageButtonArabic => 'عربي';
+
+  @override
   String get month => 'الشهر';
 }

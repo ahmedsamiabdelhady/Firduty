@@ -174,10 +174,11 @@ class _PendingScreenState extends State<PendingScreen>
             onPressed: () => widget.onLocaleChange(
                 isAr ? const Locale('en') : const Locale('ar')),
             style: TextButton.styleFrom(foregroundColor: Colors.white),
-            child: Text(isAr ? 'EN' : 'ع',
+            child: Text(isAr ? 'EN' : 'عربي',
                 style: const TextStyle(
                     fontWeight: FontWeight.w600, color: Colors.white)),
           ),
+          const _NotificationBellButton(iconColor: Colors.white),
         ],
       ),
       body: Center(
@@ -319,6 +320,39 @@ class _PendingScreenState extends State<PendingScreen>
           ),
         ),
       ),
+    );
+  }
+}
+
+
+class _NotificationBellButton extends StatelessWidget {
+  final Color iconColor;
+  const _NotificationBellButton({this.iconColor = FirdutyColors.navBlue});
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<bool>(
+      valueListenable: NotificationService.isEnabled,
+      builder: (context, enabled, _) {
+        return IconButton(
+          tooltip: enabled ? 'Disable notifications' : 'Enable notifications',
+          icon: Icon(
+            enabled
+                ? Icons.notifications_active_rounded
+                : Icons.notifications_none_rounded,
+            color: iconColor,
+          ),
+          onPressed: () async {
+            final prefs = await SharedPreferences.getInstance();
+            final teacherId = prefs.getInt('teacher_id');
+            final platform = kIsWeb ? 'web' : 'android';
+            await NotificationService.toggle(
+              teacherId: teacherId,
+              platform: platform,
+            );
+          },
+        );
+      },
     );
   }
 }

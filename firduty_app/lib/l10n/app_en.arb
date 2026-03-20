@@ -64,5 +64,7 @@
   "missed": "No Points",
   "noConfirmationsYet": "No confirmations yet this month.",
   "close": "Close",
+  "languageButtonEnglish": "EN",
+  "languageButtonArabic": "عربي",
   "month": "Month"
 }

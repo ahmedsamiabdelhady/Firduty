@@ -440,6 +440,18 @@ abstract class AppLocalizations {
   /// **'Close'**
   String get close;
 
+  /// No description provided for @languageButtonEnglish.
+  ///
+  /// In en, this message translates to:
+  /// **'EN'**
+  String get languageButtonEnglish;
+
+  /// No description provided for @languageButtonArabic.
+  ///
+  /// In en, this message translates to:
+  /// **'عربي'**
+  String get languageButtonArabic;
+
   /// No description provided for @month.
   ///
   /// In en, this message translates to:
