@@ -28,7 +28,7 @@ DeviceToken.platform values:
 from datetime import datetime
 from sqlalchemy import (
     Column, Integer, String, Boolean, DateTime, Date, Time, Text,
-    ForeignKey, Enum as SAEnum, UniqueConstraint, Index,
+    ForeignKey, Enum as SAEnum, UniqueConstraint, Index, func,
 )
 from sqlalchemy.orm import relationship
 from database import Base
@@ -101,7 +101,8 @@ class DeviceToken(Base):
     teacher_id = Column(Integer, ForeignKey("teachers.id"), nullable=False)
     token      = Column(String(500), nullable=False, unique=True)
     platform   = Column(String(10), nullable=False)   # 'android' | 'web'
-    updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
+    created_at = Column(DateTime, server_default=func.now())
+    last_seen_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     teacher    = relationship("Teacher", back_populates="device_tokens")
 
 
