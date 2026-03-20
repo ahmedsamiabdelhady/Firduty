@@ -27,7 +27,8 @@ from datetime import date as date_type, datetime
 from typing import List, Optional
 
 import pytz
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response, status
+from sqlalchemy import text
 from sqlalchemy.orm import Session, selectinload, joinedload
 
 from database import get_db
@@ -37,7 +38,7 @@ from models.models import (
 from models.models import DutyConfirmation, MonthlyPointsSummary
 from schemas.schemas import (
     TeacherCreate, TeacherLogin, TeacherRegister, TeacherUpdate,
-    TeacherOut, TeacherStatusOut, DeviceTokenCreate,
+    TeacherOut, TeacherStatusOut, DeviceTokenCreate, DeviceTokenDelete,
 )
 from routers.auth import get_current_admin
 from services.week_service import get_current_week_start
@@ -635,20 +636,142 @@ def register_device_token(
     data: DeviceTokenCreate,
     db: Session = Depends(get_db),
 ) -> dict:
+    """
+    Register exactly one token per user-device pair.
+
+    Rules:
+      - token is globally unique
+      - (teacher_id, installation_id) is unique per device
+      - old token rows for the same device are completely deleted
+      - same token is upserted instead of duplicated
+    """
     teacher = db.query(Teacher).filter(Teacher.id == teacher_id).first()
     if not teacher:
         raise HTTPException(404, "Teacher not found")
 
-    existing = db.query(DeviceToken).filter(DeviceToken.token == data.token).first()
-    if existing:
-        existing.teacher_id = teacher_id
-        existing.platform   = data.platform
-    else:
-        db.add(DeviceToken(
-            teacher_id=teacher_id, token=data.token, platform=data.platform
-        ))
-    db.commit()
-    return {"status": "registered"}
+    token_value = data.token.strip()
+    platform_value = (data.platform or "").strip().lower()
+    installation_id = data.installation_id.strip()
+
+    if not token_value:
+        raise HTTPException(400, "token is required")
+    if not installation_id:
+        raise HTTPException(400, "installation_id is required")
+
+    try:
+        # Transaction keeps device cleanup + upsert atomic.
+        db.execute(text("""
+            DELETE FROM device_tokens
+            WHERE teacher_id = :teacher_id
+              AND installation_id = :installation_id
+              AND token <> :token
+        """), {
+            "teacher_id": teacher_id,
+            "installation_id": installation_id,
+            "token": token_value,
+        })
+
+        db.execute(text("""
+            INSERT INTO device_tokens (
+                teacher_id,
+                token,
+                platform,
+                installation_id,
+                created_at,
+                last_seen_at
+            )
+            VALUES (
+                :teacher_id,
+                :token,
+                :platform,
+                :installation_id,
+                NOW(),
+                NOW()
+            )
+            ON CONFLICT (token)
+            DO UPDATE SET
+                teacher_id = EXCLUDED.teacher_id,
+                platform = EXCLUDED.platform,
+                installation_id = EXCLUDED.installation_id,
+                last_seen_at = NOW()
+        """), {
+            "teacher_id": teacher_id,
+            "token": token_value,
+            "platform": platform_value,
+            "installation_id": installation_id,
+        })
+
+        # Defensive cleanup: keep only the newest/current token for this device.
+        db.execute(text("""
+            DELETE FROM device_tokens
+            WHERE teacher_id = :teacher_id
+              AND installation_id = :installation_id
+              AND token <> :token
+        """), {
+            "teacher_id": teacher_id,
+            "installation_id": installation_id,
+            "token": token_value,
+        })
+
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.exception(
+            "register_device_token failed teacher_id=%s installation_id=%s",
+            teacher_id,
+            installation_id,
+        )
+        raise HTTPException(500, f"Failed to register device token: {exc}") from exc
+
+    logger.info(
+        "Device token registered teacher_id=%s installation_id=%s platform=%s",
+        teacher_id,
+        installation_id,
+        platform_value,
+    )
+    return {
+        "status": "registered",
+        "teacher_id": teacher_id,
+        "installation_id": installation_id,
+        "platform": platform_value,
+    }
+
+
+@router.delete("/{teacher_id}/device-token", status_code=status.HTTP_204_NO_CONTENT)
+def delete_device_token(
+    teacher_id: int,
+    data: DeviceTokenDelete,
+    db: Session = Depends(get_db),
+):
+    """Delete the token row for a specific installation on logout/disable."""
+    teacher = db.query(Teacher).filter(Teacher.id == teacher_id).first()
+    if not teacher:
+        raise HTTPException(404, "Teacher not found")
+
+    installation_id = data.installation_id.strip()
+    if not installation_id:
+        raise HTTPException(400, "installation_id is required")
+
+    try:
+        db.execute(text("""
+            DELETE FROM device_tokens
+            WHERE teacher_id = :teacher_id
+              AND installation_id = :installation_id
+        """), {
+            "teacher_id": teacher_id,
+            "installation_id": installation_id,
+        })
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.exception(
+            "delete_device_token failed teacher_id=%s installation_id=%s",
+            teacher_id,
+            installation_id,
+        )
+        raise HTTPException(500, f"Failed to delete device token: {exc}") from exc
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 # ─── CRUD ─────────────────────────────────────────────────────────────────────

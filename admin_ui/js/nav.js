@@ -65,3 +65,4 @@ async function _loadPendingBadge() {
     }
   } catch (_) { /* non-critical */ }
 }
+

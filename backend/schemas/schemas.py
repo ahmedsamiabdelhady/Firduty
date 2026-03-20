@@ -101,6 +101,11 @@ class TeacherOut(_OrmBase):
 class DeviceTokenCreate(BaseModel):
     token: str
     platform: str   # 'android' | 'web'
+    installation_id: str
+
+
+class DeviceTokenDelete(BaseModel):
+    installation_id: str
 
 
 # ─── Location ─────────────────────────────────────────────────────────────────

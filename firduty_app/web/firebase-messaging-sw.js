@@ -54,8 +54,8 @@ firebase.initializeApp({
   projectId:         "firduty-dede5",
   storageBucket:     "firduty-dede5.firebasestorage.app",
   messagingSenderId: "442695383131",
-  appId:             "1:442695383131:web:011bbb04af4dde2448677e",
-  measurementId:     "G-Y4DN8HJPC5",
+  appId:             "1:442695383131:web:1ac5166bec55253b48677e",
+  measurementId:     "G-CF2WM5SL5D",
 });
 // ────────────────────────────────────────────────────────────────────────────
 

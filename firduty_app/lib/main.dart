@@ -45,6 +45,7 @@ import 'services/api_service.dart';
 import 'services/notification_service.dart';
 import 'gen/app_localizations.dart';
 import 'app_theme.dart';
+import 'widgets/notification_bell.dart';
 
 Future<void> main() async {
   // ── Step 1: bind Flutter engine ─────────────────────────────────────────
@@ -60,14 +61,15 @@ Future<void> main() async {
         options: DefaultFirebaseOptions.currentPlatform,
       );
       debugPrint('[Firebase] Initialized successfully.');
-      await NotificationService.syncStatus();
     } else {
       debugPrint('[Firebase] Already initialized — skipping.');
     }
-  } catch (e) {
+  } catch (e, st) {
     // Log the error but never crash. The app can still run without Firebase
     // (teachers can view their schedule; they just won't receive push).
-    debugPrint('[Firebase] Init skipped / already exists: $e');
+    debugPrint('[Firebase] Init failed: $e');
+    debugPrint('[Firebase] runtimeType: ${e.runtimeType}');
+    debugPrint('$st');
   }
 
   // ── Step 3: start the UI ───────────────────────────────────────────────
@@ -100,6 +102,7 @@ class _FirdutyAppState extends State<FirdutyApp> {
     _initLocale();
     // Pass the navigator key to NotificationService so background taps work.
     NotificationService.navigatorKey = _navigatorKey;
+    NotificationService.loadBellState();
   }
 
   Future<void> _initLocale() async {
@@ -275,23 +278,6 @@ class _HomeScreenState extends State<HomeScreen> {
   ];
 
   @override
-  void initState() {
-    super.initState();
-    _ensureNotificationsReady();
-  }
-
-  Future<void> _ensureNotificationsReady() async {
-    final prefs = await SharedPreferences.getInstance();
-    final teacherId = prefs.getInt('teacher_id');
-    if (teacherId == null) return;
-    final platform = kIsWeb ? 'web' : 'android';
-    await NotificationService.initialize(
-      teacherId: teacherId,
-      platform: platform,
-    );
-  }
-
-  @override
   Widget build(BuildContext context) {
     final l10n   = AppLocalizations.of(context);
     final isAr   = Localizations.localeOf(context).languageCode == 'ar';
@@ -304,6 +290,7 @@ class _HomeScreenState extends State<HomeScreen> {
         backgroundColor: FirdutyColors.navBlue,
         foregroundColor: Colors.white,
         actions: [
+          const NotificationBellButton(iconColor: Colors.white),
           TextButton(
             onPressed: () {
               widget.onLocaleChange(
@@ -314,7 +301,6 @@ class _HomeScreenState extends State<HomeScreen> {
               style: const TextStyle(color: Colors.white, fontSize: 14),
             ),
           ),
-          const _NotificationBellButton(iconColor: Colors.white),
           IconButton(
             icon: const Icon(Icons.logout, color: Colors.white),
             tooltip: isAr ? 'تسجيل الخروج' : 'Sign Out',
@@ -355,39 +341,6 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-    );
-  }
-}
-
-
-class _NotificationBellButton extends StatelessWidget {
-  final Color iconColor;
-  const _NotificationBellButton({this.iconColor = FirdutyColors.navBlue});
-
-  @override
-  Widget build(BuildContext context) {
-    return ValueListenableBuilder<bool>(
-      valueListenable: NotificationService.isEnabled,
-      builder: (context, enabled, _) {
-        return IconButton(
-          tooltip: enabled ? 'Disable notifications' : 'Enable notifications',
-          icon: Icon(
-            enabled
-                ? Icons.notifications_active_rounded
-                : Icons.notifications_none_rounded,
-            color: iconColor,
-          ),
-          onPressed: () async {
-            final prefs = await SharedPreferences.getInstance();
-            final teacherId = prefs.getInt('teacher_id');
-            final platform = kIsWeb ? 'web' : 'android';
-            await NotificationService.toggle(
-              teacherId: teacherId,
-              platform: platform,
-            );
-          },
-        );
-      },
     );
   }
 }

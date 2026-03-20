@@ -7,13 +7,11 @@
 //   • Keyboard action "Next" / "Done" for natural field flow
 //   • Error displayed inside a styled banner, not raw text
 
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../gen/app_localizations.dart';
 import '../app_theme.dart';
-import '../services/notification_service.dart';
 
 class RegistrationScreen extends StatefulWidget {
   final void Function(Locale) onLocaleChange;
@@ -82,15 +80,16 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    mainAxisAlignment: MainAxisAlignment.end,
                     children: [
-                      const _NotificationBellButton(),
                       TextButton(
                         onPressed: () => widget.onLocaleChange(
                           isAr ? const Locale('en') : const Locale('ar'),
                         ),
                         child: Text(
-                          isAr ? 'EN' : 'عربي',
+                          isAr
+                              ? l10n.languageButtonEnglish
+                              : l10n.languageButtonArabic,
                           style: const TextStyle(fontWeight: FontWeight.w700),
                         ),
                       ),
@@ -269,33 +268,3 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
 }
 
 
-class _NotificationBellButton extends StatelessWidget {
-  const _NotificationBellButton();
-
-  @override
-  Widget build(BuildContext context) {
-    return ValueListenableBuilder<bool>(
-      valueListenable: NotificationService.isEnabled,
-      builder: (context, enabled, _) {
-        return IconButton(
-          tooltip: enabled ? 'Disable notifications' : 'Enable notifications',
-          icon: Icon(
-            enabled
-                ? Icons.notifications_active_rounded
-                : Icons.notifications_none_rounded,
-            color: FirdutyColors.navBlue,
-          ),
-          onPressed: () async {
-            final prefs = await SharedPreferences.getInstance();
-            final teacherId = prefs.getInt('teacher_id');
-            final platform = kIsWeb ? 'web' : 'android';
-            await NotificationService.toggle(
-              teacherId: teacherId,
-              platform: platform,
-            );
-          },
-        );
-      },
-    );
-  }
-}

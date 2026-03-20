@@ -14,6 +14,7 @@ import '../services/api_service.dart';
 import '../services/notification_service.dart';
 import '../gen/app_localizations.dart';
 import '../app_theme.dart';
+import '../widgets/notification_bell.dart';
 
 class PendingScreen extends StatefulWidget {
   final void Function(Locale) onLocaleChange;
@@ -74,53 +75,67 @@ class _PendingScreenState extends State<PendingScreen>
     super.dispose();
   }
 
-  Future<void> _checkStatus() async {
-    if (_checking) return;
+ Future<void> _checkStatus() async {
+  if (_checking) return;
+
+  setState(() {
+    _checking = true;
+    _errorMsg = null;
+  });
+
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final teacherId = prefs.getInt('teacher_id');
+
+    if (teacherId == null) {
+      if (mounted) {
+        Navigator.pushReplacementNamed(context, '/login');
+      }
+      return;
+    }
+
+    final result = await ApiService.getTeacherStatus(teacherId);
+    final status = result['status'] as String;
+
+    if (status == 'approved') {
+      _pollTimer?.cancel();
+
+      const platform = kIsWeb ? 'web' : 'android';
+
+      await NotificationService.initialize(
+        teacherId: teacherId,
+        platform: platform,
+      );
+
+      if (!mounted) return;
+
+      Navigator.pushReplacementNamed(context, '/home');
+    } else {
+      setState(() => _checking = false);
+      _startPollTimer();
+    }
+
+  } catch (e) {
+    final msg = e.toString();
+
+    if (msg.contains('404') || msg.contains('not found')) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('teacher_id');
+
+      if (!mounted) return;
+
+      Navigator.pushReplacementNamed(context, '/login');
+      return;
+    }
+
     setState(() {
-      _checking = true;
-      _errorMsg = null;
+      _checking = false;
+      _errorMsg = 'Error checking status. Retrying...';
     });
 
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final teacherId = prefs.getInt('teacher_id');
-      if (teacherId == null) {
-        if (mounted) Navigator.pushReplacementNamed(context, '/login');
-        return;
-      }
-
-      final result = await ApiService.getTeacherStatus(teacherId);
-      final status = result['status'] as String;
-
-      if (status == 'approved') {
-        _pollTimer?.cancel();
-        final platform = kIsWeb ? 'web' : 'android';
-        await NotificationService.initialize(
-          teacherId: teacherId,
-          platform: platform,
-        );
-        if (!mounted) return;
-        Navigator.pushReplacementNamed(context, '/home');
-      } else {
-        setState(() => _checking = false);
-        _startPollTimer();
-      }
-    } catch (e) {
-      final msg = e.toString();
-      if (msg.contains('404') || msg.contains('not found')) {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.remove('teacher_id');
-        if (!mounted) return;
-        Navigator.pushReplacementNamed(context, '/login');
-        return;
-      }
-      setState(() {
-        _errorMsg = msg.replaceFirst('Exception: ', '');
-        _checking = false;
-      });
-    }
+    _startPollTimer();
   }
-
+}
   Future<void> _logout() async {
     final isAr = mounted
         ? Localizations.localeOf(context).languageCode == 'ar'
@@ -170,16 +185,21 @@ class _PendingScreenState extends State<PendingScreen>
         foregroundColor: Colors.white,
         elevation: 0,
         actions: [
+          const NotificationBellButton(),
           TextButton(
             onPressed: () => widget.onLocaleChange(
-                isAr ? const Locale('en') : const Locale('ar')),
+              isAr ? const Locale('en') : const Locale('ar'),
+            ),
             style: TextButton.styleFrom(foregroundColor: Colors.white),
-            child: Text(isAr ? 'EN' : 'عربي',
-                style: const TextStyle(
-                    fontWeight: FontWeight.w600, color: Colors.white)),
+            child: Text(
+              isAr ? 'EN' : 'ع',
+              style: const TextStyle(
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
+              ),
+            ),
           ),
-          const _NotificationBellButton(iconColor: Colors.white),
-        ],
+      ],
       ),
       body: Center(
         child: Padding(
@@ -320,39 +340,6 @@ class _PendingScreenState extends State<PendingScreen>
           ),
         ),
       ),
-    );
-  }
-}
-
-
-class _NotificationBellButton extends StatelessWidget {
-  final Color iconColor;
-  const _NotificationBellButton({this.iconColor = FirdutyColors.navBlue});
-
-  @override
-  Widget build(BuildContext context) {
-    return ValueListenableBuilder<bool>(
-      valueListenable: NotificationService.isEnabled,
-      builder: (context, enabled, _) {
-        return IconButton(
-          tooltip: enabled ? 'Disable notifications' : 'Enable notifications',
-          icon: Icon(
-            enabled
-                ? Icons.notifications_active_rounded
-                : Icons.notifications_none_rounded,
-            color: iconColor,
-          ),
-          onPressed: () async {
-            final prefs = await SharedPreferences.getInstance();
-            final teacherId = prefs.getInt('teacher_id');
-            final platform = kIsWeb ? 'web' : 'android';
-            await NotificationService.toggle(
-              teacherId: teacherId,
-              platform: platform,
-            );
-          },
-        );
-      },
     );
   }
 }

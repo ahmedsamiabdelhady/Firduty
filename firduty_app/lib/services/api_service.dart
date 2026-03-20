@@ -440,8 +440,11 @@ class ApiService {
     required int teacherId,
     required String token,
     required String platform,
+    required String installationId,
   }) async {
     if (baseUrl == 'http://SERVER-NOT-CONFIGURED') return;
+    if (token.trim().isEmpty || installationId.trim().isEmpty) return;
+
     final url   = _pathDeviceToken(teacherId);
     final start = DateTime.now();
 
@@ -450,12 +453,39 @@ class ApiService {
           .post(
             Uri.parse(url),
             headers: {'Content-Type': 'application/json'},
-            body: jsonEncode({'token': token, 'platform': platform}),
+            body: jsonEncode({
+              'token': token,
+              'platform': platform,
+              'installation_id': installationId,
+            }),
           )
           .timeout(_timeout);
       _log('POST', url, res, start);
     } catch (e) {
       debugPrint('[API] POST $url → device token registration failed: $e');
+    }
+  }
+
+  static Future<void> deleteDeviceToken({
+    required int teacherId,
+    required String installationId,
+  }) async {
+    if (baseUrl == 'http://SERVER-NOT-CONFIGURED') return;
+    if (installationId.trim().isEmpty) return;
+
+    final url   = _pathDeviceToken(teacherId);
+    final start = DateTime.now();
+
+    try {
+      final request = http.Request('DELETE', Uri.parse(url))
+        ..headers['Content-Type'] = 'application/json'
+        ..body = jsonEncode({'installation_id': installationId});
+
+      final streamed = await _client.send(request).timeout(_timeout);
+      final res = await http.Response.fromStream(streamed);
+      _log('DELETE', url, res, start);
+    } catch (e) {
+      debugPrint('[API] DELETE $url → device token deletion failed: $e');
     }
   }
 

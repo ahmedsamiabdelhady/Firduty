@@ -6,13 +6,11 @@
 //
 // Matches the registration screen layout for visual consistency.
 
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../gen/app_localizations.dart';
 import '../app_theme.dart';
-import '../services/notification_service.dart';
 
 class LoginScreen extends StatefulWidget {
   final void Function(Locale) onLocaleChange;
@@ -56,14 +54,6 @@ class _LoginScreenState extends State<LoginScreen> {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt('teacher_id', teacherId);
 
-      if (status == 'approved') {
-        final platform = kIsWeb ? 'web' : 'android';
-        await NotificationService.initialize(
-          teacherId: teacherId,
-          platform: platform,
-        );
-      }
-
       if (!mounted) return;
       if (status == 'approved') {
         Navigator.pushReplacementNamed(context, '/home');
@@ -95,15 +85,16 @@ class _LoginScreenState extends State<LoginScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    mainAxisAlignment: MainAxisAlignment.end,
                     children: [
-                      const _NotificationBellButton(),
                       TextButton(
                         onPressed: () => widget.onLocaleChange(
                           isAr ? const Locale('en') : const Locale('ar'),
                         ),
                         child: Text(
-                          isAr ? 'EN' : 'عربي',
+                          isAr
+                              ? l10n.languageButtonEnglish
+                              : l10n.languageButtonArabic,
                           style: const TextStyle(fontWeight: FontWeight.w700),
                         ),
                       ),
@@ -281,33 +272,3 @@ class _LoginScreenState extends State<LoginScreen> {
 }
 
 
-class _NotificationBellButton extends StatelessWidget {
-  const _NotificationBellButton();
-
-  @override
-  Widget build(BuildContext context) {
-    return ValueListenableBuilder<bool>(
-      valueListenable: NotificationService.isEnabled,
-      builder: (context, enabled, _) {
-        return IconButton(
-          tooltip: enabled ? 'Disable notifications' : 'Enable notifications',
-          icon: Icon(
-            enabled
-                ? Icons.notifications_active_rounded
-                : Icons.notifications_none_rounded,
-            color: FirdutyColors.navBlue,
-          ),
-          onPressed: () async {
-            final prefs = await SharedPreferences.getInstance();
-            final teacherId = prefs.getInt('teacher_id');
-            final platform = kIsWeb ? 'web' : 'android';
-            await NotificationService.toggle(
-              teacherId: teacherId,
-              platform: platform,
-            );
-          },
-        );
-      },
-    );
-  }
-}

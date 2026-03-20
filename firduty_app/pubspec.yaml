@@ -21,8 +21,9 @@ dependencies:
   shared_preferences: ^2.2.3
 
   # Firebase — supports Android (native) and Web (FCM web push / iOS Safari PWA)
-  firebase_core: ^2.32.0
-  firebase_messaging: ^14.7.10
+  firebase_core: ^4.5.0
+  firebase_messaging: ^16.1.2
+  firebase_messaging_web: ^4.1.3
 
   # Local notification display — Android only.
   # Guarded with kIsWeb in notification_service.dart (not invoked on web).
@@ -35,7 +36,7 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^3.0.0
+  flutter_lints: ^6.0.0
 
 flutter:
   uses-material-design: true
