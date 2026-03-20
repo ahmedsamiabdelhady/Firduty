@@ -155,8 +155,7 @@ class NotificationService {
           ? NotificationBellState.enabled
           : NotificationBellState.disabled;
     } catch (e, st) {
-      debugPrint('[NotificationService] Failed to initialize: $e
-$st');
+      debugPrint('[NotificationService] Failed to initialize: $e, $st');
       rethrow;
     }
   }
@@ -286,8 +285,7 @@ $st');
       bellState.value = NotificationBellState.enabled;
       debugPrint('[NotificationService] Ready.');
     } catch (e, st) {
-      debugPrint('[NotificationService] Failed to initialize: $e
-$st');
+      debugPrint('[NotificationService] Failed to initialize: $e, $st');
     }
   }
 
