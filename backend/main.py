@@ -1,129 +1,155 @@
 """
 main.py — FastAPI application entry point for Firduty.
 
-Firebase credentials bootstrap
-──────────────────────────────
-Option A — File on disk  (local dev / Koyeb Secrets volume):
-  Set  FIREBASE_CREDENTIALS_PATH=./firebase-credentials.json
+── Startup order (critical for Koyeb) ──────────────────────────────────────────
+1. logging.basicConfig()          ← FIRST — so every crash is visible in logs
+2. Firebase credential bootstrap  ← must run before firebase-admin is imported
+3. All other imports              ← config / database / routers
+4. lifespan():
+     a. threading.Thread(_run_bootstrap).start()  ← background, non-blocking
+     b. start_scheduler()
+     c. yield  ← /health responds 200 immediately; Koyeb marks deployment healthy
 
-Option B — Inline env var  (easiest on Koyeb free tier):
-  Set  FIREBASE_CREDENTIALS_JSON=<entire contents of firebase-credentials.json>
-  This block detects that env var, validates it, writes it to a temp file,
-  and sets FIREBASE_CREDENTIALS_PATH automatically before firebase-admin loads.
+The old pattern ran bootstrap_database() synchronously before yield, which blocked
+the ASGI server from accepting connections. Koyeb's health check timed out and the
+deployment stayed "Starting" for up to an hour with empty logs.
+
+── Firebase credentials ────────────────────────────────────────────────────────
+Option A  FIREBASE_CREDENTIALS_PATH=./firebase-credentials.json
+Option B  FIREBASE_CREDENTIALS_JSON=<entire JSON as a single string>
 """
 
-import json
+# ── Step 1: configure logging FIRST ──────────────────────────────────────────
+# This must be the very first executable line so that any subsequent import
+# crash is captured and visible in Koyeb logs instead of producing empty logs.
 import logging
 import os
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
+logger.info("Firduty main.py loading — logging configured.")
+
+# ── Step 2: Firebase credential bootstrap ────────────────────────────────────
+# Must happen before any import that touches firebase-admin.
+import json
 import tempfile
-import uvicorn
-from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-
-# ── Firebase credentials bootstrap (runs before any service import) ───────────
 _fcm_json_str = os.getenv("FIREBASE_CREDENTIALS_JSON")
 if _fcm_json_str:
     try:
-        json.loads(_fcm_json_str)
+        json.loads(_fcm_json_str)   # validate JSON before writing
         _tmp = tempfile.NamedTemporaryFile(
             mode="w", suffix=".json", delete=False, prefix="firebase-creds-"
         )
         _tmp.write(_fcm_json_str)
         _tmp.close()
         os.environ["FIREBASE_CREDENTIALS_PATH"] = _tmp.name
-        logging.getLogger(__name__).info(
-            "Firebase credentials loaded from FIREBASE_CREDENTIALS_JSON env var."
-        )
+        logger.info("Firebase credentials written from FIREBASE_CREDENTIALS_JSON.")
     except (json.JSONDecodeError, OSError) as _e:
-        logging.getLogger(__name__).warning(
-            f"FIREBASE_CREDENTIALS_JSON is set but could not be written: {_e}"
-        )
-# ─────────────────────────────────────────────────────────────────────────────
+        logger.warning("FIREBASE_CREDENTIALS_JSON could not be written: %s", _e)
 
+# ── Step 3: all remaining imports ────────────────────────────────────────────
+import threading
+import uvicorn
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+logger.info("Importing config and database...")
 from config import settings
 from database import Base, engine, SessionLocal
-from routers.auth import router as auth_router, oauth2_scheme  # noqa: F401
-from routers.teachers import router as teachers_router
+
+logger.info("Importing routers...")
+from routers.auth      import router as auth_router, oauth2_scheme  # noqa: F401
+from routers.teachers  import router as teachers_router
 from routers.locations import router as locations_router
-from routers.shifts import router as shifts_router
-from routers.weeks import router as weeks_router
-from routers.points import router as points_router
-from routers.reports import router as reports_router
+from routers.shifts    import router as shifts_router
+from routers.weeks     import router as weeks_router
+from routers.points    import router as points_router
+from routers.reports   import router as reports_router
 from routers.dashboard import router as dashboard_router
-from scheduler import start_scheduler, stop_scheduler
-from scheduler import router as scheduler_router
-from seed_data import seed_shifts, seed_locations, seed_grade_classes
+from scheduler         import start_scheduler, stop_scheduler, router as scheduler_router
+from seed_data         import seed_shifts, seed_locations, seed_grade_classes
 
-# ── Model imports — REQUIRED so Base.metadata.create_all() sees every table ──
-# All ORM models that live in separate files must be imported here before
-# bootstrap_database() calls create_all(). Importing the router modules above
-# is not sufficient because routers may not import every model file.
-import models.models          # noqa: F401  — Teacher, Shift, Location, WeekPlan …
-import models.notification_log  # noqa: F401  — NotificationLog (Phase 2 — duty reminders)
+# ── Model imports — required so Base.metadata.create_all() registers all tables
+import models.models           # noqa: F401
+import models.notification_log # noqa: F401 — NotificationLog (duty reminders)
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s"
-)
-logger = logging.getLogger(__name__)
+logger.info("All imports complete — building FastAPI app.")
+
+# ── Bootstrap state (exposed by /health) ─────────────────────────────────────
+_bootstrap_done  = False
+_bootstrap_error = False
 
 
-def bootstrap_database() -> None:
-    logger.info("Starting database bootstrap...")
+def _run_bootstrap() -> None:
+    """
+    Background thread: create tables + seed reference data.
+    Never blocks the health check — fires after the app is already accepting connections.
 
-    logger.info("Creating tables if missing...")
-    Base.metadata.create_all(bind=engine)
-    logger.info("create_all completed.")
-
-    db = SessionLocal()
+    RUN_SEED env var:
+      true  (default) — run seed on every startup (idempotent, safe)
+      false           — skip seeding (faster restarts after first deploy)
+    """
+    global _bootstrap_done, _bootstrap_error
     try:
-        logger.info("Seeding shifts...")
-        seed_shifts(db)
-        db.commit()
-        logger.info("Shifts committed successfully.")
+        logger.info("[bootstrap] Creating tables if missing...")
+        Base.metadata.create_all(bind=engine)
+        logger.info("[bootstrap] create_all done.")
 
-        logger.info("Seeding locations...")
-        seed_locations(db)
-        db.commit()
-        logger.info("Locations committed successfully.")
+        if os.getenv("RUN_SEED", "true").strip().lower() == "true":
+            db = SessionLocal()
+            try:
+                logger.info("[bootstrap] Seeding reference data...")
+                seed_shifts(db);        db.commit()
+                seed_locations(db);     db.commit()
+                seed_grade_classes(db); db.commit()
+                logger.info("[bootstrap] Seeding complete.")
+            except Exception:
+                db.rollback()
+                logger.exception("[bootstrap] Seed failed.")
+                raise
+            finally:
+                db.close()
+        else:
+            logger.info("[bootstrap] RUN_SEED=false — skipping seed.")
 
-        logger.info("Seeding grade classes...")
-        seed_grade_classes(db)
-        db.commit()
-        logger.info("Grade classes committed successfully.")
-
-        logger.info("Database bootstrap completed successfully.")
+        _bootstrap_done = True
+        logger.info("[bootstrap] Bootstrap finished successfully.")
     except Exception:
-        db.rollback()
-        logger.exception("Database bootstrap failed.")
-    finally:
-        db.close()
+        _bootstrap_error = True
+        logger.exception("[bootstrap] Bootstrap failed — app still running.")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Firduty API starting up...")
+    logger.info("Firduty lifespan start.")
 
-    try:
-        bootstrap_database()
-    except Exception:
-        logger.exception("Startup bootstrap crashed unexpectedly.")
+    # Launch bootstrap in background — returns immediately.
+    # /health can respond 200 before any DB connection is opened.
+    thread = threading.Thread(target=_run_bootstrap, daemon=True, name="bootstrap")
+    thread.start()
+    logger.info("Bootstrap thread started.")
 
     start_scheduler()
+    logger.info("Scheduler started. API ready.")
     yield
 
-    logger.info("Firduty API shutting down...")
+    logger.info("Firduty shutting down...")
     stop_scheduler()
 
+
+# ── App ───────────────────────────────────────────────────────────────────────
 
 app = FastAPI(
     title="Firduty API",
     description=(
         "School Duty Roster Management System.\n\n"
-        "**Authentication:** Click the 🔓 Authorize button and enter your admin "
-        "username and password. All protected endpoints will then work from Swagger."
+        "**Authentication:** Click 🔓 Authorize and enter admin credentials."
     ),
     version="3.2.0",
     lifespan=lifespan,
@@ -155,7 +181,16 @@ def root():
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    """
+    Always returns 200 OK immediately — even while bootstrap is still running.
+    Koyeb calls this to decide when the deployment is healthy.
+    bootstrap_ready turns true once create_all + seed finish (~5–10 s after start).
+    """
+    return {
+        "status":           "ok",
+        "bootstrap_ready":  _bootstrap_done,
+        "bootstrap_error":  _bootstrap_error,
+    }
 
 
 if __name__ == "__main__":

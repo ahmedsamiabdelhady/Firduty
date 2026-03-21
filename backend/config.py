@@ -2,48 +2,80 @@
 config.py — Application configuration.
 
 All values are read from environment variables.
-For local development, values can be set in a .env file (loaded by python-dotenv).
-In production (Koyeb), set these as platform environment variables.
+For local development, copy .env.example to .env and fill in the values.
+
+IMPORTANT: No validation runs at import time.
+All required-field checking happens inside Settings.__init__() so that
+the process can start, configure logging, and print a clear error message
+before exiting — rather than crashing silently before any log output.
 """
 
 import os
+import logging
 from dotenv import load_dotenv
 
 load_dotenv()
 
+logger = logging.getLogger(__name__)
+
 
 class Settings:
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "")
-    if not DATABASE_URL:
-        raise ValueError("DATABASE_URL environment variable is required.")
+    def __init__(self) -> None:
+        # ── Database ──────────────────────────────────────────────────────────
+        self.DATABASE_URL: str = os.getenv("DATABASE_URL", "")
+        if not self.DATABASE_URL:
+            # Log the error THEN raise — so the message appears in Koyeb logs
+            # before the process exits.
+            logger.critical(
+                "FATAL: DATABASE_URL environment variable is not set. "
+                "Add it in Koyeb → Service → Environment variables."
+            )
+            raise SystemExit(
+                "DATABASE_URL is required. "
+                "Set it in Koyeb environment variables and redeploy."
+            )
 
-    SECRET_KEY: str = os.getenv("SECRET_KEY", "dev-secret-key-change-in-production")
-    ALGORITHM: str = os.getenv("ALGORITHM", "HS256")
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))
+        # ── Auth ──────────────────────────────────────────────────────────────
+        self.SECRET_KEY: str = os.getenv(
+            "SECRET_KEY", "dev-secret-key-change-in-production"
+        )
+        self.ALGORITHM: str = os.getenv("ALGORITHM", "HS256")
+        self.ACCESS_TOKEN_EXPIRE_MINUTES: int = int(
+            os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440")
+        )
 
-    ADMIN_USERNAME: str = os.getenv("ADMIN_USERNAME", "admin")
-    ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "admin123")
+        # ── Admin credentials ─────────────────────────────────────────────────
+        self.ADMIN_USERNAME: str = os.getenv("ADMIN_USERNAME", "admin")
+        self.ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "admin123")
 
-    FIREBASE_CREDENTIALS_PATH: str = os.getenv(
-        "FIREBASE_CREDENTIALS_PATH", "./firebase-credentials.json"
-    )
+        # ── Firebase / FCM ────────────────────────────────────────────────────
+        self.FIREBASE_CREDENTIALS_PATH: str = os.getenv(
+            "FIREBASE_CREDENTIALS_PATH", "./firebase-credentials.json"
+        )
 
-    VAPID_PRIVATE_KEY: str = os.getenv("VAPID_PRIVATE_KEY", "")
-    VAPID_PUBLIC_KEY: str = os.getenv("VAPID_PUBLIC_KEY", "")
-    VAPID_CONTACT_EMAIL: str = os.getenv("VAPID_CONTACT_EMAIL", "admin@yourschool.com")
+        # ── VAPID (Web Push) ──────────────────────────────────────────────────
+        self.VAPID_PRIVATE_KEY: str = os.getenv("VAPID_PRIVATE_KEY", "")
+        self.VAPID_PUBLIC_KEY: str  = os.getenv("VAPID_PUBLIC_KEY", "")
+        self.VAPID_CONTACT_EMAIL: str = os.getenv(
+            "VAPID_CONTACT_EMAIL", "admin@yourschool.com"
+        )
 
-    PORT: int = int(os.getenv("PORT", "8000"))
+        # ── Server ────────────────────────────────────────────────────────────
+        self.PORT: int = int(os.getenv("PORT", "8000"))
 
-    ALLOWED_ORIGINS: list[str] = [
-        o.strip()
-        for o in os.getenv("ALLOWED_ORIGINS", "*").split(",")
-        if o.strip()
-    ]
+        # ── CORS ──────────────────────────────────────────────────────────────
+        self.ALLOWED_ORIGINS: list[str] = [
+            o.strip()
+            for o in os.getenv("ALLOWED_ORIGINS", "*").split(",")
+            if o.strip()
+        ]
 
-    RUN_SCHEDULER: str = os.getenv("RUN_SCHEDULER", "true")
+        # ── Scheduler ─────────────────────────────────────────────────────────
+        self.RUN_SCHEDULER: str = os.getenv("RUN_SCHEDULER", "true")
 
-    TIMEZONE: str = "Asia/Muscat"
-    REMINDER_MINUTES: int = 15
+        # ── App constants ─────────────────────────────────────────────────────
+        self.TIMEZONE: str = "Asia/Muscat"
+        self.REMINDER_MINUTES: int = 15
 
 
 settings = Settings()
