@@ -96,7 +96,7 @@ firduty/
 │   ├── services/               Business logic
 │   └── jobs/                   Scheduler job implementations
 │
-├── flutter_app/                Flutter mobile + web app (Dart)
+├── firduty_app/                Flutter mobile + web app (Dart)
 │   ├── lib/
 │   │   ├── main.dart           App entry, Firebase init, routing
 │   │   ├── firebase_options.dart  Firebase platform config
@@ -299,7 +299,7 @@ Or run `migrations/004_production_fix.sql` directly in the Supabase SQL editor.
 ### 8a. Install dependencies
 
 ```bash
-cd flutter_app/
+cd firduty_app/
 flutter pub get
 ```
 
@@ -384,7 +384,7 @@ You should see `{"status":"ok"}`. If you see "Connection refused", check:
 **5. Run the Flutter app targeting the Genymotion device:**
 
 ```bash
-cd flutter_app/
+cd firduty_app/
 
 # List devices — confirm Genymotion appears
 flutter devices
@@ -460,12 +460,12 @@ Firebase is required for push notifications. The app runs without it, but teache
 ### 9b. Register the Android app
 
 1. In your Firebase project, click **Add app → Android**
-2. Set the **Android package name** to match `flutter_app/android/app/build.gradle`:
+2. Set the **Android package name** to match `firduty_app/android/app/build.gradle`:
    ```
    com.example.firduty_mobile
    ```
 3. Download `google-services.json`
-4. Place it at: `flutter_app/android/app/google-services.json`
+4. Place it at: `firduty_app/android/app/google-services.json`
 
 ### 9c. Register the Web app
 
@@ -490,8 +490,8 @@ Firebase is required for push notifications. The app runs without it, but teache
 # Install FlutterFire CLI if not already installed
 dart pub global activate flutterfire_cli
 
-# From inside flutter_app/
-cd flutter_app/
+# From inside firduty_app/
+cd firduty_app/
 flutterfire configure
 ```
 
@@ -508,7 +508,7 @@ VAPID keys allow Firebase to send Web Push notifications to browsers and iOS Saf
 2. Scroll to **Web Push certificates**
 3. Click **Generate key pair**
 4. Copy the **Key pair** value (the public key)
-5. Open `flutter_app/lib/firebase_options.dart` and set:
+5. Open `firduty_app/lib/firebase_options.dart` and set:
    ```dart
    const String kVapidPublicKey = 'YOUR_VAPID_PUBLIC_KEY_HERE';
    ```
@@ -519,7 +519,7 @@ VAPID keys allow Firebase to send Web Push notifications to browsers and iOS Saf
 
 ### 9f. Update firebase-messaging-sw.js
 
-The file `flutter_app/web/firebase-messaging-sw.js` must contain your real Firebase web config so background push notifications work in the browser.
+The file `firduty_app/web/firebase-messaging-sw.js` must contain your real Firebase web config so background push notifications work in the browser.
 
 Open the file and verify the `firebase.initializeApp({...})` block matches the values in `firebase_options.dart → FirebaseOptions.web`.
 
@@ -568,7 +568,7 @@ FIREBASE_CREDENTIALS_JSON={"type":"service_account","project_id":"...","private_
 - Foreground messages: shown via `flutter_local_notifications`
 
 **Requirements:**
-- `google-services.json` must be in `flutter_app/android/app/`
+- `google-services.json` must be in `firduty_app/android/app/`
 - Firebase Admin SDK credentials must be set in the backend
 
 ### Web push / iOS PWA notifications
@@ -696,7 +696,7 @@ Open http://localhost:3000/login.html
 ### Terminal 3 — Flutter app
 
 ```bash
-cd flutter_app/
+cd firduty_app/
 
 # Genymotion emulator
 flutter run --dart-define=API_BASE_URL=http://10.0.3.2:8000
@@ -726,7 +726,7 @@ flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:8000
 ### Android APK
 
 ```bash
-cd flutter_app/
+cd firduty_app/
 flutter build apk --release \
   --dart-define=API_BASE_URL=https://your-app.koyeb.app
 ```
@@ -736,7 +736,7 @@ Output: `build/app/outputs/flutter-apk/app-release.apk`
 ### Flutter Web (PWA)
 
 ```bash
-cd flutter_app/
+cd firduty_app/
 flutter build web --release \
   --dart-define=API_BASE_URL=https://your-app.koyeb.app \
   --base-href "/"
@@ -791,7 +791,7 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 cd admin_ui && python3 -m http.server 3000
 
 # Terminal 3: Flutter app (pick the right URL for your setup)
-cd flutter_app
+cd firduty_app
 flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:8000    # Web
 flutter run --dart-define=API_BASE_URL=http://10.0.3.2:8000               # Genymotion
 flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000               # AVD
@@ -801,13 +801,13 @@ flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000               # AVD
 
 ```bash
 # Install/update Flutter dependencies
-cd flutter_app && flutter pub get
+cd firduty_app && flutter pub get
 
 # Regenerate l10n strings (after editing .arb files)
-cd flutter_app && flutter gen-l10n
+cd firduty_app && flutter gen-l10n
 
 # Clean Flutter build cache
-cd flutter_app && flutter clean && flutter pub get
+cd firduty_app && flutter clean && flutter pub get
 
 # Backend: run tests
 cd backend && pytest
@@ -1066,7 +1066,7 @@ DATABASE_URL=sqlite:///./firduty.db
 
 ### Push notifications not working (Android)
 
-1. Check `google-services.json` is in `flutter_app/android/app/`
+1. Check `google-services.json` is in `firduty_app/android/app/`
 2. Check `FIREBASE_CREDENTIALS_PATH` or `FIREBASE_CREDENTIALS_JSON` is set in backend `.env`
 3. Check the teacher's device token was registered: look at `POST /teachers/{id}/device-token` in Swagger
 4. Check Android notification permission: Settings → Apps → Firduty → Notifications → Enable

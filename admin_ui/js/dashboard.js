@@ -277,7 +277,7 @@ function renderTodaySection(dashData, todayStats, allTeachersMap, weekData) {
         <!-- Teachers NOT on duty today -->
         <div class="today-teachers">
           <div class="today-teachers-label ${offDuty.length > 0 ? 'warn' : ''}">
-            ${offDuty.length > 0 ? '⚠️' : '✅'} Not on duty today (${offDuty.length})
+            ${offDuty.length > 0 ? '⚠️' : '✅'} ${I18N.t('not_on_duty_today')} (${offDuty.length})
           </div>
           <div class="today-chips">${offDutyChips}</div>
         </div>
@@ -292,8 +292,8 @@ function renderWorkloadSection(dashData) {
   if (!counts.length) {
     return `
       <div class="section-card">
-        <h3>⚖️ Workload Distribution</h3>
-        <p style="color:var(--text-muted);font-size:0.85rem">No assignments yet this week.</p>
+        <h3>⚖️ ${I18N.t('workload_distribution')}</h3>
+        <p style="color:var(--text-muted);font-size:0.85rem">${I18N.t('no_assignments_yet_this_week')}</p>
       </div>`;
   }
 
@@ -324,11 +324,11 @@ function renderWorkloadSection(dashData) {
   }).join('');
 
   const balanceColor = balanced ? 'var(--primary)' : gap <= 4 ? 'var(--warning)' : 'var(--danger)';
-  const balanceLabel = balanced ? 'Well balanced ✓' : gap <= 4 ? 'Slightly uneven' : 'Uneven — review needed';
+  const balanceLabel = balanced ? I18N.t('well_balanced') : gap <= 4 ? I18N.t('slightly_uneven') : I18N.t('uneven_review_needed');
 
   return `
     <div class="section-card">
-      <h3>⚖️ Workload Distribution
+      <h3>⚖️ ${I18N.t('workload_distribution')}
         <span class="wl-badge" style="background:${balanceColor}10;color:${balanceColor};border:1px solid ${balanceColor}30;">
           ${balanceLabel}
         </span>

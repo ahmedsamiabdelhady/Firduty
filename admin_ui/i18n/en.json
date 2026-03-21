@@ -185,5 +185,11 @@
   "pt_short": "pt",
   "previous_month": "Previous month",
   "next_month": "Next month",
-  "late_1_5m": "Late 1–5m"
+  "late_1_5m": "Late 1–5m",
+  "not_on_duty_today": "Not on duty today",
+  "workload_distribution": "Workload Distribution",
+  "no_assignments_yet_this_week": "No assignments yet this week.",
+  "well_balanced": "Well balanced ✓",
+  "slightly_uneven": "Slightly uneven",
+  "uneven_review_needed": "Uneven — review needed"
 }

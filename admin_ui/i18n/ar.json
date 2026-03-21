@@ -185,5 +185,11 @@
   "pt_short": "نقطة",
   "previous_month": "الشهر السابق",
   "next_month": "الشهر التالي",
-  "late_1_5m": "متأخر 1–5 د"
+  "late_1_5m": "متأخر 1–5 د",
+  "not_on_duty_today": "ليس عليه مناوبة اليوم",
+  "workload_distribution": "توزيع عبء المناوبات",
+  "no_assignments_yet_this_week": "لا توجد إسنادات حتى الآن هذا الأسبوع.",
+  "well_balanced": "متوازن جيدًا ✓",
+  "slightly_uneven": "غير متوازن قليلًا",
+  "uneven_review_needed": "غير متوازن — يحتاج مراجعة"
 }
