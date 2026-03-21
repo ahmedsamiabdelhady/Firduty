@@ -175,11 +175,11 @@ async function saveShift(id) {
   if (errEl) errEl.style.display = 'none';
 
   if (!nameEn) {
-    showCardError(id, I18N.t('name_en') + ' is required');
+    showCardError(id, I18N.t('name_en_required'));
     return;
   }
   if (!startRaw || !endRaw) {
-    showCardError(id, I18N.t('start_time') + ' / ' + I18N.t('end_time') + ' required');
+    showCardError(id, I18N.t('start_end_required'));
     return;
   }
   if (!isValidTimeRange(startRaw, endRaw)) {
@@ -272,11 +272,11 @@ async function addShift() {
   if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
 
   if (!nameEn) {
-    showModalError(I18N.t('name_en') + ' is required');
+    showModalError(I18N.t('name_en_required'));
     return;
   }
   if (!startRaw || !endRaw) {
-    showModalError(I18N.t('start_time') + ' / ' + I18N.t('end_time') + ' required');
+    showModalError(I18N.t('start_end_required'));
     return;
   }
   if (!isValidTimeRange(startRaw, endRaw)) {

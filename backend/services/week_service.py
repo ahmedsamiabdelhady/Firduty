@@ -777,6 +777,58 @@ def publish_day(
 
 # ─── Notifications ────────────────────────────────────────────────────────────
 
+def _get_latest_teacher_tokens_by_installation(
+    db: Session,
+    teacher_ids: set[int],
+) -> dict[int, list[str]]:
+    """
+    Return one freshest token per installation for each teacher.
+
+    This mirrors the reminder job logic so publish / republish notifications
+    cannot fan out to stale rotated tokens for the same device.
+    """
+    if not teacher_ids:
+        return {}
+
+    rows = (
+        db.query(DeviceToken)
+        .filter(DeviceToken.teacher_id.in_(teacher_ids))
+        .order_by(
+            DeviceToken.teacher_id.asc(),
+            DeviceToken.last_seen_at.desc(),
+            DeviceToken.created_at.desc(),
+        )
+        .all()
+    )
+
+    tokens_by_teacher: dict[int, list[str]] = {}
+    seen_keys_by_teacher: dict[int, set[str]] = {}
+    seen_tokens_by_teacher: dict[int, set[str]] = {}
+
+    for row in rows:
+        teacher_id = int(row.teacher_id)
+        token = str(getattr(row, "token", "") or "").strip()
+        if not token:
+            continue
+
+        teacher_seen_tokens = seen_tokens_by_teacher.setdefault(teacher_id, set())
+        if token in teacher_seen_tokens:
+            continue
+
+        installation_id = str(getattr(row, "installation_id", "") or "").strip()
+        dedupe_key = installation_id or f"token:{token}"
+
+        teacher_seen_keys = seen_keys_by_teacher.setdefault(teacher_id, set())
+        if dedupe_key in teacher_seen_keys:
+            continue
+
+        teacher_seen_keys.add(dedupe_key)
+        teacher_seen_tokens.add(token)
+        tokens_by_teacher.setdefault(teacher_id, []).append(token)
+
+    return tokens_by_teacher
+
+
 def _notify_assigned_teachers(
     db: Session,
     week: WeekPlan,
@@ -829,10 +881,7 @@ def _notify_assigned_teachers(
     teachers = db.query(Teacher).filter(Teacher.id.in_(targets)).all()
     teachers_by_id = {int(t.id): t for t in teachers}
 
-    device_tokens = db.query(DeviceToken).filter(DeviceToken.teacher_id.in_(targets)).all()
-    tokens_by_teacher: dict[int, list[str]] = {}
-    for dt in device_tokens:
-        tokens_by_teacher.setdefault(int(dt.teacher_id), []).append(str(dt.token))
+    tokens_by_teacher = _get_latest_teacher_tokens_by_installation(db, targets)
 
     for tid in targets:
         teacher = teachers_by_id.get(tid)

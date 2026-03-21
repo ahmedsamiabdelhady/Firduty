@@ -160,7 +160,7 @@ function renderHeroSection(dashData, todayStats) {
           ${_dayName(_today())}, ${_fmtDate(_today())}
         </p>
       </div>
-      <span class="dash-updated">Updated ${updatedAt}</span>
+      <span class="dash-updated">${I18N.t('updated_at')} ${updatedAt}</span>
     </div>
 
     <div class="dash-stat-grid">
@@ -182,7 +182,7 @@ function renderHeroSection(dashData, todayStats) {
       <div class="dash-stat-card ${fillColor}">
         <div class="dash-stat-icon">📊</div>
         <div class="dash-stat-value">${fillPct}%</div>
-        <div class="dash-stat-label">Week Fill Rate</div>
+        <div class="dash-stat-label" >${I18N.t('week_fill_rate')}</div>
       </div>
     </div>`;
 }
@@ -205,7 +205,7 @@ function renderTodaySection(dashData, todayStats, allTeachersMap, weekData) {
   // Teachers on/off duty today
   const onDutyChips = [...todayStats.teachersOnDuty.values()]
     .map(name => `<span class="td-chip td-chip--on">${escHtml(name)}</span>`)
-    .join('') || '<span style="color:var(--text-muted);font-size:0.82rem">None assigned</span>';
+    .join('') || `<span style="color:var(--text-muted);font-size:0.82rem">${I18N.t('none_assigned')}</span>`;
 
   const offDuty = [...allTeachersMap.entries()]
     .filter(([id]) => !todayStats.teachersOnDuty.has(id))
@@ -213,17 +213,17 @@ function renderTodaySection(dashData, todayStats, allTeachersMap, weekData) {
 
   const offDutyChips = offDuty.length > 0
     ? offDuty.map(name => `<span class="td-chip td-chip--off">${escHtml(name)}</span>`).join('')
-    : `<span class="td-chip td-chip--ok">All teachers have duties today ✓</span>`;
+    : `<span class="td-chip td-chip--ok">${I18N.t('all_teachers_have_duties_today')}</span>`;
 
   const noDataMsg = !hasWeek
     ? `<p style="color:var(--text-muted);font-size:0.85rem;padding:12px 0">
-         Week data unavailable — plan not created yet.
+         ${I18N.t('week_data_unavailable')}
        </p>`
     : '';
 
   return `
     <div class="section-card" style="border-left:4px solid var(--nav);">
-      <h3>📅 Today at a Glance
+      <h3>📅 ${I18N.t('today_at_a_glance')}
         <span style="font-weight:400;font-size:0.78rem;color:var(--text-muted);margin-inline-start:8px">
           ${_dayName(todayStr)} · ${statusPill(status)}
         </span>
@@ -245,31 +245,31 @@ function renderTodaySection(dashData, todayStats, allTeachersMap, weekData) {
             <text x="40" y="44" text-anchor="middle"
                   font-size="16" font-weight="800" fill="${ringColor}">${fillPct}%</text>
           </svg>
-          <div class="today-ring-label">Today's Fill</div>
+          <div class="today-ring-label">${I18N.t('today_fill')}</div>
         </div>
 
         <!-- Slot counts -->
         <div class="today-slot-counts">
           <div class="today-slot-row">
             <span class="today-slot-num" style="color:var(--text)">${todayStats.total}</span>
-            <span class="today-slot-lbl">Total slots</span>
+            <span class="today-slot-lbl" >${I18N.t('total_slots')}</span>
           </div>
           <div class="today-slot-row">
             <span class="today-slot-num" style="color:var(--primary)">${todayStats.assigned}</span>
-            <span class="today-slot-lbl">Assigned</span>
+            <span class="today-slot-lbl" >${I18N.t('assigned')}</span>
           </div>
           <div class="today-slot-row">
             <span class="today-slot-num" style="color:${todayStats.total - todayStats.assigned > 0 ? 'var(--danger)' : 'var(--primary)'}">
               ${todayStats.total - todayStats.assigned}
             </span>
-            <span class="today-slot-lbl">Empty</span>
+            <span class="today-slot-lbl" >${I18N.t('empty')}</span>
           </div>
         </div>
 
         <!-- Teachers on duty today -->
         <div class="today-teachers">
           <div class="today-teachers-label">
-            ✅ On duty today (${todayStats.teachersOnDuty.size})
+            ✅ ${I18N.t('on_duty_today')} (${todayStats.teachersOnDuty.size})
           </div>
           <div class="today-chips">${onDutyChips}</div>
         </div>
@@ -408,7 +408,7 @@ function renderConfirmationSection(reportData, dashData) {
                 <span style="font-size:0.8rem;font-weight:700;min-width:20px">${t.confirmations}</span>
               </div>
             </td>
-            <td><span style="font-weight:700;color:${ptColor}">${t.total_points} pts</span></td>
+            <td><span style="font-weight:700;color:${ptColor}">${t.total_points} ${I18N.t('pts_short')}</span></td>
             <td style="font-size:0.78rem">
               <span class="pill pill-green">${t.on_time}</span>
               <span class="pill pill-yellow" style="margin-inline-start:3px">${t.late}</span>
@@ -450,7 +450,7 @@ function renderConfirmationSection(reportData, dashData) {
         <!-- Breakdown bars -->
         <div class="conf-breakdown">
           <div class="conf-bar-row">
-            <span class="conf-bar-label">On time <span style="font-size:0.72rem">(2 pts)</span></span>
+            <span class="conf-bar-label">${I18N.t('on_time')} <span style="font-size:0.72rem">(2 ${I18N.t('pts_short')})</span></span>
             <div class="conf-bar-track">
               <div class="conf-bar-fill" style="width:${onTimePct}%;background:var(--primary)"></div>
             </div>
@@ -458,7 +458,7 @@ function renderConfirmationSection(reportData, dashData) {
             <span class="conf-bar-pct">${onTimePct}%</span>
           </div>
           <div class="conf-bar-row">
-            <span class="conf-bar-label">Late 1–5m <span style="font-size:0.72rem">(1 pt)</span></span>
+            <span class="conf-bar-label">${I18N.t('late_1_5m')} <span style="font-size:0.72rem">(1 ${I18N.t('pt_short')})</span></span>
             <div class="conf-bar-track">
               <div class="conf-bar-fill" style="width:${latePct}%;background:var(--warning)"></div>
             </div>
@@ -466,7 +466,7 @@ function renderConfirmationSection(reportData, dashData) {
             <span class="conf-bar-pct">${latePct}%</span>
           </div>
           <div class="conf-bar-row">
-            <span class="conf-bar-label">No points <span style="font-size:0.72rem">(0 pts)</span></span>
+            <span class="conf-bar-label">${I18N.t('no_points')} <span style="font-size:0.72rem">(0 ${I18N.t('pts_short')})</span></span>
             <div class="conf-bar-track">
               <div class="conf-bar-fill" style="width:${noPointsPct}%;background:var(--danger)"></div>
             </div>
@@ -528,11 +528,11 @@ function renderWeekSection(stats, label) {
       </div>
       <div class="mini-stat">
         <div class="mini-stat-value green">${stats.assigned_slots}</div>
-        <div class="mini-stat-label">Assigned</div>
+        <div class="mini-stat-label" >${I18N.t('assigned')}</div>
       </div>
       <div class="mini-stat">
         <div class="mini-stat-value ${stats.unassigned_slots > 0 ? 'red' : 'green'}">${stats.unassigned_slots}</div>
-        <div class="mini-stat-label">Empty</div>
+        <div class="mini-stat-label" >${I18N.t('empty')}</div>
       </div>
       <div class="mini-stat">
         <div class="mini-stat-value">${assignedPct}%</div>
@@ -721,7 +721,7 @@ async function loadDashboard() {
         <div class="dash-error">
           <div class="error-icon">⚠️</div>
           <p>Could not load dashboard data (${dashRes?.status ?? 'network error'})</p>
-          <button class="btn btn-primary btn-sm" onclick="loadDashboard()">Retry</button>
+          <button class="btn btn-primary btn-sm" onclick="loadDashboard()" >${I18N.t('retry')}</button>
         </div>`;
       return;
     }
@@ -738,7 +738,7 @@ async function loadDashboard() {
       <div class="dash-error">
         <div class="error-icon">⚠️</div>
         <p>${I18N.t('error_generic')}</p>
-        <button class="btn btn-primary btn-sm" onclick="loadDashboard()">Retry</button>
+        <button class="btn btn-primary btn-sm" onclick="loadDashboard()" >${I18N.t('retry')}</button>
       </div>`;
   }
 }
@@ -754,7 +754,7 @@ async function refreshDashboard() {
 
   if (content) { content.style.opacity = ''; content.style.pointerEvents = ''; }
   if (btn) btn.classList.remove('spinning');
-  showToast('Dashboard refreshed', 'info');
+  showToast(I18N.t('dashboard_refreshed'), 'info');
 }
 
 /* ─── Auto-init ───────────────────────────────────────────────────────────── */

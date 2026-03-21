@@ -172,7 +172,7 @@
   <div class="header-actions">
     <button class="btn btn-lang btn-sm"
             data-lang-toggle
-            onclick="I18N.toggle().then(()=>location.reload())">عربي | EN</button>
+            data-lang-reload="true">عربي | EN</button>
     <button class="btn btn-lang btn-sm" onclick="logout()" data-i18n="logout">Logout</button>
   </div>
 </header>
@@ -192,9 +192,9 @@
   <!-- Month selector + action buttons -->
   <div class="report-controls">
     <div class="month-nav">
-      <button class="month-nav-btn" onclick="changeMonth(-1)" title="Previous month">‹</button>
+      <button class="month-nav-btn" onclick="changeMonth(-1)" title="Previous month" data-i18n-title="previous_month">‹</button>
       <span class="month-label" id="monthLabel">—</span>
-      <button class="month-nav-btn" onclick="changeMonth(+1)" title="Next month">›</button>
+      <button class="month-nav-btn" onclick="changeMonth(+1)" title="Next month" data-i18n-title="next_month">›</button>
     </div>
     <div class="report-actions">
       <button class="btn btn-secondary btn-sm" onclick="rebuildCache()" id="rebuildBtn">

@@ -156,7 +156,8 @@
   </h1>
   <div class="header-actions">
     <button class="btn btn-lang btn-sm"
-            onclick="I18N.toggle().then(()=>location.reload())">عربي | EN</button>
+            data-lang-toggle
+            data-lang-reload="true">عربي | EN</button>
     <button class="btn btn-lang btn-sm" onclick="logout()" data-i18n="logout">Logout</button>
   </div>
 </header>

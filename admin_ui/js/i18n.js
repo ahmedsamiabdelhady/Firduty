@@ -118,8 +118,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   await I18N.init();
 
   document.querySelectorAll('[data-lang-toggle]').forEach((btn) => {
-    btn.addEventListener('click', async () => {
+    if (btn.dataset.langBound === 'true') return;
+    btn.dataset.langBound = 'true';
+
+    btn.addEventListener('click', async (event) => {
+      event.preventDefault();
       await I18N.toggle();
+
+      if (btn.dataset.langReload === 'true') {
+        window.location.reload();
+      }
     });
   });
 });

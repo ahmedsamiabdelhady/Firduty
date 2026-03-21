@@ -151,7 +151,7 @@ function renderTable(teachers) {
       <td><strong>${escHtml(t.teacher_name)}</strong></td>
       <td>
         <strong style="font-size:1.05rem;color:var(--primary)">${t.total_points}</strong>
-        <span style="font-size:0.75rem;color:var(--text-muted);margin-inline-start:3px">pts</span>
+        <span style="font-size:0.75rem;color:var(--text-muted);margin-inline-start:3px">${I18N.t('pts_short')}</span>
       </td>
       <td>${t.confirmations}</td>
       <td><span class="pill pill-green">${t.on_time}</span></td>
@@ -235,7 +235,7 @@ async function openDetail(teacherId, teacherName) {
         <td>${escHtml(locName ?? '—')}</td>
         <td>${(d.shift_start ?? '').slice(0, 5) || '—'}</td>
         <td>${confirmedTime}</td>
-        <td><span class="pill ${ptClass}">${d.points_earned} pt</span></td>
+        <td><span class="pill ${ptClass}">${d.points_earned} ${I18N.t('pt_short')}</span></td>
       `;
       tbody.appendChild(tr);
     });
@@ -273,7 +273,7 @@ async function exportCSV() {
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
-    showToast('CSV downloaded', 'success');
+    showToast(I18N.t('csv_downloaded'), 'success');
   } catch (err) {
     console.error('exportCSV failed:', err);
     showToast(I18N.t('error_generic'), 'error');
