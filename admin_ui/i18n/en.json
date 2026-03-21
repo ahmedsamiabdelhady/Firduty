@@ -62,7 +62,6 @@
   "break": "Break",
   "duty_type": "Duty Type",
   "morning_endofday": "Morning / End-of-day",
-  "break_duty": "Break Duty",
   "grade_class": "Grade / Class",
   "grade_class_placeholder": "e.g. Grade 5A",
   "grade_class_label": "Class",
@@ -191,5 +190,8 @@
   "no_assignments_yet_this_week": "No assignments yet this week.",
   "well_balanced": "Well balanced ✓",
   "slightly_uneven": "Slightly uneven",
-  "uneven_review_needed": "Uneven — review needed"
+  "uneven_review_needed": "Uneven — review needed",
+  "morning_duty": "Morning Duty",
+  "end_of_day_duty": "End-of-day Duty",
+  "break_duty": "Break Duty"
 }

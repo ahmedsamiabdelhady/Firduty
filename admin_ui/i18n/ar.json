@@ -62,7 +62,6 @@
   "break": "استراحة",
   "duty_type": "نوع المناوبة",
   "morning_endofday": "صباحي / نهاية اليوم",
-  "break_duty": "مناوبة الاستراحة",
   "grade_class": "الصف / الفصل",
   "grade_class_placeholder": "مثلاً: الصف الخامس أ",
   "grade_class_label": "الفصل",
@@ -191,5 +190,8 @@
   "no_assignments_yet_this_week": "لا توجد إسنادات حتى الآن هذا الأسبوع.",
   "well_balanced": "متوازن جيدًا ✓",
   "slightly_uneven": "غير متوازن قليلًا",
-  "uneven_review_needed": "غير متوازن — يحتاج مراجعة"
+  "uneven_review_needed": "غير متوازن — يحتاج مراجعة",
+  "morning_duty": "مناوبة صباحية",
+  "end_of_day_duty": "مناوبة مسائية",
+  "break_duty": "مناوبة استراحة"
 }

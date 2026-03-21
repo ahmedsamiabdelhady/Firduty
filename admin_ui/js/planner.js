@@ -745,30 +745,48 @@ function renderLocationColumn(dayDate, sl, isEditable) {
  *
  * No +/- slot controls — break classes are fixed.
  */
-function renderBreakGrid(dayDate, sl, isEditable) {
-  // Sort by slot_index to match the seeded order (1/A, 1/B, 2/A …)
-  const sorted = [...(sl.assignments || [])]
-    .sort((a, b) => (a.slot_index ?? 0) - (b.slot_index ?? 0));
+function renderBreakGrid(sl) {
+  // strong fallback in case slots_count missing
+  const count =
+    sl.slots_count ||
+    (sl.assignments && sl.assignments.length) ||
+    Math.max(
+      0,
+      ...((sl.assignments || []).map(a => a.slot_index + 1))
+    );
 
-  const cells = sorted
-    .map(assignment => renderSlot(sl.id, assignment.slot_index, assignment, true, isEditable))
-    .join('');
+  const map = new Map();
+  (sl.assignments || []).forEach(a => {
+    map.set(a.slot_index, a);
+  });
 
-  return `
-    <div class="location-column break-location-column"
-         data-sl-id="${sl.id}"
-         data-day="${dayDate}"
-         data-shift="${sl.shift_id}"
-         data-loc=""
-         data-editable="${isEditable ? 'true' : 'false'}"
-         data-duty-type="break">
-      <div id="slots-${sl.id}"
-           class="slots-list break-grid"
-           data-sl-id="${sl.id}"
-           data-duty-type="break">
-        ${cells}
+  const cells = [];
+
+  for (let i = 0; i < count; i++) {
+    const a = map.get(i);
+
+    const teacher = a?.teacher_name || '';
+    const teacherId = a?.teacher_id || null;
+    const gradeClass = a?.grade_class || '';
+
+    cells.push(`
+      <div class="slot ${teacherId ? 'filled' : 'empty'}"
+           data-slot-index="${i}"
+           data-shift-location-id="${sl.id}">
+        
+        <div class="slot-grade">
+          ${gradeClass || ''}
+        </div>
+
+        <div class="slot-teacher">
+          ${teacher || '<span class="muted">Empty</span>'}
+        </div>
+
       </div>
-    </div>`;
+    `);
+  }
+
+  return `<div class="break-grid">${cells.join('')}</div>`;
 }
 
 /* ─── Shift time editor ───────────────────────────────────────────────────── */
