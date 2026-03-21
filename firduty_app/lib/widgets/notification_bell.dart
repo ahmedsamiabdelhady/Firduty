@@ -22,19 +22,33 @@ class _NotificationBellButtonState extends State<NotificationBellButton> {
   Future<void> _handleToggle(BuildContext context) async {
     final messenger = ScaffoldMessenger.maybeOf(context);
     final previousState = NotificationService.bellState.value;
-
     final prefs = await SharedPreferences.getInstance();
     final teacherId = prefs.getInt('teacher_id');
-    const platform = kIsWeb ? 'web' : 'android';
+    final platform = kIsWeb ? 'web' : 'android';
 
-    await NotificationService.toggle(
-      teacherId: teacherId,
-      platform: platform,
-    );
+    try {
+      await NotificationService.toggle(
+        teacherId: teacherId,
+        platform: platform,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      messenger
+        ?..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text('Failed to update notifications'),
+            behavior: SnackBarBehavior.floating,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      return;
+    }
 
     if (!mounted) return;
 
     final newState = NotificationService.bellState.value;
+
     if (!kIsWeb &&
         previousState != NotificationBellState.enabled &&
         newState == NotificationBellState.enabled) {
@@ -90,7 +104,10 @@ class _NotificationBellButtonState extends State<NotificationBellButton> {
             duration: const Duration(milliseconds: 220),
             transitionBuilder: (child, animation) => ScaleTransition(
               scale: Tween<double>(begin: 0.75, end: 1.0).animate(
-                CurvedAnimation(parent: animation, curve: Curves.easeOutBack),
+                CurvedAnimation(
+                  parent: animation,
+                  curve: Curves.easeOutBack,
+                ),
               ),
               child: FadeTransition(opacity: animation, child: child),
             ),

@@ -1,17 +1,4 @@
-// notification_service.dart — Cross-platform push notification service.
-//
-// Production token hygiene added:
-//   - stable per-installation installation_id
-//   - register token with installation_id
-//   - delete backend token row for this installation on disable/reset
-//
-// NOTE:
-//   This file assumes ApiService.registerDeviceToken(...) and
-//   ApiService.deleteDeviceToken(...) support installationId.
-//   If api_service.dart was not updated yet, add the same field there.
-
 import 'dart:async';
-import 'dart:html' as html;
 import 'dart:math';
 
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -23,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../firebase_options.dart' show kVapidPublicKey;
 import 'api_service.dart';
+import 'web_push.dart';
 
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -53,7 +41,7 @@ class DeviceIdentityService {
 
   static String _generateInstallationId() {
     final random = Random.secure();
-    final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+    final bytes = List.generate(16, (_) => random.nextInt(256));
     final hex = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
     return '${hex.substring(0, 8)}-'
         '${hex.substring(8, 12)}-'
@@ -67,18 +55,22 @@ class NotificationService {
   NotificationService._();
 
   static FirebaseMessaging get _messaging => FirebaseMessaging.instance;
+
   static final FlutterLocalNotificationsPlugin _localNotifications =
       FlutterLocalNotificationsPlugin();
 
   static const String _enabledKey = 'notifications_enabled';
+
   static final ValueNotifier<NotificationBellState> bellState =
       ValueNotifier(NotificationBellState.unknown);
 
   static bool _initialized = false;
   static int? _initializedForTeacherId;
   static bool _backgroundHandlerRegistered = false;
+
   static StreamSubscription<RemoteMessage>? _onMessageSub;
   static StreamSubscription<String>? _onTokenRefreshSub;
+
   static GlobalKey<NavigatorState>? navigatorKey;
 
   static Future<void> syncStatus() async {
@@ -112,8 +104,11 @@ class NotificationService {
     required String platform,
   }) async {
     await loadBellState();
+
     if (bellState.value != NotificationBellState.enabled) {
-      debugPrint('[NotificationService] Notifications disabled — skipping setup.');
+      debugPrint(
+        '[NotificationService] Notifications disabled — skipping setup.',
+      );
       return;
     }
 
@@ -151,12 +146,12 @@ class NotificationService {
 
       final enabled = await enable(teacherId: teacherId, platform: platform);
       debugPrint('[NotificationService] enable() returned = $enabled');
-
       bellState.value = enabled
           ? NotificationBellState.enabled
           : NotificationBellState.disabled;
     } catch (e, st) {
       debugPrint('[NotificationService] Failed to initialize: $e, $st');
+      bellState.value = NotificationBellState.disabled;
       rethrow;
     }
   }
@@ -165,7 +160,6 @@ class NotificationService {
     final prefs = await SharedPreferences.getInstance();
     final savedEnabled = prefs.getBool(_enabledKey) ?? false;
     if (!savedEnabled) return false;
-
     return _isAuthorized(promptForPermission: false);
   }
 
@@ -177,6 +171,7 @@ class NotificationService {
 
     final prefs = await SharedPreferences.getInstance();
     final authorized = await _isAuthorized(promptForPermission: true);
+
     debugPrint('[NotificationService] _isAuthorized(true) = $authorized');
 
     if (!authorized) {
@@ -255,6 +250,7 @@ class NotificationService {
     _onTokenRefreshSub = null;
     _initialized = false;
     _initializedForTeacherId = null;
+
     debugPrint('[NotificationService] Reset — ready for next login.');
   }
 
@@ -264,7 +260,9 @@ class NotificationService {
     required bool promptForPermission,
   }) async {
     if (_initialized && _initializedForTeacherId == teacherId) {
-      debugPrint('[NotificationService] Already initialized for this teacher — skipping.');
+      debugPrint(
+        '[NotificationService] Already initialized for this teacher — skipping.',
+      );
       return;
     }
 
@@ -284,6 +282,7 @@ class NotificationService {
     try {
       final authorized =
           await _isAuthorized(promptForPermission: promptForPermission);
+
       if (!authorized) {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setBool(_enabledKey, false);
@@ -300,24 +299,25 @@ class NotificationService {
       _initialized = true;
       _initializedForTeacherId = teacherId;
       bellState.value = NotificationBellState.enabled;
-      debugPrint('[NotificationService] Ready.');
+
+      debugPrint('[NotificationService] Ready. [$platform]');
     } catch (e, st) {
       _initialized = false;
       _initializedForTeacherId = null;
-      debugPrint('[NotificationService] Failed to initialize: $e, $st');
+      debugPrint('[NotificationService] Failed to initialize: $e');
+      debugPrint('$st');
     }
   }
 
-  static Future<bool> _isAuthorized({required bool promptForPermission}) async {
+  static Future<bool> _isAuthorized({
+    required bool promptForPermission,
+  }) async {
     if (kIsWeb) {
-      final currentPermission = html.Notification.permission;
-      if (currentPermission == 'granted') return true;
-      if (!promptForPermission) return false;
-      final requested = await html.Notification.requestPermission();
-      return requested == 'granted';
+      return webIsAuthorized(promptForPermission: promptForPermission);
     }
 
     final current = await _messaging.getNotificationSettings();
+
     if (current.authorizationStatus == AuthorizationStatus.authorized ||
         current.authorizationStatus == AuthorizationStatus.provisional) {
       return true;
@@ -337,7 +337,9 @@ class NotificationService {
 
   static Future<void> _initAndroid({required int teacherId}) async {
     if (!_backgroundHandlerRegistered) {
-      FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+      FirebaseMessaging.onBackgroundMessage(
+        _firebaseMessagingBackgroundHandler,
+      );
       _backgroundHandlerRegistered = true;
     }
 
@@ -367,8 +369,11 @@ class NotificationService {
     _onMessageSub = FirebaseMessaging.onMessage.listen(_showLocalNotification);
 
     FirebaseMessaging.onMessageOpenedApp.listen(_handleNotificationTap);
+
     final initial = await _messaging.getInitialMessage();
-    if (initial != null) _handleNotificationTap(initial);
+    if (initial != null) {
+      _handleNotificationTap(initial);
+    }
 
     final token = await _messaging.getToken();
     if (token != null && token.isNotEmpty) {
@@ -391,7 +396,7 @@ class NotificationService {
 
   static Future<void> _initWeb({required int teacherId}) async {
     try {
-      await html.window.navigator.serviceWorker?.register('/firebase-messaging-sw.js');
+      await registerWebServiceWorker();
 
       final token = await _messaging.getToken(vapidKey: kVapidPublicKey);
       if (token != null && token.isNotEmpty) {
@@ -425,8 +430,14 @@ class NotificationService {
   }
 
   static void _handleNotificationTap(RemoteMessage message) {
-    debugPrint('[NotificationService] Notification tapped: ${message.messageId}');
-    navigatorKey?.currentState?.pushNamedAndRemoveUntil('/home', (route) => false);
+    debugPrint(
+      '[NotificationService] Notification tapped: ${message.messageId}',
+    );
+
+    navigatorKey?.currentState?.pushNamedAndRemoveUntil(
+      '/home',
+      (route) => false,
+    );
   }
 
   static Future<void> _registerToken({
@@ -436,14 +447,17 @@ class NotificationService {
   }) async {
     try {
       final installationId = await DeviceIdentityService.getInstallationId();
+
       await ApiService.registerDeviceToken(
         teacherId: teacherId,
         token: token,
         platform: platform,
         installationId: installationId,
       );
+
       debugPrint(
-        '[NotificationService] Token registered ($platform, installation_id=$installationId).',
+        '[NotificationService] Token registered '
+        '($platform, installation_id=$installationId).',
       );
     } catch (e) {
       debugPrint('[NotificationService] Token registration failed: $e');
@@ -456,7 +470,7 @@ class NotificationService {
     final notification = message.notification;
     if (notification == null) return;
 
-    await _localNotifications.show(
+   await _localNotifications.show(
       id: notification.hashCode,
       title: notification.title,
       body: notification.body,
