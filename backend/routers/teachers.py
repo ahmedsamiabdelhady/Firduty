@@ -27,18 +27,17 @@ from datetime import date as date_type, datetime
 from typing import List, Optional
 
 import pytz
-from fastapi import APIRouter, Depends, HTTPException, Response, status
-from sqlalchemy import text
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, selectinload, joinedload
 
 from database import get_db
 from models.models import (
     Teacher, DeviceToken, DayPlan, ShiftLocation, Assignment, WeekPlan,
 )
-from models.models import DutyConfirmation, MonthlyPointsSummary
+from models.points_models import DutyConfirmation
 from schemas.schemas import (
     TeacherCreate, TeacherLogin, TeacherRegister, TeacherUpdate,
-    TeacherOut, TeacherStatusOut, DeviceTokenCreate, DeviceTokenDelete,
+    TeacherOut, TeacherStatusOut, DeviceTokenCreate,
 )
 from routers.auth import get_current_admin
 from services.week_service import get_current_week_start
@@ -637,141 +636,121 @@ def register_device_token(
     db: Session = Depends(get_db),
 ) -> dict:
     """
-    Register exactly one token per user-device pair.
+    Register or update a push notification token.
 
-    Rules:
-      - token is globally unique
-      - (teacher_id, installation_id) is unique per device
-      - old token rows for the same device are completely deleted
-      - same token is upserted instead of duplicated
+    Upsert strategy that prevents duplicate-notification accumulation:
+
+    Path 1 — installation_id provided (new clients v3.3+):
+      UPSERT on (teacher_id, installation_id).
+      When FCM rotates the token for the same device, the existing row is
+      UPDATED in place — no new row, no future duplicate notification.
+
+    Path 2 — no installation_id (legacy clients, backward compat):
+      UPSERT on token value only — same as previous behavior.
     """
     teacher = db.query(Teacher).filter(Teacher.id == teacher_id).first()
     if not teacher:
         raise HTTPException(404, "Teacher not found")
 
-    token_value = data.token.strip()
-    platform_value = (data.platform or "").strip().lower()
-    installation_id = data.installation_id.strip()
+    now = datetime.utcnow()
 
-    if not token_value:
-        raise HTTPException(400, "token is required")
-    if not installation_id:
-        raise HTTPException(400, "installation_id is required")
-
-    try:
-        # Transaction keeps device cleanup + upsert atomic.
-        db.execute(text("""
-            DELETE FROM device_tokens
-            WHERE teacher_id = :teacher_id
-              AND installation_id = :installation_id
-              AND token <> :token
-        """), {
-            "teacher_id": teacher_id,
-            "installation_id": installation_id,
-            "token": token_value,
-        })
-
-        db.execute(text("""
-            INSERT INTO device_tokens (
-                teacher_id,
-                token,
-                platform,
-                installation_id,
-                created_at,
-                last_seen_at
+    # ── Path 1: installation_id present — deterministic per-device upsert ─────
+    #
+    # Identity key is (teacher_id, installation_id) — NOT the token value.
+    # FCM token may rotate; installation_id is stable for the life of the install.
+    #
+    # Sub-cases:
+    #   a) Row with (teacher_id, installation_id) EXISTS
+    #      → token rotated for the same device → UPDATE token in place
+    #   b) Row with (teacher_id, installation_id) does NOT exist — new device
+    #      b1) This teacher already owns a row with this exact token (impossible
+    #          normally, but guards against extremely rare FCM duplicate-token edge)
+    #          → remove the stale row, INSERT fresh row with new installation_id
+    #      b2) A DIFFERENT teacher owns this token (shared physical device,
+    #          one teacher logged out, another logged in)
+    #          → DO NOT overwrite another teacher's row. The old teacher's row
+    #          will become stale and be cleaned up by FCM error handling on the
+    #          next send (remove_invalid_tokens). INSERT a new row for this teacher.
+    #      b3) Token is completely new → INSERT new row
+    if data.installation_id:
+        row = (
+            db.query(DeviceToken)
+            .filter(
+                DeviceToken.teacher_id      == teacher_id,
+                DeviceToken.installation_id == data.installation_id,
             )
-            VALUES (
-                :teacher_id,
-                :token,
-                :platform,
-                :installation_id,
-                NOW(),
-                NOW()
+            .first()
+        )
+        if row:
+            # Case a: Same teacher, same device, token rotated — UPDATE in place.
+            # This is the hot path for every FCM token rotation.
+            # Zero new rows created — one device stays one row.
+            row.token      = data.token
+            row.platform   = data.platform
+            row.updated_at = now
+            logger.info(
+                "[token] Updated (token rotation): teacher=%d install=%s",
+                teacher_id, data.installation_id[:8],
             )
-            ON CONFLICT (token)
-            DO UPDATE SET
-                teacher_id = EXCLUDED.teacher_id,
-                platform = EXCLUDED.platform,
-                installation_id = EXCLUDED.installation_id,
-                last_seen_at = NOW()
-        """), {
-            "teacher_id": teacher_id,
-            "token": token_value,
-            "platform": platform_value,
-            "installation_id": installation_id,
-        })
+        else:
+            # Case b: New device for this teacher.
+            # Check if THIS teacher already has a different row with the same token.
+            # (Happens if the same teacher re-installs the app: old installation_id
+            # is gone, but the FCM token may still be the same for a brief window.)
+            same_teacher_old_row = (
+                db.query(DeviceToken)
+                .filter(
+                    DeviceToken.teacher_id == teacher_id,
+                    DeviceToken.token      == data.token,
+                )
+                .first()
+            )
+            if same_teacher_old_row:
+                # Stale row from a previous install of the same teacher on this
+                # device. Remove it and let the INSERT below create a clean row.
+                db.delete(same_teacher_old_row)
+                db.flush()
+                logger.info(
+                    "[token] Removed stale row (re-install): teacher=%d old_install=%s",
+                    teacher_id,
+                    (same_teacher_old_row.installation_id or "null")[:8],
+                )
 
-        # Defensive cleanup: keep only the newest/current token for this device.
-        db.execute(text("""
-            DELETE FROM device_tokens
-            WHERE teacher_id = :teacher_id
-              AND installation_id = :installation_id
-              AND token <> :token
-        """), {
-            "teacher_id": teacher_id,
-            "installation_id": installation_id,
-            "token": token_value,
-        })
+            # Case b2 is handled by NOT touching any other teacher's row.
+            # If a different teacher owns this token, their row is left intact.
+            # It will be cleaned by FCM's "token not registered" response on the
+            # next notification send (remove_invalid_tokens). This is the safe
+            # approach — we never corrupt another teacher's notification delivery.
 
-        db.commit()
-    except Exception as exc:
-        db.rollback()
-        logger.exception(
-            "register_device_token failed teacher_id=%s installation_id=%s",
-            teacher_id,
-            installation_id,
-        )
-        raise HTTPException(500, f"Failed to register device token: {exc}") from exc
+            db.add(DeviceToken(
+                teacher_id=teacher_id,
+                token=data.token,
+                platform=data.platform,
+                installation_id=data.installation_id,
+                updated_at=now,
+            ))
+            logger.info(
+                "[token] Registered new device: teacher=%d install=%s platform=%s",
+                teacher_id, data.installation_id[:8], data.platform,
+            )
 
-    logger.info(
-        "Device token registered teacher_id=%s installation_id=%s platform=%s",
-        teacher_id,
-        installation_id,
-        platform_value,
-    )
-    return {
-        "status": "registered",
-        "teacher_id": teacher_id,
-        "installation_id": installation_id,
-        "platform": platform_value,
-    }
+    # ── Path 2: no installation_id — legacy upsert by token ──────────────────
+    else:
+        row = db.query(DeviceToken).filter(DeviceToken.token == data.token).first()
+        if row:
+            row.teacher_id = teacher_id
+            row.platform   = data.platform
+            row.updated_at = now
+        else:
+            db.add(DeviceToken(
+                teacher_id=teacher_id,
+                token=data.token,
+                platform=data.platform,
+                updated_at=now,
+            ))
 
-
-@router.delete("/{teacher_id}/device-token", status_code=status.HTTP_204_NO_CONTENT)
-def delete_device_token(
-    teacher_id: int,
-    data: DeviceTokenDelete,
-    db: Session = Depends(get_db),
-):
-    """Delete the token row for a specific installation on logout/disable."""
-    teacher = db.query(Teacher).filter(Teacher.id == teacher_id).first()
-    if not teacher:
-        raise HTTPException(404, "Teacher not found")
-
-    installation_id = data.installation_id.strip()
-    if not installation_id:
-        raise HTTPException(400, "installation_id is required")
-
-    try:
-        db.execute(text("""
-            DELETE FROM device_tokens
-            WHERE teacher_id = :teacher_id
-              AND installation_id = :installation_id
-        """), {
-            "teacher_id": teacher_id,
-            "installation_id": installation_id,
-        })
-        db.commit()
-    except Exception as exc:
-        db.rollback()
-        logger.exception(
-            "delete_device_token failed teacher_id=%s installation_id=%s",
-            teacher_id,
-            installation_id,
-        )
-        raise HTTPException(500, f"Failed to delete device token: {exc}") from exc
-
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    db.commit()
+    return {"status": "registered"}
 
 
 # ─── CRUD ─────────────────────────────────────────────────────────────────────
@@ -791,17 +770,11 @@ def create_teacher(
     _: str = Depends(get_current_admin),
 ):
     """Admin-created teacher (immediately approved)."""
-    email_lower = data.email.lower() if data.email else None
-    if email_lower:
-        existing = db.query(Teacher).filter(Teacher.email == email_lower).first()
-        if existing:
-            raise HTTPException(409, "A teacher with this email already exists.")
-
     teacher = Teacher(
         name=data.name,
-        email=email_lower,
+        email=data.email.lower() if data.email else None,
         status="approved",
-        active=bool(getattr(data, "active", True)),
+        active=True,
         preferred_language=getattr(data, "preferred_language", "ar"),
     )
     db.add(teacher)
@@ -826,24 +799,6 @@ def update_teacher(
         if hasattr(data, "model_dump")
         else data.dict(exclude_unset=True)
     )
-
-    if "email" in payload:
-        email_value = payload["email"]
-        email_lower = email_value.lower() if email_value else None
-        existing = None
-        if email_lower:
-            existing = (
-                db.query(Teacher)
-                .filter(Teacher.email == email_lower, Teacher.id != teacher_id)
-                .first()
-            )
-        if existing:
-            raise HTTPException(409, "A teacher with this email already exists.")
-        payload["email"] = email_lower
-
-    if "status" in payload and payload["status"] not in {"pending", "approved"}:
-        raise HTTPException(400, "Invalid status. Use 'pending' or 'approved'.")
-
     for field, value in payload.items():
         setattr(teacher, field, value)
 
@@ -852,101 +807,14 @@ def update_teacher(
     return teacher
 
 
-@router.delete("/{teacher_id}", status_code=200)
-def delete_teacher(
+@router.delete("/{teacher_id}", status_code=204)
+def deactivate_teacher(
     teacher_id: int,
     db: Session = Depends(get_db),
     _: str = Depends(get_current_admin),
 ):
-    """Permanently delete a teacher and every row tied to that teacher."""
     teacher = db.query(Teacher).filter(Teacher.id == teacher_id).first()
     if not teacher:
         raise HTTPException(404, "Teacher not found")
-
-    try:
-        assignment_ids = [
-            row[0]
-            for row in db.query(Assignment.id)
-            .filter(Assignment.teacher_id == teacher_id)
-            .all()
-        ]
-
-        deleted_notification_logs = 0
-        if assignment_ids:
-            deleted_notification_logs = db.execute(
-                text("""
-                    DELETE FROM notification_logs
-                    WHERE teacher_id = :teacher_id
-                       OR assignment_id = ANY(:assignment_ids)
-                """),
-                {
-                    "teacher_id": teacher_id,
-                    "assignment_ids": assignment_ids,
-                },
-            ).rowcount or 0
-        else:
-            deleted_notification_logs = db.execute(
-                text("DELETE FROM notification_logs WHERE teacher_id = :teacher_id"),
-                {"teacher_id": teacher_id},
-            ).rowcount or 0
-
-        deleted_confirmations = 0
-        if assignment_ids:
-            deleted_confirmations += (
-                db.query(DutyConfirmation)
-                .filter(DutyConfirmation.assignment_id.in_(assignment_ids))
-                .delete(synchronize_session=False)
-            )
-
-        deleted_confirmations += (
-            db.query(DutyConfirmation)
-            .filter(DutyConfirmation.teacher_id == teacher_id)
-            .delete(synchronize_session=False)
-        )
-
-        deleted_assignments = (
-            db.query(Assignment)
-            .filter(Assignment.teacher_id == teacher_id)
-            .delete(synchronize_session=False)
-        )
-
-        deleted_monthly_summaries = (
-            db.query(MonthlyPointsSummary)
-            .filter(MonthlyPointsSummary.teacher_id == teacher_id)
-            .delete(synchronize_session=False)
-        )
-
-        deleted_device_tokens = (
-            db.query(DeviceToken)
-            .filter(DeviceToken.teacher_id == teacher_id)
-            .delete(synchronize_session=False)
-        )
-
-        db.delete(teacher)
-        db.commit()
-    except Exception as exc:
-        db.rollback()
-        logger.exception("Failed to delete teacher id=%d", teacher_id)
-        raise HTTPException(500, f"Failed to delete teacher: {exc}") from exc
-
-    logger.info(
-        "Teacher deleted: id=%d assignments=%d confirmations=%d monthly_summaries=%d device_tokens=%d notification_logs=%d",
-        teacher_id,
-        deleted_assignments,
-        deleted_confirmations,
-        deleted_monthly_summaries,
-        deleted_device_tokens,
-        deleted_notification_logs,
-    )
-
-    return {
-        "status": "deleted",
-        "teacher_id": teacher_id,
-        "deleted": {
-            "assignments": deleted_assignments,
-            "duty_confirmations": deleted_confirmations,
-            "monthly_points_summary": deleted_monthly_summaries,
-            "device_tokens": deleted_device_tokens,
-            "notification_logs": deleted_notification_logs,
-        },
-    }
+    teacher.active = False
+    db.commit()

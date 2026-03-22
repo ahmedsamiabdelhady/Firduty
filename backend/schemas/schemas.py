@@ -73,8 +73,6 @@ class TeacherCreate(BaseModel):
 
 class TeacherUpdate(BaseModel):
     name: Optional[str] = None
-    email: Optional[EmailStr] = None
-    status: Optional[str] = None
     active: Optional[bool] = None
     preferred_language: Optional[str] = None
 
@@ -99,23 +97,9 @@ class TeacherOut(_OrmBase):
 # ─── Device Token ─────────────────────────────────────────────────────────────
 
 class DeviceTokenCreate(BaseModel):
-    token: str
-    platform: str   # 'android' | 'web'
-    installation_id: str
-
-
-class DeviceTokenOut(BaseModel):
-    id: int
-    teacher_id: int
-    token: str
-    platform: str
-    installation_id: str
-    created_at: datetime | None = None
-    last_seen_at: datetime | None = None
-
-
-class DeviceTokenDelete(BaseModel):
-    installation_id: str
+    token:           str
+    platform:        str            # 'android' | 'web'
+    installation_id: Optional[str] = None   # stable device UUID, v3.3+
 
 
 # ─── Location ─────────────────────────────────────────────────────────────────

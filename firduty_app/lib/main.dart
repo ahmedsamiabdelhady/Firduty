@@ -156,11 +156,11 @@ class _FirdutyAppState extends State<FirdutyApp> {
             );
           case '/login':
             return MaterialPageRoute(
-              builder: (_) => const LoginScreen(),
+              builder: (_) => LoginScreen(onLocaleChange: _changeLocale),
             );
           case '/register':
             return MaterialPageRoute(
-              builder: (_) => const RegistrationScreen(),
+              builder: (_) => RegistrationScreen(onLocaleChange: _changeLocale),
             );
           case '/pending':
             return MaterialPageRoute(
