@@ -27,14 +27,12 @@ class NotificationBell extends StatelessWidget {
     );
   }
 
-  // ── Helpers ─────────────────────────────────────────────────────────────────
-
   static String _tooltip(NotificationBellState state) {
     return switch (state) {
-      NotificationBellState.enabled  => 'Disable notifications',
+      NotificationBellState.enabled => 'Disable notifications',
       NotificationBellState.disabled => 'Enable notifications',
-      NotificationBellState.loading  => 'Updating…',
-      NotificationBellState.unknown  => 'Notifications',
+      NotificationBellState.loading => 'Updating…',
+      NotificationBellState.unknown => 'Enable notifications',
     };
   }
 
@@ -53,10 +51,10 @@ class NotificationBell extends StatelessWidget {
 
   static bool _isInteractable(NotificationBellState state) {
     return switch (state) {
-      NotificationBellState.enabled  => true,
+      NotificationBellState.enabled => true,
       NotificationBellState.disabled => true,
-      NotificationBellState.loading  => false,
-      NotificationBellState.unknown  => false,
+      NotificationBellState.loading => false,
+      NotificationBellState.unknown => true,
     };
   }
 }

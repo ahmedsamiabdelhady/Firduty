@@ -289,7 +289,7 @@ def ensure_week_fully_populated(db: Session, week: WeekPlan) -> WeekPlan:
     shift_map = _build_shift_alias_map(db)
     location_map = _ensure_required_locations_exist(
         db,
-        MORNING_LOCATION_SPECS + END_OF_DAY_LOCATION_SPECS
+        MORNING_LOCATION_SPECS + END_OF_DAY_LOCATION_SPECS,
     )
     break_grade_classes = _get_break_grade_classes(db)
 
@@ -300,7 +300,7 @@ def ensure_week_fully_populated(db: Session, week: WeekPlan) -> WeekPlan:
         day_date = week.week_start_date + timedelta(days=i)
         day = existing_days.get(day_date)
 
-        # 🟢 create missing day
+        # Create missing day
         if not day:
             day = DayPlan(week_plan_id=week.id, date=day_date, is_published=False)
             db.add(day)
@@ -308,78 +308,107 @@ def ensure_week_fully_populated(db: Session, week: WeekPlan) -> WeekPlan:
             existing_days[day_date] = day
             changed = True
 
-        existing_sls = {
+        # Refresh current rows for this day
+        day_shift_locations = list(day.shift_locations or [])
+
+        existing_sls: dict[tuple[int, Optional[int]], ShiftLocation] = {
             (sl.shift_id, sl.location_id): sl
-            for sl in day.shift_locations
+            for sl in day_shift_locations
         }
 
-        def ensure_sl(shift_id, location_id, slots_count):
+        def ensure_shift_location(
+            *,
+            shift_id: int,
+            location_id: Optional[int],
+            slots_count: int,
+            order: int,
+        ) -> ShiftLocation:
             nonlocal changed
-            key = (shift_id, location_id)
 
-            if key not in existing_sls:
-                max_order = len(existing_sls)
-                new_sl = ShiftLocation(
+            key = (shift_id, location_id)
+            sl = existing_sls.get(key)
+
+            if sl is None:
+                sl = ShiftLocation(
                     day_plan_id=day.id,
                     shift_id=shift_id,
                     location_id=location_id,
                     slots_count=slots_count,
-                    order=max_order,
+                    order=order,
                 )
-                db.add(new_sl)
+                db.add(sl)
                 db.flush()
-
-                existing_sls[key] = new_sl
-                day.shift_locations.append(new_sl)
+                existing_sls[key] = sl
+                day.shift_locations.append(sl)
                 changed = True
+            else:
+                # Keep template slots_count in sync if corrupted
+                if int(sl.slots_count or 0) != int(slots_count):
+                    sl.slots_count = slots_count
+                    changed = True
+                if sl.order != order:
+                    sl.order = order
+                    changed = True
 
-            return existing_sls[key]
+            return sl
 
-        # 🟢 MORNING
+        order = 0
+
+        # Morning duty rows
         for spec in MORNING_LOCATION_SPECS:
             loc = location_map[_normalize(spec["name_en"])]
-            ensure_sl(
-                shift_map["morning"].id,
-                loc.id,
-                spec["slots_count"]
+            ensure_shift_location(
+                shift_id=shift_map["morning"].id,
+                location_id=loc.id,
+                slots_count=int(spec["slots_count"]),
+                order=order,
             )
+            order += 1
 
-        # 🟢 BREAK 1
-        ensure_sl(
-            shift_map["break_1"].id,
-            None,
-            len(break_grade_classes)
+        # Break 1 row
+        ensure_shift_location(
+            shift_id=shift_map["break_1"].id,
+            location_id=None,
+            slots_count=len(break_grade_classes),
+            order=order,
         )
+        order += 1
 
-        # 🟢 BREAK 2
-        ensure_sl(
-            shift_map["break_2"].id,
-            None,
-            len(break_grade_classes)
+        # Break 2 row
+        ensure_shift_location(
+            shift_id=shift_map["break_2"].id,
+            location_id=None,
+            slots_count=len(break_grade_classes),
+            order=order,
         )
+        order += 1
 
-        # 🟢 END OF DAY
+        # End-of-day rows
         for spec in END_OF_DAY_LOCATION_SPECS:
             loc = location_map[_normalize(spec["name_en"])]
-            ensure_sl(
-                shift_map["end_of_day"].id,
-                loc.id,
-                spec["slots_count"]
+            ensure_shift_location(
+                shift_id=shift_map["end_of_day"].id,
+                location_id=loc.id,
+                slots_count=int(spec["slots_count"]),
+                order=order,
             )
+            order += 1
 
-        # 🟢 FIX ASSIGNMENTS
-        break_shift_ids = {
-            shift_map["break_1"].id,
-            shift_map["break_2"].id
-        }
+        # Ensure assignments exist for every slot
+        break_shift_ids = {shift_map["break_1"].id, shift_map["break_2"].id}
 
-        for sl in day.shift_locations:
-            existing_assignments = {a.slot_index: a for a in sl.assignments}
+        for sl in list(day.shift_locations or []):
+            existing_assignments = {
+                int(a.slot_index): a
+                for a in (sl.assignments or [])
+                if a.slot_index is not None
+            }
 
-            # break
             if sl.location_id is None and sl.shift_id in break_shift_ids:
+                # Break rows: one assignment per grade class
                 for idx, gc in enumerate(break_grade_classes):
-                    if idx not in existing_assignments:
+                    a = existing_assignments.get(idx)
+                    if a is None:
                         db.add(Assignment(
                             shift_location_id=sl.id,
                             slot_index=idx,
@@ -387,10 +416,21 @@ def ensure_week_fully_populated(db: Session, week: WeekPlan) -> WeekPlan:
                             grade_class=gc,
                         ))
                         changed = True
+                    else:
+                        if a.grade_class != gc:
+                            a.grade_class = gc
+                            changed = True
 
-            # normal
+                # Remove overflow corrupted assignments beyond grade class count
+                for idx, a in existing_assignments.items():
+                    if idx >= len(break_grade_classes):
+                        db.delete(a)
+                        changed = True
+
             else:
-                for idx in range(int(sl.slots_count)):
+                target_slots = int(sl.slots_count or 0)
+
+                for idx in range(target_slots):
                     if idx not in existing_assignments:
                         db.add(Assignment(
                             shift_location_id=sl.id,
@@ -400,11 +440,16 @@ def ensure_week_fully_populated(db: Session, week: WeekPlan) -> WeekPlan:
                         ))
                         changed = True
 
+                # Remove overflow corrupted assignments beyond slots_count
+                for idx, a in existing_assignments.items():
+                    if idx >= target_slots:
+                        db.delete(a)
+                        changed = True
+
     if changed:
         db.commit()
 
     return _get_week_with_day_plans(db, week.id)
-
 
 # ─── Week CRUD ────────────────────────────────────────────────────────────────
 
