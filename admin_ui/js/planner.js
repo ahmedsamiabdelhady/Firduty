@@ -760,33 +760,58 @@ const BREAK_GRADE_CLASSES = [
 ];
 
 function renderBreakGrid(dayDate, sl, isEditable) {
-  // ── Root cause fix ────────────────────────────────────────────────────────
-  // renderBreakGrid previously rendered one cell per sl.assignments entry.
-  // If the week was created before grade-class seeding ran (or the grade_classes
-  // table was empty), sl.assignments would be [] and NO cells appeared at all.
+  // We always render a COMPLETE break grid.
+  // Source priority:
+  //  1) Existing assignments from API
+  //  2) sl.slots_count from backend
+  //  3) Canonical BREAK_GRADE_CLASSES fallback
   //
-  // Fix: when sl.assignments is empty, synthesise virtual assignment objects
-  // from the hardcoded BREAK_GRADE_CLASSES list.  The cells render correctly
-  // (empty slot + grade label visible) and dragging a teacher onto them still
-  // works — the drag handler writes to pendingAssignments by (slId, slotIdx).
-  // ──────────────────────────────────────────────────────────────────────────
-  let source;
-  if (sl.assignments && sl.assignments.length > 0) {
-    // Normal path: assignments exist in DB (grade_class populated by seeding)
-    source = [...sl.assignments].sort((a, b) => (a.slot_index ?? 0) - (b.slot_index ?? 0));
-  } else {
-    // Fallback path: no assignments in DB yet — generate from canonical list
-    console.warn(
-      `[renderBreakGrid] sl.id=${sl.id} has no assignments — ` +
-      `rendering ${BREAK_GRADE_CLASSES.length} fallback cells.`
-    );
-    source = BREAK_GRADE_CLASSES.map((gc, idx) => ({
-      id:           null,
-      slot_index:   idx,
-      teacher_id:   null,
-      teacher_name: null,
-      grade_class:  gc,
-    }));
+  // This fixes partial-corruption cases where some break assignments exist
+  // but not all slot_index values are present yet.
+
+  const apiAssignments = Array.isArray(sl.assignments) ? sl.assignments : [];
+
+  // Build a map by slot_index from the API payload
+  const byIndex = new Map();
+  for (const a of apiAssignments) {
+    const idx = Number(a?.slot_index);
+    if (!Number.isNaN(idx)) {
+      byIndex.set(idx, a);
+    }
+  }
+
+  // Decide how many cells to render.
+  // Prefer backend slots_count when present; otherwise use whichever is larger.
+  const targetCount = Math.max(
+    Number(sl.slots_count) || 0,
+    apiAssignments.length,
+    BREAK_GRADE_CLASSES.length
+  );
+
+  const source = [];
+  for (let idx = 0; idx < targetCount; idx++) {
+    const existing = byIndex.get(idx);
+
+    if (existing) {
+      source.push({
+        id: existing.id ?? null,
+        slot_index: idx,
+        teacher_id: existing.teacher_id ?? null,
+        teacher_name: existing.teacher_name ?? null,
+        grade_class:
+          existing.grade_class ??
+          BREAK_GRADE_CLASSES[idx] ??
+          '',
+      });
+    } else {
+      source.push({
+        id: null,
+        slot_index: idx,
+        teacher_id: null,
+        teacher_name: null,
+        grade_class: BREAK_GRADE_CLASSES[idx] ?? '',
+      });
+    }
   }
 
   const cells = source
