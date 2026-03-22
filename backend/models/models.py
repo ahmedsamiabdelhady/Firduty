@@ -23,12 +23,22 @@ Teacher registration status (Teacher.status):
 DeviceToken.platform values:
   'android' → FCM registration token (native Android)
   'web'     → FCM web registration token (Flutter Web / iOS PWA via Firebase JS SDK)
+
+DeviceToken.installation_id:
+  A stable UUID generated once per device/browser and stored in
+  SharedPreferences (mobile) or IndexedDB (web via shared_preferences_web).
+  The backend upserts on (teacher_id, installation_id) so that when FCM
+  rotates a token for the same device, the existing row is UPDATED instead
+  of a new row being inserted — preventing duplicate notifications.
+  Nullable for backward compatibility with app versions that pre-date v3.3.
+  PostgreSQL UNIQUE allows multiple NULLs (NULL ≠ NULL), so legacy rows
+  without installation_id are unconstrained against each other.
 """
 
 from datetime import datetime
 from sqlalchemy import (
     Column, Integer, String, Boolean, DateTime, Date, Time, Text,
-    ForeignKey, Enum as SAEnum, UniqueConstraint, Index, func,
+    ForeignKey, Enum as SAEnum, UniqueConstraint, Index,
 )
 from sqlalchemy.orm import relationship
 from database import Base
@@ -87,12 +97,6 @@ class DeviceToken(Base):
     """
     Push notification tokens for a teacher.
 
-    One row represents one app/browser installation.
-    installation_id is generated on the client and remains stable for that
-    installation. When Firebase rotates the token, the backend should update the
-    existing row for the same (teacher_id, installation_id) instead of inserting
-    a new row.
-
     platform = 'android'
         token = FCM registration token (standard string)
 
@@ -101,26 +105,42 @@ class DeviceToken(Base):
                 firebase_messaging.getToken(vapidKey=…) in the Flutter Web app.
                 Firebase delivers this via Web Push (VAPID) to the browser's
                 service worker (iOS Safari 16.4+ supported).
+
+    installation_id
+        A stable UUID generated once per device/browser installation and stored in
+        SharedPreferences (mobile) or IndexedDB via shared_preferences_web (web).
+        Survives: app restarts, background/foreground, FCM token rotation.
+        Lost on:  app uninstall or clearing browser site data — both correct,
+                  as a reinstall represents a new device identity.
+
+        UNIQUE(teacher_id, installation_id) is the deduplication guarantee:
+          • Same teacher + same device + FCM token rotated  → UPDATE the existing row
+          • Same teacher + new device                       → INSERT a new row
+          • Different teacher + same device (shared phone)  → INSERT new row for new teacher
+
+        Nullable for backward compatibility with older app versions (pre-v3.3)
+        that do not send installation_id. PostgreSQL treats NULL ≠ NULL in UNIQUE
+        constraints, so multiple NULL rows are allowed — old devices keep working.
     """
     __tablename__ = "device_tokens"
     __table_args__ = (
+        # Core deduplication constraint (v3.3+).
+        # When FCM rotates the token for an existing installation, the backend
+        # UPSERTs by (teacher_id, installation_id) — UPDATE in place, zero new rows.
+        # When installation_id IS NULL (legacy clients), PostgreSQL allows multiple
+        # NULL values so the constraint does not affect old-style registrations.
         UniqueConstraint(
-            "teacher_id",
-            "installation_id",
-            name="uq_device_tokens_teacher_installation",
+            "teacher_id", "installation_id",
+            name="uq_device_token_teacher_installation",
         ),
-        Index("ix_device_tokens_teacher_platform", "teacher_id", "platform"),
-        Index("ix_device_tokens_installation_id", "installation_id"),
     )
-
-    id = Column(Integer, primary_key=True, index=True)
-    teacher_id = Column(Integer, ForeignKey("teachers.id"), nullable=False)
-    token = Column(String(500), nullable=False, unique=True)
-    installation_id = Column(String(100), nullable=False)
-    platform = Column(String(10), nullable=False)   # 'android' | 'web'
-    created_at = Column(DateTime, server_default=func.now())
-    last_seen_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
-    teacher = relationship("Teacher", back_populates="device_tokens")
+    id              = Column(Integer, primary_key=True, index=True)
+    teacher_id      = Column(Integer, ForeignKey("teachers.id"), nullable=False)
+    token           = Column(String(500), nullable=False, unique=True)
+    platform        = Column(String(10),  nullable=False)   # 'android' | 'web'
+    installation_id = Column(String(100), nullable=True,  index=True)
+    updated_at      = Column(DateTime, default=_utcnow, onupdate=_utcnow)
+    teacher         = relationship("Teacher", back_populates="device_tokens")
 
 
 # ─── Location ─────────────────────────────────────────────────────────────────
@@ -218,6 +238,7 @@ class DayPlan(Base):
         back_populates="day_plan",
         cascade="all, delete-orphan"
     )
+
 
 class ShiftLocation(Base):
     __tablename__ = "shift_locations"
