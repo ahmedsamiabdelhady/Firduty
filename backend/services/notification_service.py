@@ -163,15 +163,19 @@ def send_notification_to_tokens(
             "[FCM] Cannot send — Firebase not initialized. "
             "Check FIREBASE_CREDENTIALS_JSON / FIREBASE_CREDENTIALS_PATH."
         )
-        return 0, list(tokens)   # treat all as failed so caller can retry
+        return 0, list(tokens)
 
-    # Deduplicate tokens — FCM rejects duplicate tokens in one multicast
     unique_tokens = list(dict.fromkeys(tokens))
     if len(unique_tokens) < len(tokens):
         logger.debug("[FCM] Deduplicated %d → %d tokens", len(tokens), len(unique_tokens))
 
-    # Stringify all data values — FCM data payload must be str:str
     str_data = {k: str(v) for k, v in (data or {}).items()}
+
+    web_base_url = (
+        os.getenv("WEB_APP_URL")
+        or os.getenv("APP_BASE_URL")
+        or "https://naval-donnamarie-firduty-6e288803.koyeb.app"
+    ).rstrip("/")
 
     message = messaging.MulticastMessage(
         tokens=unique_tokens,
@@ -190,7 +194,7 @@ def send_notification_to_tokens(
                 icon="/icons/Icon-192.png",
                 badge="/icons/Icon-192.png",
             ),
-            fcm_options=messaging.WebpushFCMOptions(link="/"),
+            fcm_options=messaging.WebpushFCMOptions(link=f"{web_base_url}/"),
         ),
     )
 
@@ -198,9 +202,8 @@ def send_notification_to_tokens(
         response = messaging.send_each_for_multicast(message)
     except Exception as exc:
         logger.error("[FCM] send_each_for_multicast raised: %s", exc)
-        return 0, unique_tokens  # treat all as failed
+        return 0, unique_tokens
 
-    # ── Analyse per-token results ─────────────────────────────────────────────
     failed_tokens: List[str] = []
     invalid_codes = {
         "registration-token-not-registered",
@@ -215,7 +218,7 @@ def send_notification_to_tokens(
         else:
             err = result.exception
             err_code = getattr(err, "code", "") or ""
-            err_msg  = str(err) if err else "unknown error"
+            err_msg = str(err) if err else "unknown error"
             logger.warning(
                 "[FCM] ✗ token[%d] failed — code=%s msg=%s",
                 idx, err_code, err_msg,
@@ -231,7 +234,6 @@ def send_notification_to_tokens(
     )
 
     return response.success_count, failed_tokens
-
 
 def remove_invalid_tokens(db, failed_tokens: List[str]) -> None:
     """
