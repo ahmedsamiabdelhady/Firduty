@@ -28,6 +28,7 @@ class _PendingScreenState extends State<PendingScreen>
     with SingleTickerProviderStateMixin {
   bool _checking = false;
   String? _errorMsg;
+  int? _teacherId;
 
   /// Auto-poll interval in seconds.
   static const _pollIntervalSec = 30;
@@ -92,6 +93,11 @@ class _PendingScreenState extends State<PendingScreen>
         Navigator.pushReplacementNamed(context, '/login');
       }
       return;
+    }
+
+    // Store in state so the NotificationBell in the AppBar can use it.
+    if (_teacherId != teacherId) {
+      setState(() => _teacherId = teacherId);
     }
 
     final result = await ApiService.getTeacherStatus(teacherId);
@@ -185,7 +191,8 @@ class _PendingScreenState extends State<PendingScreen>
         foregroundColor: Colors.white,
         elevation: 0,
         actions: [
-          const NotificationBellButton(),
+          if (_teacherId != null)
+              NotificationBell(teacherId: _teacherId!),
           TextButton(
             onPressed: () => widget.onLocaleChange(
               isAr ? const Locale('en') : const Locale('ar'),

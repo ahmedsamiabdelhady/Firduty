@@ -1132,67 +1132,71 @@ function initDragAndDrop() {
       },
 
       // ── Called when a clone lands in this list ─────────────────────────
-      onAdd(evt) {
-        // Always clean up highlights first
-        _clearDragClasses();
+onAdd(evt) {
+  // Clean highlights
+  _clearDragClasses();
 
-        // Remove the DOM clone Sortable inserted — we manage DOM ourselves
-        evt.item.remove();
+  // Remove the cloned element added by Sortable
+  evt.item.remove();
 
-        const col     = list.closest('.location-column');
-        const dayDate = col?.dataset.day;
-        const day     = currentWeekData?.day_plans?.find(d => d.date === dayDate);
+  const col     = list.closest('.location-column');
+  const dayDate = col?.dataset.day;
+  const day     = currentWeekData?.day_plans?.find(d => d.date === dayDate);
 
-        if (!day?.is_editable) {
-          showToast(I18N.t('day_locked'), 'error');
-          return;
-        }
+  if (!day?.is_editable) {
+    showToast(I18N.t('day_locked'), 'error');
+    return;
+  }
 
-        const slId        = parseInt(list.dataset.slId, 10);
-        const teacherId   = parseInt(evt.item.dataset.teacherId,   10);
-        const teacherName = evt.item.dataset.teacherName || '';
+  const slId        = parseInt(list.dataset.slId, 10);
+  const teacherId   = parseInt(evt.item.dataset.teacherId, 10);
+  const teacherName = evt.item.dataset.teacherName || '';
 
-        if (!teacherId) return;
+  if (!teacherId) return;
 
-        if (isTeacherAssignedInSameShift(slId, teacherId)) {
-          showToast(I18N.t('teacher_already_assigned') || 'Already assigned in this shift', 'error');
-          return;
-        }
+  if (isTeacherAssignedInSameShift(slId, teacherId)) {
+    showToast(I18N.t('teacher_already_assigned') || 'Already assigned in this shift', 'error');
+    return;
+  }
 
-        // Determine drop target: use the DOM element that was highlighted
-        // (drop target is determined inside the if-block below)
+  // ✅ FIX: use exact drop position instead of first empty slot
+  let dropTarget = evt.to.children[evt.newIndex];
 
-        // Root-cause fix: use the slot the admin HOVERED over (set by onMove),
-        // not always the first empty slot. This lets the admin put a teacher
-        // in any specific class cell, not just the first available one.
-        // Falls back to first empty slot if no slot is highlighted.
-        const dropTarget = list.querySelector('.slot-drag-replace, .slot-drag-add')
-                        || list.querySelector('.slot-item:not(.filled)');
+  // fallback (safety)
+  if (!dropTarget || !dropTarget.classList.contains('slot-item')) {
+    dropTarget =
+      list.querySelector('.slot-drag-replace, .slot-drag-add') ||
+      list.querySelector('.slot-item:not(.filled)');
+  }
 
-        if (dropTarget && !dropTarget.classList.contains('filled')) {
-          // Drop onto an empty slot — preserve grade class label for break duties
-          const slotIdx    = parseInt(dropTarget.dataset.slotIdx, 10);
-          const gradeClass = isBreak ? (dropTarget.dataset.gradeClass || null) : null;
-          recordAssignment(slId, slotIdx, teacherId, gradeClass);
-          dropTarget.outerHTML = renderSlot(slId, slotIdx, {
-            teacher_id:   teacherId,
-            teacher_name: teacherName,
-            slot_index:   slotIdx,
-            grade_class:  gradeClass,
-          }, isBreak, true);
-          return;
-        }
+  if (!dropTarget) {
+    showToast(I18N.t('no_empty_slot'), 'error');
+    return;
+  }
 
-        if (dropTarget && dropTarget.classList.contains('filled')) {
-          // Drop onto a filled slot → replace
-          const slotIdx = parseInt(dropTarget.dataset.slotIdx, 10);
-          replaceTeacherInSlot(slId, slotIdx, teacherId, teacherName, isBreak);
-          showToast(I18N.t('teacher_replaced'));
-          return;
-        }
+  const isFilled = dropTarget.classList.contains('filled');
+  const slotIdx  = parseInt(dropTarget.dataset.slotIdx, 10);
 
-        showToast(I18N.t('no_empty_slot'), 'error');
-      },
+  if (!isFilled) {
+    // Empty slot
+    const gradeClass = isBreak ? (dropTarget.dataset.gradeClass || null) : null;
+
+    recordAssignment(slId, slotIdx, teacherId, gradeClass);
+
+    dropTarget.outerHTML = renderSlot(slId, slotIdx, {
+      teacher_id:   teacherId,
+      teacher_name: teacherName,
+      slot_index:   slotIdx,
+      grade_class:  gradeClass,
+    }, isBreak, true);
+
+    return;
+  }
+
+  // Filled slot → replace
+  replaceTeacherInSlot(slId, slotIdx, teacherId, teacherName, isBreak);
+  showToast(I18N.t('teacher_replaced'));
+},
 
       // ── Called when drag ends on THIS list (drop accepted or cancelled) ──
       onEnd() { _clearDragClasses(); },

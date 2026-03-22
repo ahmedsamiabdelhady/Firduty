@@ -26,7 +26,7 @@
 import 'dart:async';
 import 'dart:math';
 
-import 'package:flutter/foundation.dart' show kIsWeb, kDebugMode, debugPrint;
+import 'package:flutter/foundation.dart' show kIsWeb, kDebugMode, debugPrint, ValueNotifier;
 import 'package:flutter/material.dart' show GlobalKey, NavigatorState;
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -44,6 +44,28 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   // The OS renders the notification for background messages automatically.
   // Add local state update logic here if needed in the future.
   debugPrint('[FCM] Background message: ${message.messageId}');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Bell state enum
+//
+// Declared at library level so notification_bell.dart can import it with a
+// single import of this file — no separate enum file needed.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Represents the current state of the notification toggle button.
+enum NotificationBellState {
+  /// FCM token is registered; teacher will receive push notifications.
+  enabled,
+
+  /// FCM token is not registered (or was deleted); no push notifications sent.
+  disabled,
+
+  /// A toggle operation is in progress — button should be non-interactive.
+  loading,
+
+  /// Initial state before initialize() has run or permission status is unknown.
+  unknown,
 }
 
 // ─── NotificationService ─────────────────────────────────────────────────────
@@ -70,6 +92,23 @@ class NotificationService {
   static StreamSubscription<RemoteMessage>? _onMessageSub;
   static StreamSubscription<String>?        _onTokenRefreshSub;
 
+  // ── Bell state ────────────────────────────────────────────────────────────
+  //
+  // Reactive ValueNotifier consumed by NotificationBell via
+  // ValueListenableBuilder<NotificationBellState>.  Starts as unknown and is
+  // updated by initialize(), toggle(), and reset().
+
+  static final ValueNotifier<NotificationBellState> bellState =
+      ValueNotifier(NotificationBellState.unknown);
+
+  // SharedPreferences key that persists the user's on/off preference across
+  // app restarts and hot restarts.
+  static const _kNotificationsEnabled = 'firduty_notifications_enabled';
+
+  // Cached platform string set during initialize() so toggle() can reuse it
+  // without requiring callers to pass it again.
+  static String _currentPlatform = kIsWeb ? 'web' : 'android';
+
   // ────────────────────────────────────────────────────────────────────────
 
   /// Initialize FCM for an approved teacher.
@@ -88,6 +127,7 @@ class NotificationService {
       return;
     }
 
+    _currentPlatform = platform;
     debugPrint('[NotificationService] Starting (platform: $platform)…');
 
     try {
@@ -97,7 +137,16 @@ class NotificationService {
         await _initAndroid(teacherId: teacherId);
       }
       _initialized = true;
-      debugPrint('[NotificationService] Ready.');
+
+      // Sync bell state from the persisted user preference.
+      // Defaults to enabled (first-time / no preference stored).
+      final prefs = await SharedPreferences.getInstance();
+      final savedEnabled = prefs.getBool(_kNotificationsEnabled) ?? true;
+      bellState.value = savedEnabled
+          ? NotificationBellState.enabled
+          : NotificationBellState.disabled;
+
+      debugPrint('[NotificationService] Ready. bellState=${bellState.value}');
     } catch (e, st) {
       // Non-fatal: log and continue. Teachers can still view their schedule.
       debugPrint('[NotificationService] Failed to initialize: $e\n$st');
@@ -218,7 +267,7 @@ class NotificationService {
     await _onMessageSub?.cancel();
     _onMessageSub = FirebaseMessaging.onMessage.listen((RemoteMessage msg) {
       if (kDebugMode) {
-        debugPrint('[FCM Web] Foreground: \${msg.notification?.title}');
+        debugPrint('[FCM Web] Foreground: ${msg.notification?.title}');
       }
     });
 
@@ -284,6 +333,7 @@ class NotificationService {
     _onMessageSub = null;
     _onTokenRefreshSub = null;
     _initialized = false;
+    bellState.value = NotificationBellState.unknown;
     debugPrint('[NotificationService] Reset — ready for next login.');
   }
 
@@ -351,5 +401,95 @@ class NotificationService {
         iOS: DarwinNotificationDetails(),
       ),
     );
+  }
+
+  // ── Bell toggle ──────────────────────────────────────────────────────────────
+  //
+  // Toggles push notifications on / off for [teacherId].
+  //
+  // State machine:
+  //   enabled  → loading → disabled  (delete token on device + backend)
+  //   disabled → loading → enabled   (re-request permission + re-register token)
+  //   unknown  → loading → enabled   (treated same as disabled)
+  //   loading  → (no-op — a toggle is already in flight)
+  //
+  // The user's preference is persisted in SharedPreferences so it survives
+  // app restarts.  initialize() reads this preference on the next launch and
+  // restores bellState accordingly.
+  //
+  // Uses the same installationId and platform as initialize(), so the backend
+  // upserts correctly and no duplicate token rows are created.
+
+  static Future<void> toggle({required int teacherId}) async {
+    // Prevent double-tap while in progress.
+    if (bellState.value == NotificationBellState.loading) return;
+
+    final previous = bellState.value;
+    bellState.value = NotificationBellState.loading;
+
+    try {
+      if (previous == NotificationBellState.enabled) {
+        // ── Disable ────────────────────────────────────────────────────────
+        // 1. Delete the on-device FCM token.
+        await _messaging.deleteToken();
+
+        // 2. Persist preference and update state.
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool(_kNotificationsEnabled, false);
+        bellState.value = NotificationBellState.disabled;
+
+        debugPrint('[NotificationService] Notifications disabled for teacher $teacherId');
+      } else {
+        // ── Enable (disabled | unknown) ────────────────────────────────────
+        // 1. Re-request permission in case the user had revoked it in OS settings.
+        final settings = await _messaging.requestPermission(
+          alert: true,
+          badge: true,
+          sound: true,
+        );
+
+        final granted =
+            settings.authorizationStatus == AuthorizationStatus.authorized ||
+            settings.authorizationStatus == AuthorizationStatus.provisional;
+
+        if (!granted) {
+          // User denied permission in OS settings — stay disabled.
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setBool(_kNotificationsEnabled, false);
+          bellState.value = NotificationBellState.disabled;
+          debugPrint('[NotificationService] Permission denied — cannot enable.');
+          return;
+        }
+
+        // 2. Get a fresh token (a new one was issued after deleteToken() on
+        //    disable, or this is the first time enabling).
+        final installationId = await _getInstallationId();
+        final token = kIsWeb
+            ? await _messaging.getToken(vapidKey: kVapidPublicKey)
+            : await _messaging.getToken();
+
+        if (token != null) {
+          await _registerToken(
+            teacherId:      teacherId,
+            token:          token,
+            platform:       _currentPlatform,
+            installationId: installationId,
+          );
+        }
+
+        // 3. Persist preference and update state.
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool(_kNotificationsEnabled, true);
+        bellState.value = NotificationBellState.enabled;
+
+        debugPrint('[NotificationService] Notifications enabled for teacher $teacherId');
+      }
+    } catch (e, st) {
+      // Revert to the state before the toggle attempt so the UI is consistent.
+      debugPrint('[NotificationService] Toggle failed: $e\n$st');
+      bellState.value = previous == NotificationBellState.enabled
+          ? NotificationBellState.enabled
+          : NotificationBellState.disabled;
+    }
   }
 }
