@@ -1,11 +1,12 @@
-// GENERATED CODE - DO NOT MODIFY BY HAND
-
+// ignore: unused_import
+import 'package:intl/intl.dart' as intl;
 import 'app_localizations.dart';
 
 // ignore_for_file: type=lint
 
+/// The translations for English (`en`).
 class AppLocalizationsEn extends AppLocalizations {
-  AppLocalizationsEn([super.locale = 'en']);
+  AppLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
   String get appTitle => 'Firduty';
@@ -34,6 +35,21 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get emailAlreadyRegistered =>
       'This email is already registered. Please use a different email.';
+
+  @override
+  String get loginTitle => 'Sign In to Your Account';
+
+  @override
+  String get login => 'Sign In';
+
+  @override
+  String get noAccount => 'Don\'t have an account?';
+
+  @override
+  String get alreadyHaveAccount => 'Already registered?';
+
+  @override
+  String get logout => 'Sign Out';
 
   @override
   String get pendingTitle => 'Waiting for Approval';
@@ -89,8 +105,7 @@ class AppLocalizationsEn extends AppLocalizations {
       'Your schedule is being prepared. Please check back later.';
 
   @override
-  String get noPlanForToday =>
-      'No weekly duty plan has been set up for today.';
+  String get noPlanForToday => 'No weekly duty plan has been set up for today.';
 
   @override
   String get location => 'Location';
@@ -150,6 +165,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get totalPoints => 'Total Points';
 
   @override
+  String get languageButtonEnglish => 'EN';
+
+  @override
+  String get languageButtonArabic => 'AR';
+
+  @override
   String pointsHint(String time) {
     return 'On time = 2pts  |  1–5 min late = 1pt  |  After 5 min = 0pt\nDuty starts at $time';
   }
@@ -172,23 +193,8 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get month => 'Month';
 
-  // ── Auth / Login ─────────────────────────────────────────────────────────
-
   @override
-  String get loginTitle => 'Sign In to Your Account';
-
-  @override
-  String get login => 'Sign In';
-
-  @override
-  String get noAccount => "Don't have an account?";
-
-  @override
-  String get alreadyHaveAccount => 'Already registered?';
-
-  @override
-  String get logout => 'Sign Out';
-
-  @override
-  String confirmAvailableAt(String time) => 'Available from $time';
+  String confirmAvailableAt(String time) {
+    return 'Available from $time';
+  }
 }

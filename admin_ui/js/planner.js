@@ -1160,17 +1160,21 @@ function initDragAndDrop() {
         }
 
         // Determine drop target: use the DOM element that was highlighted
-        const highlighted = list.querySelector('.slot-drag-replace, .slot-drag-add')
-                         || list.querySelector('.slot-item:not(.filled)');
-        const emptySlot   = list.querySelector('.slot-item:not(.filled)');
-        const filledSlots = Array.from(list.querySelectorAll('.slot-item.filled'));
+        // (drop target is determined inside the if-block below)
 
-        if (emptySlot) {
-          // Fill the first empty slot (for break: preserves the grade class label)
-          const slotIdx    = parseInt(emptySlot.dataset.slotIdx, 10);
-          const gradeClass = isBreak ? (emptySlot.dataset.gradeClass || null) : null;
+        // Root-cause fix: use the slot the admin HOVERED over (set by onMove),
+        // not always the first empty slot. This lets the admin put a teacher
+        // in any specific class cell, not just the first available one.
+        // Falls back to first empty slot if no slot is highlighted.
+        const dropTarget = list.querySelector('.slot-drag-replace, .slot-drag-add')
+                        || list.querySelector('.slot-item:not(.filled)');
+
+        if (dropTarget && !dropTarget.classList.contains('filled')) {
+          // Drop onto an empty slot — preserve grade class label for break duties
+          const slotIdx    = parseInt(dropTarget.dataset.slotIdx, 10);
+          const gradeClass = isBreak ? (dropTarget.dataset.gradeClass || null) : null;
           recordAssignment(slId, slotIdx, teacherId, gradeClass);
-          emptySlot.outerHTML = renderSlot(slId, slotIdx, {
+          dropTarget.outerHTML = renderSlot(slId, slotIdx, {
             teacher_id:   teacherId,
             teacher_name: teacherName,
             slot_index:   slotIdx,
@@ -1179,10 +1183,9 @@ function initDragAndDrop() {
           return;
         }
 
-        if (filledSlots.length > 0) {
-          // All slots filled → replace the last one
-          const targetSlot = filledSlots[filledSlots.length - 1];
-          const slotIdx    = parseInt(targetSlot.dataset.slotIdx, 10);
+        if (dropTarget && dropTarget.classList.contains('filled')) {
+          // Drop onto a filled slot → replace
+          const slotIdx = parseInt(dropTarget.dataset.slotIdx, 10);
           replaceTeacherInSlot(slId, slotIdx, teacherId, teacherName, isBreak);
           showToast(I18N.t('teacher_replaced'));
           return;

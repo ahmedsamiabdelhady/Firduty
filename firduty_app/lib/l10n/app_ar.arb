@@ -51,6 +51,8 @@
   "thursday": "الخميس",
   "points": "نقطة",
   "totalPoints": "مجموع النقاط",
+  "languageButtonEnglish": "EN",
+  "languageButtonArabic": "عربي",
   "pointsHint": "في الوقت = نقطتان  |  تأخر 1-5 دقائق = نقطة  |  بعد 5 دقائق = صفر\nبدء المناوبة: {time}",
   "@pointsHint": {
     "placeholders": {

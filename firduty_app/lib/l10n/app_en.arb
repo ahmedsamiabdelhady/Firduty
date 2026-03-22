@@ -51,6 +51,8 @@
   "thursday": "Thursday",
   "points": "Points",
   "totalPoints": "Total Points",
+    "languageButtonEnglish": "EN",
+  "languageButtonArabic": "AR",
   "pointsHint": "On time = 2pts  |  1–5 min late = 1pt  |  After 5 min = 0pt\nDuty starts at {time}",
   "@pointsHint": {
     "placeholders": {

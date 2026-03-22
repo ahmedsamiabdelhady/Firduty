@@ -1,25 +1,59 @@
-import 'package:firebase_core/firebase_core.dart';
-import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
+// main.dart — Firduty Flutter App entry point
+//
+// Platforms:
+//   Android  — native APK, FCM push notifications via firebase_messaging
+//   Web/PWA  — Flutter web build, works on Chrome + iOS Safari 16.4+ PWA
+//
+// dart:io is NOT imported here — it is unavailable on Flutter Web.
+// All platform branching uses kIsWeb from flutter/foundation.dart.
+//
+// ── Startup order ───────────────────────────────────────────────────────────
+//  1. WidgetsFlutterBinding.ensureInitialized()
+//  2. Firebase.initializeApp()  ← guarded + try/catch (never crashes the app)
+//  3. runApp(FirdutyApp)        ← first frame rendered immediately after
+//  4. FirdutyApp._initLocale()  ← reads SharedPreferences async, sets locale
+//  5. StartupScreen._route()    ← deferred to post-frame, reads teacher_id
+//  6. NotificationService.initialize()  ← only when teacher is approved
+//
+// ── Firebase duplicate-app safety ───────────────────────────────────────────
+// Flutter Web hot restart does NOT tear down the JS runtime. The Firebase JS
+// SDK therefore keeps its [DEFAULT] app alive between restarts. Calling
+// Firebase.initializeApp() again throws [core/duplicate-app].
+//
+// The fix is two-layered:
+//   (a) Firebase.apps.isEmpty guard  — skips the call when app already exists
+//   (b) try/catch around the entire block — catches any unexpected edge case
+//       (emulator weirdness, test environments, future SDK changes)
+//
+// On Android, the Dart VM IS torn down on hot restart, so Firebase.apps is
+// always empty — the guard is harmless there.
+
+import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
 import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'app_theme.dart';
 import 'firebase_options.dart';
-import 'gen/app_localizations.dart';
+import 'screens/teacher_select_screen.dart' show RegistrationScreen;
 import 'screens/login_screen.dart';
 import 'screens/pending_screen.dart';
-import 'screens/points_screen.dart';
-import 'screens/teacher_select_screen.dart' show RegistrationScreen;
 import 'screens/today_screen.dart';
 import 'screens/week_screen.dart';
+import 'screens/points_screen.dart';
 import 'services/api_service.dart';
 import 'services/notification_service.dart';
-import 'widgets/notification_bell.dart';
+import 'gen/app_localizations.dart';
+import 'app_theme.dart';
 
 Future<void> main() async {
+  // ── Step 1: bind Flutter engine ─────────────────────────────────────────
   WidgetsFlutterBinding.ensureInitialized();
 
+  // ── Step 2: safe Firebase initialization ───────────────────────────────
+  // Both layers of protection are needed:
+  //   (a) Firebase.apps.isEmpty  → prevents duplicate-app on web hot restart
+  //   (b) try/catch              → catches emulator weirdness / edge cases
   try {
     if (Firebase.apps.isEmpty) {
       await Firebase.initializeApp(
@@ -29,14 +63,20 @@ Future<void> main() async {
     } else {
       debugPrint('[Firebase] Already initialized — skipping.');
     }
-  } catch (e, st) {
-    debugPrint('[Firebase] Init failed: $e');
-    debugPrint('[Firebase] runtimeType: ${e.runtimeType}');
-    debugPrint('$st');
+  } catch (e) {
+    // Log the error but never crash. The app can still run without Firebase
+    // (teachers can view their schedule; they just won't receive push).
+    debugPrint('[Firebase] Init skipped / already exists: $e');
   }
 
+  // ── Step 3: start the UI ───────────────────────────────────────────────
+  // runApp() is called immediately after Firebase init. SharedPreferences
+  // and NotificationService are initialised later (inside StartupScreen and
+  // PendingScreen) so the first frame is rendered without blocking.
   runApp(const FirdutyApp());
 }
+
+// ─── Root widget ──────────────────────────────────────────────────────────────
 
 class FirdutyApp extends StatefulWidget {
   const FirdutyApp({super.key});
@@ -48,33 +88,48 @@ class FirdutyApp extends StatefulWidget {
 class _FirdutyAppState extends State<FirdutyApp> {
   Locale? _locale;
 
+  // Navigator key wired into MaterialApp so NotificationService can navigate
+  // to /home when a notification is tapped while the app is in the background
+  // or terminated.
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
 
   @override
   void initState() {
     super.initState();
     _initLocale();
+    // Pass the navigator key to NotificationService so background taps work.
     NotificationService.navigatorKey = _navigatorKey;
-    NotificationService.loadBellState();
   }
 
   Future<void> _initLocale() async {
     final prefs = await SharedPreferences.getInstance();
     final savedLang = prefs.getString('language');
-
-    if (!mounted) return;
-
-    setState(() {
-      _locale = savedLang != null ? Locale(savedLang) : const Locale('ar');
-    });
+    if (savedLang != null) {
+      setState(() => _locale = Locale(savedLang));
+    } else {
+      setState(() => _locale = const Locale('ar')); // default: Arabic
+    }
   }
 
-  Future<void> _changeLocale(Locale locale) async {
+  void _changeLocale(Locale locale) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('language', locale.languageCode);
-
-    if (!mounted) return;
     setState(() => _locale = locale);
+
+    // Sync preferred_language to the backend so:
+    // 1. The admin teachers page shows the correct language badge
+    // 2. Duty reminder notifications are sent in the teacher's app language
+    final teacherId = prefs.getInt('teacher_id');
+    if (teacherId != null) {
+      try {
+        await ApiService.updateTeacherLanguage(
+          teacherId: teacherId,
+          lang: locale.languageCode,
+        );
+      } catch (_) {
+        // Non-fatal — language preference is already saved locally
+      }
+    }
   }
 
   @override
@@ -101,11 +156,11 @@ class _FirdutyAppState extends State<FirdutyApp> {
             );
           case '/login':
             return MaterialPageRoute(
-              builder: (_) => LoginScreen(onLocaleChange: _changeLocale),
+              builder: (_) => const LoginScreen(),
             );
           case '/register':
             return MaterialPageRoute(
-              builder: (_) => RegistrationScreen(onLocaleChange: _changeLocale),
+              builder: (_) => const RegistrationScreen(),
             );
           case '/pending':
             return MaterialPageRoute(
@@ -125,13 +180,19 @@ class _FirdutyAppState extends State<FirdutyApp> {
   }
 }
 
+// ─── Startup Screen ───────────────────────────────────────────────────────────
+// Renders immediately (splash logo + spinner), then routes based on teacher state.
+//
+// Routing:
+//   no teacher_id in prefs          → /register
+//   teacher_id + status=approved    → NotificationService.initialize() → /home
+//   teacher_id + status=pending     → /pending
+//   teacher_id + 404 from server    → clear prefs → /register
+//   network / server error          → /pending  (graceful degradation)
+
 class StartupScreen extends StatefulWidget {
   final void Function(Locale) onLocaleChange;
-
-  const StartupScreen({
-    super.key,
-    required this.onLocaleChange,
-  });
+  const StartupScreen({super.key, required this.onLocaleChange});
 
   @override
   State<StartupScreen> createState() => _StartupScreenState();
@@ -141,15 +202,18 @@ class _StartupScreenState extends State<StartupScreen> {
   @override
   void initState() {
     super.initState();
+    // Defer routing until after the first frame so the splash is visible.
     WidgetsBinding.instance.addPostFrameCallback((_) => _route());
   }
 
   Future<void> _route() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs     = await SharedPreferences.getInstance();
     final teacherId = prefs.getInt('teacher_id');
 
     if (teacherId == null) {
       if (!mounted) return;
+      // No stored session → show login screen.
+      // Teachers can tap "Register" from the login screen if they don't have an account.
       Navigator.pushReplacementNamed(context, '/login');
       return;
     }
@@ -159,12 +223,13 @@ class _StartupScreenState extends State<StartupScreen> {
       final status = result['status'] as String;
 
       if (status == 'approved') {
+        // NotificationService.initialize() is idempotent — safe to call here
+        // even if PendingScreen already called it (it skips if done).
         final platform = kIsWeb ? 'web' : 'android';
         await NotificationService.initialize(
           teacherId: teacherId,
           platform: platform,
         );
-
         if (!mounted) return;
         Navigator.pushReplacementNamed(context, '/home');
       } else {
@@ -174,10 +239,10 @@ class _StartupScreenState extends State<StartupScreen> {
     } catch (e) {
       if (e.toString().contains('404')) {
         await prefs.remove('teacher_id');
-
         if (!mounted) return;
         Navigator.pushReplacementNamed(context, '/login');
       } else {
+        // Server unreachable — show pending screen so teacher can retry.
         if (!mounted) return;
         Navigator.pushReplacementNamed(context, '/pending');
       }
@@ -204,13 +269,11 @@ class _StartupScreenState extends State<StartupScreen> {
   }
 }
 
+// ─── Home Screen — 3 tabs ─────────────────────────────────────────────────────
+
 class HomeScreen extends StatefulWidget {
   final void Function(Locale) onLocaleChange;
-
-  const HomeScreen({
-    super.key,
-    required this.onLocaleChange,
-  });
+  const HomeScreen({super.key, required this.onLocaleChange});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -227,8 +290,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    final isAr = Localizations.localeOf(context).languageCode == 'ar';
+    final l10n   = AppLocalizations.of(context);
+    final isAr   = Localizations.localeOf(context).languageCode == 'ar';
     final titles = [l10n.todayDuties, l10n.weekDuties, l10n.myPoints];
 
     return Scaffold(
@@ -238,12 +301,10 @@ class _HomeScreenState extends State<HomeScreen> {
         backgroundColor: FirdutyColors.navBlue,
         foregroundColor: Colors.white,
         actions: [
-          const NotificationBellButton(iconColor: Colors.white),
           TextButton(
             onPressed: () {
               widget.onLocaleChange(
-                isAr ? const Locale('en') : const Locale('ar'),
-              );
+                  isAr ? const Locale('en') : const Locale('ar'));
             },
             child: Text(
               isAr ? 'EN' : 'عربي',
@@ -254,12 +315,9 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: const Icon(Icons.logout, color: Colors.white),
             tooltip: isAr ? 'تسجيل الخروج' : 'Sign Out',
             onPressed: () async {
+              await NotificationService.reset();
               final prefs = await SharedPreferences.getInstance();
-              final teacherId = prefs.getInt('teacher_id');
-
-              await NotificationService.reset(teacherId: teacherId);
               await prefs.remove('teacher_id');
-
               if (!context.mounted) return;
               Navigator.pushReplacementNamed(context, '/login');
             },
@@ -267,6 +325,8 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
       body: IndexedStack(
+        // IndexedStack keeps screen state alive when switching tabs,
+        // avoiding unnecessary reloads.
         index: _selectedIndex,
         children: _screens,
       ),

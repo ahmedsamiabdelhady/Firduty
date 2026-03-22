@@ -8,27 +8,41 @@ Callable:  run_duty_reminders()
 ── What it does ────────────────────────────────────────────────────────────────
 Every minute it queries today's published assignments and sends:
 
-  reminder_15m  →  shift starts in 13–16 minutes from now  (3-min safe window)
-  duty_started  →  shift started 0–2 minutes ago            (2-min safe window)
+  reminder_15m  →  shift starts in 10–20 minutes from now  (10-min safe window)
+  duty_started  →  shift started 0–3 minutes ago            (3-min safe window)
 
-A 3-minute window (vs the old 1-minute window) ensures a late scheduler tick
-or a Koyeb CPU spike doesn't silently drop a notification.
+Wide windows guarantee a notification is sent even if the scheduler fires late
+(Koyeb CPU throttling, cold start). Deduplication via notification_logs prevents
+double-sending within the same window.
+
+── Why we changed from narrow (3-min) to wide (10-min) windows ─────────────────
+The original 3-minute reminder window (13–16 min) worked mathematically but:
+  1. Koyeb free-tier CPU throttling can delay the job 5–15 seconds per tick.
+     Over several ticks, drift accumulates and the job fires outside the window.
+  2. ALL internal logging was at DEBUG level — invisible on Koyeb (INFO default).
+     No mins_away logs existed, making it impossible to diagnose misses.
+  3. APScheduler interval jobs do NOT get jitter, but late execution from the
+     previous tick can push the next fire time past the window boundary.
+
+── Timezone handling ────────────────────────────────────────────────────────────
+All datetime comparisons use timezone-AWARE datetimes in Asia/Muscat:
+  • now      = datetime.now(MUSCAT_TZ)         → aware, Muscat local time
+  • shift_dt = MUSCAT_TZ.localize(combine(today, start_time)) → aware, Muscat
+  • mins_away = (shift_dt - now).total_seconds() / 60
+
+Both values are in the same timezone → subtraction is unambiguous.
+.replace(tzinfo=None) was previously used, which worked but was fragile.
 
 ── Deduplication ────────────────────────────────────────────────────────────────
-Before every send we INSERT a row into notification_logs.
-The UNIQUE constraint on (teacher_id, assignment_id, notification_type) prevents
-double-sending even if the job runs twice within the same window.
-A notification is only logged as "sent" if FCM returns success_count > 0.
-If FCM fails, status = "failed" and the row is NOT written — so the next
-tick will retry.
-
-── Invalid token cleanup ────────────────────────────────────────────────────────
-When FCM reports a token as invalid/expired, it is removed from device_tokens
-so future sends don't waste FCM quota.
+INSERT into notification_logs before every send.
+UNIQUE(teacher_id, assignment_id, notification_type) prevents double-sending.
+Only marked "sent" if FCM returns success_count > 0.
+_already_sent() fails CLOSED on DB error (returns True) — prevents duplicate
+sends if the notification_logs table is temporarily unavailable.
 
 ── CLI / test ───────────────────────────────────────────────────────────────────
   python backend/jobs/duty_reminders.py
-  → runs one tick immediately, logs results, exits.
+  → runs one tick immediately, logs full per-assignment detail, exits.
 """
 
 import sys
@@ -57,18 +71,28 @@ logger = logging.getLogger("firduty.jobs.duty_reminders")
 MUSCAT_TZ = pytz.timezone("Asia/Muscat")
 
 # ── Time windows ──────────────────────────────────────────────────────────────
-# Wide enough that a late scheduler tick (CPU spike, Koyeb cold start) still
-# catches the window. Deduplication prevents double-sending.
-REMINDER_WINDOW_MIN = 13    # reminder fires when shift is 13–16 min away
-REMINDER_WINDOW_MAX = 16
-START_WINDOW_BEFORE = 0     # duty_started fires when shift started 0–2 min ago
-START_WINDOW_AFTER  = 2
+# Wide windows tolerate Koyeb CPU throttling (5-15 s delay per tick).
+# Deduplication ensures each teacher receives exactly one notification
+# per event even if the job fires multiple times within the window.
+#
+# reminder_15m window: 10 <= mins_away <= 20
+#   → fires starting 20 min before shift, guaranteed to hit by 10 min before
+#   → 10-minute window = ~10 chances to send (one per tick)
+#
+# duty_started window: -2 <= mins_away <= 3
+#   → fires from 3 min before start to 2 min after start
+#   → teacher gets the "duty started" push while they're walking to position
+REMINDER_WIN_MIN = 10    # reminder fires when shift is 10–20 minutes away
+REMINDER_WIN_MAX = 20
+START_WIN_EARLY  = 3     # "started" fires up to 3 min BEFORE shift time
+START_WIN_LATE   = 2     # "started" fires up to 2 min AFTER shift time
 
 
 # ── Time helpers ──────────────────────────────────────────────────────────────
 
 def _muscat_now() -> datetime:
-    return datetime.now(MUSCAT_TZ).replace(tzinfo=None)
+    """Return the current time as a timezone-AWARE datetime in Asia/Muscat."""
+    return datetime.now(MUSCAT_TZ)
 
 
 def _utcnow() -> datetime:
@@ -79,6 +103,17 @@ def _utcnow() -> datetime:
 # ── Deduplication ─────────────────────────────────────────────────────────────
 
 def _already_sent(db: Session, teacher_id: int, assignment_id: int, notif_type: str) -> bool:
+    """
+    Return True if this notification was already sent.
+
+    CRITICAL — fail CLOSED on any error.
+    If the notification_logs table is unavailable or any DB error occurs,
+    returns True (treat as "already sent") to prevent duplicate sends.
+
+    The wide window means the job runs 10–20 times per reminder window.
+    If we returned False on error, each tick would send → massive duplicates.
+    Fail-closed prevents this. Fix the underlying DB issue to resume sending.
+    """
     try:
         from models.notification_log import NotificationLog
         return (
@@ -91,8 +126,13 @@ def _already_sent(db: Session, teacher_id: int, assignment_id: int, notif_type: 
             .first()
         ) is not None
     except Exception as exc:
-        logger.error("[reminders] _already_sent error: %s", exc)
-        return False   # fail open — attempt the send rather than silently skip
+        logger.error(
+            "[reminders] _already_sent DB error teacher=%d assignment=%d type=%s: %s "
+            "— treating as already-sent (FAIL CLOSED) to prevent duplicates. "
+            "Ensure the notification_logs table exists in Supabase.",
+            teacher_id, assignment_id, notif_type, exc,
+        )
+        return True   # FAIL CLOSED
 
 
 def _mark_sent(
@@ -103,19 +143,19 @@ def _mark_sent(
     status: str,
 ) -> None:
     """
-    Record that a notification was attempted.
-    status = "sent"    → FCM confirmed at least one delivery
-    status = "failed"  → FCM returned success_count=0 (will be retried next tick)
-    status = "skipped" → teacher has no device tokens
+    Record notification attempt in notification_logs.
 
-    IMPORTANT: for "failed" we do NOT write the row — the unique constraint would
-    block the next retry.  Only "sent" and "skipped" are persisted.
+    status = "sent"    → FCM confirmed at least one delivery  (written to DB)
+    status = "failed"  → FCM returned success_count=0         (NOT written → retried next tick)
+    status = "skipped" → teacher has no device tokens         (written to DB)
+
+    For "failed" we deliberately skip the INSERT so the dedup check on the
+    next tick still returns False and the send is retried.
     """
     if status == "failed":
-        # Don't record failures — let the next tick retry.
         logger.warning(
-            "[reminders] Delivery FAILED for teacher=%d assignment=%d type=%s — "
-            "will retry next tick.",
+            "[reminders] FCM delivery FAILED for teacher=%d assignment=%d type=%s "
+            "— will retry on next tick.",
             teacher_id, assignment_id, notif_type,
         )
         return
@@ -132,7 +172,7 @@ def _mark_sent(
         db.add(log)
         db.flush()
     except IntegrityError:
-        db.rollback()   # already in DB from a concurrent write — safe to ignore
+        db.rollback()   # duplicate key — concurrent write, safe to ignore
     except Exception as exc:
         logger.error("[reminders] _mark_sent error: %s", exc)
         db.rollback()
@@ -168,8 +208,7 @@ def _build_ctx(a: Assignment) -> dict:
 def _send_one(db: Session, ctx: dict, notif_type: str) -> None:
     """
     Send one notification if not already sent.
-
-    Only marks as 'sent' if FCM returns success_count > 0.
+    Only marks as "sent" if FCM returns success_count > 0.
     Cleans up invalid tokens from the DB.
     """
     teacher_id    = ctx["teacher_id"]
@@ -178,7 +217,7 @@ def _send_one(db: Session, ctx: dict, notif_type: str) -> None:
     # ── Dedup check ───────────────────────────────────────────────────────────
     if _already_sent(db, teacher_id, assignment_id, notif_type):
         logger.debug(
-            "[reminders] skip %s for teacher=%d assignment=%d (already sent)",
+            "[reminders] skip %s teacher=%d assignment=%d (already sent / dedup)",
             notif_type, teacher_id, assignment_id,
         )
         return
@@ -237,17 +276,15 @@ def _send_one(db: Session, ctx: dict, notif_type: str) -> None:
         if bad_tokens:
             remove_invalid_tokens(db, bad_tokens)
 
-        # ── Record delivery only on confirmed success ─────────────────────────
-        # If success == 0, status = "failed" which does NOT write to notification_logs,
-        # allowing the next tick to retry.
+        # ── Record only on confirmed success ──────────────────────────────────
         status = "sent" if success > 0 else "failed"
         _mark_sent(db, teacher_id, assignment_id, notif_type, status)
         db.commit()
 
         if success > 0:
             logger.info(
-                "[reminders] ✓ %s → teacher=%d assignment=%d (%d/%d tokens OK)",
-                notif_type, teacher_id, assignment_id, success, len(tokens),
+                "[reminders] ✓ %s → teacher=%d assignment=%d lang=%s (%d/%d tokens OK)",
+                notif_type, teacher_id, assignment_id, lang, success, len(tokens),
             )
 
     except Exception as exc:
@@ -267,14 +304,24 @@ def run_duty_reminders() -> None:
     """
     Core job function. Called by APScheduler every 60 seconds.
 
-    Scans today's published assignments against two time windows:
-      reminder_15m  →  13–16 minutes before shift start
-      duty_started  →  0–2 minutes after shift start
-    """
-    now   = _muscat_now()
-    today = now.date()
+    Per-assignment debug log (always INFO):
+      [REMINDER DEBUG] assignment=N shift=HH:MM now=HH:MM:SS mins_away=X.XX → action
 
-    logger.debug("[reminders] tick at %s", now.strftime("%Y-%m-%d %H:%M:%S"))
+    Time windows (with tz-aware datetimes):
+      reminder_15m: 10 <= mins_away <= 20   (fires 10–20 min before shift)
+      duty_started: -2 <= mins_away <= 3    (fires 3 min before to 2 min after)
+    """
+    # ── Use timezone-AWARE now ────────────────────────────────────────────────
+    # Both now and shift_dt will be tz-aware (Asia/Muscat).
+    # Subtraction of two aware datetimes in the same timezone is unambiguous.
+    now   = _muscat_now()                     # tz-aware, Muscat
+    today = now.date()                        # correct Muscat date
+
+    logger.info(                              # INFO not DEBUG — visible on Koyeb
+        "[reminders] tick: now=%s muscat_date=%s",
+        now.strftime("%H:%M:%S"),
+        today,
+    )
 
     db: Session = SessionLocal()
     try:
@@ -297,31 +344,93 @@ def run_duty_reminders() -> None:
         )
 
         if not assignments:
-            logger.debug("[reminders] No published assignments for %s", today)
+            # INFO so admin can see "no assignments" in Koyeb logs
+            logger.info(
+                "[reminders] No published assignments for %s — nothing to send.", today
+            )
             return
+
+        logger.info(
+            "[reminders] Found %d published assignment(s) for %s — checking windows...",
+            len(assignments), today,
+        )
 
         reminder_count = 0
         start_count    = 0
 
         for a in assignments:
             try:
-                start_time  = a.shift_location.shift.start_time
-                shift_dt    = datetime.combine(today, start_time)      # naive Muscat
-                mins_away   = (shift_dt - now).total_seconds() / 60    # positive = future
+                start_time = a.shift_location.shift.start_time   # datetime.time
+
+                # ── Build tz-aware shift datetime ─────────────────────────────
+                # Both now and shift_dt are in Asia/Muscat → subtraction is correct.
+                shift_dt_naive = datetime.combine(today, start_time)
+                shift_dt       = MUSCAT_TZ.localize(shift_dt_naive)   # tz-aware
+
+                mins_away = (shift_dt - now).total_seconds() / 60
+
+                # ── Per-assignment debug log — ALWAYS at INFO level ───────────
+                # This is the critical log the senior engineer asked for.
+                # Without it, missed windows are impossible to diagnose.
+                logger.info(
+                    "[REMINDER DEBUG] assignment=%d teacher=%d shift=%s now=%s "
+                    "mins_away=%.2f | reminder_win=[%d,%d] start_win=[-%d,+%d]",
+                    a.id,
+                    int(a.teacher_id),
+                    shift_dt.strftime("%H:%M"),
+                    now.strftime("%H:%M:%S"),
+                    mins_away,
+                    REMINDER_WIN_MIN, REMINDER_WIN_MAX,
+                    START_WIN_LATE, START_WIN_EARLY,
+                )
 
                 ctx = _build_ctx(a)
 
                 # ── 15-min reminder window ────────────────────────────────────
-                # Fire when 13 <= mins_away < 16  (3-minute safe window)
-                if REMINDER_WINDOW_MIN <= mins_away < REMINDER_WINDOW_MAX:
+                # 10 <= mins_away <= 20: fires when shift is 10–20 min away.
+                # 10-minute window gives ~10 ticks per window.
+                # Deduplication ensures exactly one notification per teacher.
+                if REMINDER_WIN_MIN <= mins_away <= REMINDER_WIN_MAX:
+                    logger.info(
+                        "[reminders] → REMINDER WINDOW HIT: assignment=%d mins_away=%.2f",
+                        a.id, mins_away,
+                    )
                     _send_one(db, ctx, "reminder_15m")
                     reminder_count += 1
 
                 # ── Duty started window ───────────────────────────────────────
-                # Fire when -2 < mins_away <= 0  (2-minute window past start)
-                elif -START_WINDOW_AFTER < mins_away <= START_WINDOW_BEFORE:
+                # -2 <= mins_away <= 3: fires from 3 min before to 2 min after.
+                # Catches teachers who are already at their position early,
+                # or the job fires slightly late.
+                elif -START_WIN_LATE <= mins_away <= START_WIN_EARLY:
+                    logger.info(
+                        "[reminders] → START WINDOW HIT: assignment=%d mins_away=%.2f",
+                        a.id, mins_away,
+                    )
                     _send_one(db, ctx, "duty_started")
                     start_count += 1
+
+                else:
+                    # Explicit "out of window" log — crucial for diagnosis
+                    if mins_away > REMINDER_WIN_MAX:
+                        logger.debug(
+                            "[reminders] assignment=%d shift=%s: %.1f min away "
+                            "(reminder window opens in %.1f min)",
+                            a.id, shift_dt.strftime("%H:%M"),
+                            mins_away, mins_away - REMINDER_WIN_MAX,
+                        )
+                    elif 0 < mins_away < REMINDER_WIN_MIN:
+                        logger.info(
+                            "[reminders] ⚠ MISSED WINDOW: assignment=%d shift=%s: "
+                            "%.1f min away — between windows (reminder already sent?)",
+                            a.id, shift_dt.strftime("%H:%M"), mins_away,
+                        )
+                    else:
+                        logger.debug(
+                            "[reminders] assignment=%d shift=%s: %.1f min past start "
+                            "(outside start window)",
+                            a.id, shift_dt.strftime("%H:%M"), abs(mins_away),
+                        )
 
             except Exception as exc:
                 logger.error(
@@ -329,11 +438,11 @@ def run_duty_reminders() -> None:
                     a.id, exc,
                 )
 
-        if reminder_count or start_count:
-            logger.info(
-                "[reminders] %s — reminder_15m=%d duty_started=%d",
-                today, reminder_count, start_count,
-            )
+        # ── Summary log ───────────────────────────────────────────────────────
+        logger.info(
+            "[reminders] tick complete: date=%s reminder_15m=%d duty_started=%d",
+            today, reminder_count, start_count,
+        )
 
     except Exception as exc:
         logger.exception("[reminders] Unexpected top-level error: %s", exc)
