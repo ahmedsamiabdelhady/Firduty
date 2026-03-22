@@ -745,48 +745,69 @@ function renderLocationColumn(dayDate, sl, isEditable) {
  *
  * No +/- slot controls — break classes are fixed.
  */
-function renderBreakGrid(sl) {
-  // strong fallback in case slots_count missing
-  const count =
-    sl.slots_count ||
-    (sl.assignments && sl.assignments.length) ||
-    Math.max(
-      0,
-      ...((sl.assignments || []).map(a => a.slot_index + 1))
+// Canonical break grade class list — mirrors seed_data.py GRADE_CLASSES.
+// Used as a fallback when sl.assignments is empty (week created before seeding,
+// or grade_classes table was empty at the time of week creation).
+const BREAK_GRADE_CLASSES = [
+  '1/A','1/B','1/C','1/D',
+  '2/A','2/B','2/C','2/D',
+  '3/A','3/B','3/C',
+  '4/A','4/B','4/C',
+  '5/A','5/B',
+  '6/A','6/B',
+  '7/A','7/B',
+  '8/AB','9',
+];
+
+function renderBreakGrid(dayDate, sl, isEditable) {
+  // ── Root cause fix ────────────────────────────────────────────────────────
+  // renderBreakGrid previously rendered one cell per sl.assignments entry.
+  // If the week was created before grade-class seeding ran (or the grade_classes
+  // table was empty), sl.assignments would be [] and NO cells appeared at all.
+  //
+  // Fix: when sl.assignments is empty, synthesise virtual assignment objects
+  // from the hardcoded BREAK_GRADE_CLASSES list.  The cells render correctly
+  // (empty slot + grade label visible) and dragging a teacher onto them still
+  // works — the drag handler writes to pendingAssignments by (slId, slotIdx).
+  // ──────────────────────────────────────────────────────────────────────────
+  let source;
+  if (sl.assignments && sl.assignments.length > 0) {
+    // Normal path: assignments exist in DB (grade_class populated by seeding)
+    source = [...sl.assignments].sort((a, b) => (a.slot_index ?? 0) - (b.slot_index ?? 0));
+  } else {
+    // Fallback path: no assignments in DB yet — generate from canonical list
+    console.warn(
+      `[renderBreakGrid] sl.id=${sl.id} has no assignments — ` +
+      `rendering ${BREAK_GRADE_CLASSES.length} fallback cells.`
     );
-
-  const map = new Map();
-  (sl.assignments || []).forEach(a => {
-    map.set(a.slot_index, a);
-  });
-
-  const cells = [];
-
-  for (let i = 0; i < count; i++) {
-    const a = map.get(i);
-
-    const teacher = a?.teacher_name || '';
-    const teacherId = a?.teacher_id || null;
-    const gradeClass = a?.grade_class || '';
-
-    cells.push(`
-      <div class="slot ${teacherId ? 'filled' : 'empty'}"
-           data-slot-index="${i}"
-           data-shift-location-id="${sl.id}">
-        
-        <div class="slot-grade">
-          ${gradeClass || ''}
-        </div>
-
-        <div class="slot-teacher">
-          ${teacher || '<span class="muted">Empty</span>'}
-        </div>
-
-      </div>
-    `);
+    source = BREAK_GRADE_CLASSES.map((gc, idx) => ({
+      id:           null,
+      slot_index:   idx,
+      teacher_id:   null,
+      teacher_name: null,
+      grade_class:  gc,
+    }));
   }
 
-  return `<div class="break-grid">${cells.join('')}</div>`;
+  const cells = source
+    .map(a => renderSlot(sl.id, a.slot_index, a, true, isEditable))
+    .join('');
+
+  return `
+    <div class="location-column break-location-column"
+         data-sl-id="${sl.id}"
+         data-day="${dayDate}"
+         data-shift="${sl.shift_id}"
+         data-loc=""
+         data-editable="${isEditable ? 'true' : 'false'}"
+         data-duty-type="break">
+      <div id="slots-${sl.id}"
+           class="slots-list break-grid"
+           data-sl-id="${sl.id}"
+           data-duty-type="break">
+        ${cells}
+      </div>
+    </div>`;
 }
 
 /* ─── Shift time editor ───────────────────────────────────────────────────── */
@@ -1637,9 +1658,3 @@ if (document.readyState === 'loading') {
 } else {
   initPlanner();
 }
-
-document.addEventListener('DOMContentLoaded', async () => {
-  await I18N.init();
-  guardPage();
-  await loadShifts();
-});

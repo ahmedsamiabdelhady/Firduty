@@ -13,6 +13,8 @@
 //   • Optimistic confirm: card shows Confirmed immediately, reverts on error.
 //   • AutomaticKeepAliveClientMixin: scroll position survives tab switches.
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart' show kDebugMode, debugPrint;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -350,14 +352,14 @@ class _ErrorState extends StatelessWidget {
 
 // ─── Duty Card ────────────────────────────────────────────────────────────────
 
-class _DutyCard extends StatelessWidget {
+class _DutyCard extends StatefulWidget {
   final String         shiftName;
   final String         locationLabel;
   final bool           isBreak;
-  final String         startTime;
+  final String         startTime;   // "HH:MM"
   final String         endTime;
   final bool           isConfirmed;
-  final VoidCallback?  onConfirm;
+  final VoidCallback?  onConfirm;   // null → already confirmed
   final AppLocalizations l10n;
 
   const _DutyCard({
@@ -372,15 +374,77 @@ class _DutyCard extends StatelessWidget {
   });
 
   @override
+  State<_DutyCard> createState() => _DutyCardState();
+}
+
+class _DutyCardState extends State<_DutyCard> {
+  Timer?  _timer;
+  bool    _windowOpen = false; // true when now >= shiftStart - 10 min
+
+  static const _enableBeforeMinutes = 10;
+
+  @override
+  void initState() {
+    super.initState();
+    _windowOpen = _computeWindowOpen();
+    // Poll every 30 seconds so the button enables without requiring a reload.
+    _timer = Timer.periodic(const Duration(seconds: 30), (_) {
+      final now = _computeWindowOpen();
+      if (now != _windowOpen) setState(() => _windowOpen = now);
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  /// Returns true when the current device time is within the confirmation
+  /// window: [shiftStart - 10 min, ∞).
+  /// Devices in Oman run Asia/Muscat (UTC+4) — same as the school — so
+  /// DateTime.now() gives the correct local time.
+  bool _computeWindowOpen() {
+    final parts = widget.startTime.split(':');
+    if (parts.length < 2) return false;
+    final h = int.tryParse(parts[0]);
+    final m = int.tryParse(parts[1]);
+    if (h == null || m == null) return false;
+
+    final now      = DateTime.now();
+    final shiftDt  = DateTime(now.year, now.month, now.day, h, m);
+    final enableAt = shiftDt.subtract(Duration(minutes: _enableBeforeMinutes));
+    return now.isAfter(enableAt) || now.isAtSameMomentAs(enableAt);
+  }
+
+  /// Returns "HH:MM" for (startTime - minutes), e.g. "07:00" - 10 = "06:50".
+  static String _subtractMinutes(String timeStr, int minutes) {
+    final parts = timeStr.split(':');
+    if (parts.length < 2) return timeStr;
+    final h = int.tryParse(parts[0]) ?? 0;
+    final m = int.tryParse(parts[1]) ?? 0;
+    final total = h * 60 + m - minutes;
+    final hh    = (total ~/ 60 % 24).toString().padLeft(2, '0');
+    final mm    = (total %  60).toString().padLeft(2, '0');
+    return '$hh:$mm';
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final accentColor = isBreak ? FirdutyColors.primaryGreen : FirdutyColors.navBlue;
+    // Combine both conditions:
+    //   • onConfirm != null  → parent says "not yet confirmed, action available"
+    //   • _windowOpen        → current time is within the 10-min window
+    final VoidCallback? effectiveOnConfirm =
+        (widget.onConfirm != null && _windowOpen) ? widget.onConfirm : null;
+
+    final accentColor = widget.isBreak ? FirdutyColors.primaryGreen : FirdutyColors.navBlue;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 14),
-      elevation: isConfirmed ? 0 : 2,
+      elevation: widget.isConfirmed ? 0 : 2,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
-        side: isConfirmed
+        side: widget.isConfirmed
             ? BorderSide(
                 color: FirdutyColors.primaryGreen.withValues(alpha: 0.4),
                 width: 1.5)
@@ -404,17 +468,17 @@ class _DutyCard extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    Icon(isBreak ? Icons.groups : Icons.access_time,
+                    Icon(widget.isBreak ? Icons.groups : Icons.access_time,
                         color: accentColor, size: 20),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: Text(shiftName,
+                      child: Text(widget.shiftName,
                           style: const TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 16,
                               color: FirdutyColors.textDark)),
                     ),
-                    if (isConfirmed)
+                    if (widget.isConfirmed)
                       Container(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 10, vertical: 4),
@@ -428,7 +492,7 @@ class _DutyCard extends StatelessWidget {
                             Icon(Icons.check_circle,
                                 size: 14, color: FirdutyColors.successDark),
                             const SizedBox(width: 4),
-                            Text(l10n.confirmed,
+                            Text(widget.l10n.confirmed,
                                 style: TextStyle(
                                     color: FirdutyColors.successDark,
                                     fontSize: 12,
@@ -441,12 +505,12 @@ class _DutyCard extends StatelessWidget {
                 const SizedBox(height: 10),
                 Row(
                   children: [
-                    Icon(isBreak ? Icons.school : Icons.location_on,
+                    Icon(widget.isBreak ? Icons.school : Icons.location_on,
                         size: 16, color: FirdutyColors.textMuted),
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        '${isBreak ? l10n.gradeClass : l10n.location}: $locationLabel',
+                        '${widget.isBreak ? widget.l10n.gradeClass : widget.l10n.location}: ${widget.locationLabel}',
                         style: const TextStyle(
                             fontSize: 14, color: FirdutyColors.textDark),
                       ),
@@ -459,12 +523,12 @@ class _DutyCard extends StatelessWidget {
                     const Icon(Icons.schedule,
                         size: 16, color: FirdutyColors.textMuted),
                     const SizedBox(width: 6),
-                    Text('$startTime – $endTime',
+                    Text('${widget.startTime} – ${widget.endTime}',
                         style: const TextStyle(
                             fontSize: 14, color: FirdutyColors.textMuted)),
                   ],
                 ),
-                if (!isConfirmed) ...[
+                if (!widget.isConfirmed) ...[
                   const SizedBox(height: 14),
                   Container(
                     padding: const EdgeInsets.symmetric(
@@ -478,7 +542,7 @@ class _DutyCard extends StatelessWidget {
                         const Text('🏆 ', style: TextStyle(fontSize: 13)),
                         Expanded(
                           child: Text(
-                            l10n.pointsHint(startTime),
+                            widget.l10n.pointsHint(widget.startTime),
                             style: TextStyle(
                                 fontSize: 12, color: FirdutyColors.navBlue),
                           ),
@@ -490,12 +554,18 @@ class _DutyCard extends StatelessWidget {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton.icon(
-                      onPressed: onConfirm,
+                      // effectiveOnConfirm is null (button disabled) when:
+                      //   • already confirmed, OR
+                      //   • current time is more than 10 min before shift start
+                      onPressed: effectiveOnConfirm,
                       icon: const Icon(Icons.how_to_reg, size: 18),
-                      label: Text(l10n.confirmPresence),
+                      label: Text(widget.l10n.confirmPresence),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: FirdutyColors.navBlue,
                         foregroundColor: Colors.white,
+                        disabledBackgroundColor:
+                            FirdutyColors.navBlue.withValues(alpha: 0.35),
+                        disabledForegroundColor: Colors.white70,
                         padding: const EdgeInsets.symmetric(vertical: 13),
                         shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(10)),
@@ -503,6 +573,25 @@ class _DutyCard extends StatelessWidget {
                       ),
                     ),
                   ),
+                  // Show a hint when the window is not yet open
+                  if (!_windowOpen) ...[
+                    const SizedBox(height: 6),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.lock_clock,
+                            size: 13, color: FirdutyColors.textMuted),
+                        const SizedBox(width: 4),
+                        Text(
+                          widget.l10n.confirmAvailableAt(
+                            _subtractMinutes(widget.startTime, 10),
+                          ),
+                          style: const TextStyle(
+                              fontSize: 11, color: FirdutyColors.textMuted),
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ],
             ),

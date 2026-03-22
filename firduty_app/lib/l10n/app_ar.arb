@@ -64,7 +64,13 @@
   "missed": "بدون نقاط",
   "noConfirmationsYet": "لا توجد تأكيدات هذا الشهر.",
   "close": "إغلاق",
-  "languageButtonEnglish": "EN",
-  "languageButtonArabic": "عربي",
-  "month": "الشهر"
+  "month": "الشهر",
+  "confirmAvailableAt": "متاح من الساعة {time}",
+  "@confirmAvailableAt": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  }
 }
