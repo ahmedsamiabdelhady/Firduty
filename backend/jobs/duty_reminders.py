@@ -437,6 +437,10 @@ def run_duty_reminders() -> None:
                     "[reminders] Error processing assignment id=%d: %s",
                     a.id, exc,
                 )
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
 
         # ── Summary log ───────────────────────────────────────────────────────
         logger.info(

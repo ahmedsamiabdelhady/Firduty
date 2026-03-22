@@ -795,15 +795,15 @@ def _get_latest_teacher_tokens_by_installation(
         .filter(DeviceToken.teacher_id.in_(teacher_ids))
         .order_by(
             DeviceToken.teacher_id.asc(),
-            DeviceToken.last_seen_at.desc(),
-            DeviceToken.created_at.desc(),
+            DeviceToken.updated_at.desc(),
+            DeviceToken.id.desc(),
         )
         .all()
     )
 
     tokens_by_teacher: dict[int, list[str]] = {}
-    seen_keys_by_teacher: dict[int, set[str]] = {}
-    seen_tokens_by_teacher: dict[int, set[str]] = {}
+    seen_installations: dict[int, set[str]] = {}
+    seen_tokens: dict[int, set[str]] = {}
 
     for row in rows:
         teacher_id = int(row.teacher_id)
@@ -811,18 +811,18 @@ def _get_latest_teacher_tokens_by_installation(
         if not token:
             continue
 
-        teacher_seen_tokens = seen_tokens_by_teacher.setdefault(teacher_id, set())
+        teacher_seen_tokens = seen_tokens.setdefault(teacher_id, set())
         if token in teacher_seen_tokens:
             continue
 
         installation_id = str(getattr(row, "installation_id", "") or "").strip()
         dedupe_key = installation_id or f"token:{token}"
 
-        teacher_seen_keys = seen_keys_by_teacher.setdefault(teacher_id, set())
-        if dedupe_key in teacher_seen_keys:
+        teacher_seen_installations = seen_installations.setdefault(teacher_id, set())
+        if dedupe_key in teacher_seen_installations:
             continue
 
-        teacher_seen_keys.add(dedupe_key)
+        teacher_seen_installations.add(dedupe_key)
         teacher_seen_tokens.add(token)
         tokens_by_teacher.setdefault(teacher_id, []).append(token)
 
@@ -883,7 +883,7 @@ def _notify_assigned_teachers(
 
     tokens_by_teacher = _get_latest_teacher_tokens_by_installation(db, targets)
 
-    for tid in targets:
+    for tid in sorted(targets):
         teacher = teachers_by_id.get(tid)
         if not teacher:
             continue

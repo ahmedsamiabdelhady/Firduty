@@ -26,6 +26,7 @@ from services.week_service import (
     publish_week,
     publish_day,
     is_day_editable,
+    ensure_week_fully_populated,
     _notify_assigned_teachers,   # re-export used here for scoped notifications
 )
 
@@ -178,6 +179,9 @@ def get_current_week(db: Session = Depends(get_db)):
             "status": None,
             "message": "No plan found for the current week",
         }
+
+    week = ensure_week_fully_populated(db, week)
+
     payload = _serialize_week(week)
     payload["message"] = "Current week loaded successfully"
     return payload
@@ -191,6 +195,9 @@ def get_week(week_start: date, db: Session = Depends(get_db)):
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No plan found for week starting {week_start}",
         )
+
+    week = ensure_week_fully_populated(db, week)
+
     payload = _serialize_week(week)
     payload["message"] = "Week loaded successfully"
     return payload

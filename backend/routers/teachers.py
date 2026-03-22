@@ -23,7 +23,7 @@ v3.0 — root-cause fixes preserved:
 """
 
 import logging
-from datetime import date as date_type, datetime
+from datetime import date as date_type, datetime, timezone
 from typing import List, Optional
 
 import pytz
@@ -652,7 +652,7 @@ def register_device_token(
     if not teacher:
         raise HTTPException(404, "Teacher not found")
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
 
     # ── Path 1: installation_id present — deterministic per-device upsert ─────
     #
