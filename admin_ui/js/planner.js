@@ -1098,9 +1098,63 @@ function _clearDragClasses() {
   });
 }
 
-function _setPlannerDraggingState(isDragging) {
+function _setPlannerDragging(isDragging) {
   document.body.classList.toggle('planner-dragging', !!isDragging);
+  document.querySelector('.planner-main')?.classList.toggle('planner-main--dragging', !!isDragging);
   if (!isDragging) _clearDragClasses();
+}
+
+function _resolveHoveredSlot(evt) {
+  return evt?.originalEvent?.target?.closest?.('.slot-item') || evt?.related || null;
+}
+
+function _applySlotHoverState(target, list) {
+  if (!target || !target.classList?.contains('slot-item')) {
+    _clearDragClasses();
+    return null;
+  }
+
+  const ownerList = target.closest('.slots-list');
+  if (list && ownerList !== list) {
+    _clearDragClasses();
+    return null;
+  }
+
+  _clearDragClasses();
+  target.classList.add(target.classList.contains('filled') ? 'slot-drag-replace' : 'slot-drag-add');
+  return target;
+}
+
+function _bindDesktopSlotHoverFallback() {
+  if (isMobilePlanner()) return;
+
+  document.querySelectorAll('.slot-item').forEach(slot => {
+    if (slot.dataset.dragHoverBound === 'true') return;
+
+    const list = slot.closest('.slots-list');
+    if (!list) return;
+
+    const setHover = (e) => {
+      if (!document.body.classList.contains('planner-dragging')) return;
+      const col = list.closest('.location-column');
+      if (!col || col.dataset.editable !== 'true') return;
+      _applySlotHoverState(slot, list);
+      if (e?.type === 'dragover') e.preventDefault();
+    };
+
+    slot.addEventListener('dragenter', setHover);
+    slot.addEventListener('dragover', setHover);
+    slot.addEventListener('dragleave', () => {
+      if (!document.body.classList.contains('planner-dragging')) return;
+      requestAnimationFrame(() => {
+        if (!slot.matches(':hover')) {
+          slot.classList.remove('slot-drag-add', 'slot-drag-replace');
+        }
+      });
+    });
+    slot.addEventListener('drop', () => _clearDragClasses());
+    slot.dataset.dragHoverBound = 'true';
+  });
 }
 
 function initDragAndDrop() {
@@ -1115,10 +1169,11 @@ function initDragAndDrop() {
       group:     { name: 'teachers', pull: 'clone', put: false },
       sort:      false,
       animation: 150,
-      onStart() { _setPlannerDraggingState(true); },
+      onStart() { _setPlannerDragging(true); },
       // Clean up any lingering drag highlights if user cancels drag from sidebar
       onEnd() {
-        _setPlannerDraggingState(false);
+        _clearDragClasses();
+        _setPlannerDragging(false);
       },
     });
     sidebar.dataset.sortableInit = 'true';
@@ -1134,11 +1189,10 @@ function initDragAndDrop() {
       group:     { name: 'teachers', pull: false, put: true },
       sort:      false,   // slots are FIXED — never reorder
       animation: 150,
-      onStart() { _setPlannerDraggingState(true); },
 
       // ── Called repeatedly while dragging OVER items ────────────────────
       onMove(evt) {
-        const target = evt.related;
+        const target = _resolveHoveredSlot(evt);
         if (!target || !target.classList.contains('slot-item')) {
           _clearDragClasses();
           return true;
@@ -1151,17 +1205,7 @@ function initDragAndDrop() {
           return false;
         }
 
-        // Clear ALL previously highlighted slots (only one should glow at a time)
-        _clearDragClasses();
-
-        // Apply the correct class to THIS target slot only
-        const isFilled = target.classList.contains('filled');
-        if (isFilled) {
-          target.classList.add('slot-drag-replace');   // red  — will replace
-        } else {
-          target.classList.add('slot-drag-add');       // green — will add
-        }
-
+        _applySlotHoverState(target, list);
         return true;   // allow the drop
       },
 
@@ -1233,11 +1277,16 @@ onAdd(evt) {
 },
 
       // ── Called when drag ends on THIS list (drop accepted or cancelled) ──
-      onEnd() { _setPlannerDraggingState(false); },
+      onEnd() {
+        _clearDragClasses();
+        _setPlannerDragging(false);
+      },
     });
 
     list.dataset.sortableInit = 'true';
   });
+
+  _bindDesktopSlotHoverFallback();
 }
 
 /* ─── Assignment helpers ──────────────────────────────────────────────────── */
