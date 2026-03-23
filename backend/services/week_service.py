@@ -990,14 +990,32 @@ def _get_latest_teacher_tokens_by_installation(
 
 def _build_week_update_hash(week: WeekPlan, *, day_date: Optional[date] = None) -> str:
     """
-    Build a stable hash for the current published update version.
-
-    The hash is tied to the effective week version. Re-publishing the same
-    already-published state keeps the same hash, so update notifications are
-    sent once per teacher for that version only.
+    Build hash based on REAL duty data (assignments + shift times).
+    Any real change (assignment OR shift time) => new hash.
     """
-    day_part = day_date.isoformat() if day_date else "full-week"
-    raw = f"{week.id}|{week.week_start_date.isoformat()}|v{int(week.version or 0)}|{day_part}"
+
+    data = []
+
+    for day in week.day_plans:
+        if day_date and day.date != day_date:
+            continue
+
+        for sl in day.shift_locations:
+            shift = sl.shift
+
+            for a in sl.assignments:
+                data.append({
+                    "day": day.date.isoformat(),
+                    "shift_id": sl.shift_id,
+                    "start": getattr(shift, "start_time", None),
+                    "end": getattr(shift, "end_time", None),
+                    "location_id": sl.location_id,
+                    "slot": a.slot_index,
+                    "teacher": a.teacher_id,
+                    "grade": a.grade_class,
+                })
+
+    raw = json.dumps(data, sort_keys=True, default=str)
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
 
 
