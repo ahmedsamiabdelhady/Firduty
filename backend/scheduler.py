@@ -1,23 +1,10 @@
 """
 scheduler.py — APScheduler background job integration for Firduty.
 
-Three jobs are registered:
-  1. auto_clone      → every Thursday at 16:00 Asia/Muscat
-  2. monthly_reset   → day 1 of every month at 20:05 Asia/Muscat
-  3. duty_reminders  → every minute (15-min reminder + duty-start notifications)
-
-Usage (called from main.py lifespan):
-    from scheduler import start_scheduler, stop_scheduler, router
-
-Environment variables:
-  RUN_SCHEDULER=true      (default) — start scheduler on app startup
-  RUN_SCHEDULER=false               — disable (useful for worker-only instances)
-  SCHEDULER_JITTER=30               — random jitter seconds for cron jobs only
-                                      (NOT applied to duty_reminders interval)
-
-Koyeb multi-instance note:
-  If Koyeb scales beyond one instance every instance runs this scheduler.
-  Set RUN_SCHEDULER=true on ONE instance and RUN_SCHEDULER=false on all others.
+Production-safe behavior:
+- Prevents duplicate scheduler startup across multiple app processes
+- Uses PostgreSQL advisory lock so only one process becomes scheduler leader
+- Safe on Koyeb / Gunicorn / multi-worker / accidental duplicate startup paths
 """
 
 import logging
@@ -29,25 +16,31 @@ import pytz
 from fastapi import APIRouter
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
+from sqlalchemy import text
 
-# ── Path bootstrap ─────────────────────────────────────────────────────────────
+# ── Ensure backend path is available ───────────────────────────────────────────
 _backend_dir = os.path.dirname(os.path.abspath(__file__))
 if _backend_dir not in sys.path:
     sys.path.insert(0, _backend_dir)
 
-from jobs.auto_clone     import run_auto_clone       # noqa: E402
-from jobs.monthly_reset  import run_monthly_reset    # noqa: E402
-from jobs.duty_reminders import run_duty_reminders   # noqa: E402
+from database import engine  # noqa: E402
+from jobs.auto_clone import run_auto_clone  # noqa: E402
+from jobs.monthly_reset import run_monthly_reset  # noqa: E402
+from jobs.duty_reminders import run_duty_reminders  # noqa: E402
 
-router    = APIRouter(tags=["Scheduler"])
-logger    = logging.getLogger("firduty.scheduler")
+router = APIRouter(tags=["Scheduler"])
+logger = logging.getLogger("firduty.scheduler")
 MUSCAT_TZ = pytz.timezone("Asia/Muscat")
-_JITTER   = int(os.getenv("SCHEDULER_JITTER", "30"))
+_JITTER = int(os.getenv("SCHEDULER_JITTER", "30"))
+
+# Unique advisory lock key (must be constant across all instances)
+_SCHEDULER_LOCK_KEY = 918274661239
 
 _scheduler: BackgroundScheduler | None = None
+_scheduler_lock_acquired = False
 
 
-# ── Wrapped job functions ──────────────────────────────────────────────────────
+# ── Job wrappers ───────────────────────────────────────────────────────────────
 
 def _run_auto_clone_job() -> None:
     logger.info("[scheduler] ▶ Starting job: auto_clone")
@@ -60,12 +53,66 @@ def _run_monthly_reset_job() -> None:
 
 
 def _run_duty_reminders_job() -> None:
-    # duty_reminders logs internally — no wrapper noise needed.
-    # Exceptions propagate to the APScheduler event listener.
+    # duty_reminders handles its own logging
     run_duty_reminders()
 
 
-# ── Event listener ─────────────────────────────────────────────────────────────
+# ── Advisory lock helpers ──────────────────────────────────────────────────────
+
+def _try_acquire_scheduler_lock() -> bool:
+    """
+    Attempt to acquire a PostgreSQL advisory lock.
+    Only one process will succeed and become the scheduler leader.
+    """
+    global _scheduler_lock_acquired
+
+    if _scheduler_lock_acquired:
+        return True
+
+    try:
+        with engine.connect() as conn:
+            acquired = conn.execute(
+                text("SELECT pg_try_advisory_lock(:key)"),
+                {"key": _SCHEDULER_LOCK_KEY},
+            ).scalar()
+
+        acquired = bool(acquired)
+        _scheduler_lock_acquired = acquired
+
+        if acquired:
+            logger.info("[scheduler] Advisory lock acquired. This process is the scheduler leader.")
+        else:
+            logger.info("[scheduler] Advisory lock NOT acquired. Another process is already running the scheduler.")
+
+        return acquired
+    except Exception:
+        logger.exception("[scheduler] Failed to acquire advisory lock.")
+        return False
+
+
+def _release_scheduler_lock() -> None:
+    """
+    Release the advisory lock when shutting down.
+    """
+    global _scheduler_lock_acquired
+
+    if not _scheduler_lock_acquired:
+        return
+
+    try:
+        with engine.connect() as conn:
+            conn.execute(
+                text("SELECT pg_advisory_unlock(:key)"),
+                {"key": _SCHEDULER_LOCK_KEY},
+            )
+        logger.info("[scheduler] Advisory lock released.")
+    except Exception:
+        logger.exception("[scheduler] Failed to release advisory lock.")
+    finally:
+        _scheduler_lock_acquired = False
+
+
+# ── Scheduler event listener ───────────────────────────────────────────────────
 
 def _job_listener(event) -> None:
     if event.exception:
@@ -76,7 +123,7 @@ def _job_listener(event) -> None:
             event.exception,
         )
     else:
-        # duty_reminders fires every minute — suppress noisy success logs.
+        # Suppress frequent logs for duty_reminders (runs every minute)
         if event.job_id != "duty_reminders":
             logger.info("[scheduler] ✓ Job '%s' finished successfully.", event.job_id)
 
@@ -88,10 +135,10 @@ def _serialize_jobs() -> list[dict[str, Any]]:
         return []
     return [
         {
-            "id":            job.id,
-            "name":          job.name,
+            "id": job.id,
+            "name": job.name,
             "next_run_time": job.next_run_time.isoformat() if job.next_run_time else None,
-            "trigger":       str(job.trigger),
+            "trigger": str(job.trigger),
         }
         for job in _scheduler.get_jobs()
     ]
@@ -101,17 +148,25 @@ def _serialize_jobs() -> list[dict[str, Any]]:
 def scheduler_status() -> dict[str, Any]:
     return {
         "enabled_by_env": os.getenv("RUN_SCHEDULER", "true").strip().lower() == "true",
-        "running":        bool(_scheduler and _scheduler.running),
-        "timezone":       "Asia/Muscat",
+        "leader": _scheduler_lock_acquired,
+        "running": bool(_scheduler and _scheduler.running),
+        "timezone": "Asia/Muscat",
         "jitter_seconds": _JITTER,
-        "jobs":           _serialize_jobs(),
+        "jobs": _serialize_jobs(),
     }
 
 
 # ── Public API ─────────────────────────────────────────────────────────────────
 
 def start_scheduler() -> None:
-    """Build and start the APScheduler BackgroundScheduler. Idempotent."""
+    """
+    Start APScheduler safely.
+
+    Guarantees:
+    - Respects RUN_SCHEDULER env variable
+    - Runs once per process
+    - Only one process becomes scheduler leader (via DB lock)
+    """
     global _scheduler
 
     if os.getenv("RUN_SCHEDULER", "true").strip().lower() != "true":
@@ -119,16 +174,23 @@ def start_scheduler() -> None:
         return
 
     if _scheduler is not None and _scheduler.running:
-        logger.warning("[scheduler] Already running — ignoring duplicate start() call.")
+        logger.warning("[scheduler] Already running in this process — skipping duplicate start.")
+        return
+
+    if not _try_acquire_scheduler_lock():
+        logger.info("[scheduler] This process is not the scheduler leader — skipping startup.")
         return
 
     _scheduler = BackgroundScheduler(timezone=MUSCAT_TZ)
 
-    # ── 1. Weekly auto-clone ─────────────────────────────────────────────────
+    # Weekly auto-clone job
     _scheduler.add_job(
         func=_run_auto_clone_job,
         trigger="cron",
-        day_of_week="thu", hour=16, minute=0, second=0,
+        day_of_week="thu",
+        hour=16,
+        minute=0,
+        second=0,
         timezone=MUSCAT_TZ,
         jitter=_JITTER,
         id="auto_clone",
@@ -137,11 +199,14 @@ def start_scheduler() -> None:
         misfire_grace_time=3600,
     )
 
-    # ── 2. Monthly points rebuild ────────────────────────────────────────────
+    # Monthly reset job
     _scheduler.add_job(
         func=_run_monthly_reset_job,
         trigger="cron",
-        day=1, hour=20, minute=5, second=0,
+        day=1,
+        hour=20,
+        minute=5,
+        second=0,
         timezone=MUSCAT_TZ,
         jitter=_JITTER,
         id="monthly_reset",
@@ -150,10 +215,7 @@ def start_scheduler() -> None:
         misfire_grace_time=3600,
     )
 
-    # ── 3. Duty reminders (every 60 seconds) ─────────────────────────────────
-    # Checks for duties starting in ~15 min or right now and sends FCM push.
-    # NO jitter — we need reliable 60-second cadence for accurate time windows.
-    # max_instances=1 prevents overlap if a run takes longer than 60 seconds.
+    # Duty reminders job (every 60 seconds)
     _scheduler.add_job(
         func=_run_duty_reminders_job,
         trigger="interval",
@@ -163,6 +225,7 @@ def start_scheduler() -> None:
         replace_existing=True,
         misfire_grace_time=90,
         max_instances=1,
+        coalesce=True,
     )
 
     _scheduler.add_listener(_job_listener, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)
@@ -172,13 +235,24 @@ def start_scheduler() -> None:
     for job in _scheduler.get_jobs():
         logger.info(
             "[scheduler]   • '%s' (%s) — next run: %s",
-            job.id, job.name, job.next_run_time,
+            job.id,
+            job.name,
+            job.next_run_time,
         )
 
 
 def stop_scheduler() -> None:
+    """
+    Stop scheduler and release advisory lock.
+    """
     global _scheduler
+
     if _scheduler and _scheduler.running:
-        _scheduler.shutdown(wait=False)
-        logger.info("[scheduler] APScheduler stopped.")
+        try:
+            _scheduler.shutdown(wait=False)
+            logger.info("[scheduler] APScheduler stopped.")
+        except Exception:
+            logger.exception("[scheduler] Error while stopping APScheduler.")
+
     _scheduler = None
+    _release_scheduler_lock()
