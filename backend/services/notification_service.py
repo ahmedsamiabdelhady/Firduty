@@ -274,16 +274,16 @@ def remove_invalid_tokens(db, failed_tokens: List[str]) -> None:
 
 # ── High-level helpers ────────────────────────────────────────────────────────
 
-def notify_teacher_updated(teacher_tokens: List[str], lang: str) -> int:
-    """Notify a teacher that their weekly schedule was updated. Returns success_count."""
+def notify_teacher_updated(teacher_tokens: List[str], lang: str) -> Tuple[int, List[str]]:
+    """Notify a teacher that their weekly schedule was updated. Returns (success_count, failed_tokens)."""
     text = get_notification_text("updated", lang)
-    success, _ = send_notification_to_tokens(
+    success, failed_tokens = send_notification_to_tokens(
         teacher_tokens,
         text["title"],
         text["body"],
         data={"type": "schedule_updated"},
     )
-    return success
+    return success, failed_tokens
 
 
 def notify_duty_reminder(

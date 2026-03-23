@@ -1014,18 +1014,11 @@ def _notify_assigned_teachers(
     update_hash: Optional[str] = None,
 ) -> None:
     """
-    Send push notifications to assigned teachers.
-
-    Parameters
-    ----------
-    teacher_ids
-        Optional subset of teacher IDs to notify. When None (default),
-        every teacher assigned anywhere in the week is notified.
-    update_hash
-        Stable hash for the published week version. Each teacher receives
-        at most one update notification for the same hash.
+    Send push notifications to assigned teachers with atomic claim-before-send
+    deduplication, matching the reminder job behavior.
     """
     try:
+        from sqlalchemy.exc import IntegrityError
         from services.notification_service import notify_teacher_updated
     except Exception:
         return
@@ -1064,8 +1057,6 @@ def _notify_assigned_teachers(
         else "duty_update"
     )
 
-    pending_logs: list[NotificationLog] = []
-
     for tid in sorted(targets):
         teacher = teachers_by_id.get(tid)
         if not teacher:
@@ -1075,21 +1066,26 @@ def _notify_assigned_teachers(
         if not tokens:
             continue
 
-        existing_log = (
-            db.query(NotificationLog)
-            .filter(
-                NotificationLog.teacher_id == tid,
-                NotificationLog.assignment_id.is_(None),
-                NotificationLog.notification_type == notification_type,
+        try:
+            log = NotificationLog(
+                teacher_id=tid,
+                assignment_id=None,
+                notification_type=notification_type,
+                status="processing",
             )
-            .first()
-        )
-        if existing_log:
+            db.add(log)
+            db.commit()
+        except IntegrityError:
+            db.rollback()
             logger.info(
                 "[notify] Skipping duplicate duty update for teacher=%s hash=%s",
                 tid,
                 update_hash or "legacy",
             )
+            continue
+        except Exception as exc:
+            db.rollback()
+            logger.warning("Failed to claim teacher update for teacher %s: %s", tid, exc)
             continue
 
         lang = str(teacher.preferred_language) if teacher.preferred_language else "ar"
@@ -1098,19 +1094,26 @@ def _notify_assigned_teachers(
             success_count, _bad_tokens = notify_teacher_updated(tokens, lang)
         except Exception as exc:
             logger.warning("Failed to notify teacher %s: %s", tid, exc)
+            try:
+                db.delete(log)
+                db.commit()
+            except Exception:
+                db.rollback()
             continue
 
         if int(success_count or 0) > 0:
-            pending_logs.append(NotificationLog(
-                teacher_id=tid,
-                assignment_id=None,
-                notification_type=notification_type,
-                status="sent",
-            ))
-
-    if pending_logs:
-        db.add_all(pending_logs)
-        db.commit()
+            log.status = "sent"
+            db.add(log)
+            db.commit()
+        else:
+            logger.warning(
+                "[notify] duty update delivered to 0 devices teacher=%s hash=%s — marking skipped to prevent spam",
+                tid,
+                update_hash or "legacy",
+            )
+            log.status = "skipped"
+            db.add(log)
+            db.commit()
 
 
 # ─── Old week cleanup ─────────────────────────────────────────────────────────

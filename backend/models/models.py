@@ -315,37 +315,3 @@ class MonthlyPointsSummary(Base):
         Index("ix_monthly_year_month", "year", "month"),
     )
     teacher = relationship("Teacher", back_populates="monthly_summaries")
-
-
-# ─── Notification Log ─────────────────────────────────────────────────────────
-
-class NotificationLog(Base):
-    """
-    Notification deduplication log.
-
-    assignment_id is nullable so week/day schedule update notifications can be
-    logged without pointing to a single assignment.
-    """
-    __tablename__ = "notification_logs"
-    __table_args__ = (
-        UniqueConstraint(
-            "teacher_id", "assignment_id", "notification_type",
-            name="uq_notif_teacher_assignment_type",
-        ),
-        Index("ix_notif_teacher_id", "teacher_id"),
-        Index("ix_notif_sent_at", "sent_at"),
-    )
-
-    id                = Column(Integer, primary_key=True, index=True)
-    teacher_id        = Column(
-        Integer, ForeignKey("teachers.id", ondelete="CASCADE"), nullable=False,
-    )
-    assignment_id     = Column(
-        Integer, ForeignKey("assignments.id", ondelete="CASCADE"), nullable=True,
-    )
-    notification_type = Column(String(64), nullable=False)
-    sent_at           = Column(DateTime, nullable=False, default=_utcnow)
-    status            = Column(String(12), nullable=False, default="sent", server_default="sent")
-
-    teacher    = relationship("Teacher", foreign_keys=[teacher_id])
-    assignment = relationship("Assignment", foreign_keys=[assignment_id])

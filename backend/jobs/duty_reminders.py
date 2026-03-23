@@ -277,12 +277,18 @@ def _send_one(db: Session, ctx: dict, notif_type: str) -> None:
                 "[reminders] ✓ %s → teacher=%d assignment=%d lang=%s (%d/%d tokens OK)",
                 notif_type, teacher_id, assignment_id, lang, success, len(tokens),
             )
-        else:
+        elif bad_tokens:
             logger.warning(
-                "[reminders] FCM delivery FAILED for teacher=%d assignment=%d type=%s — will retry on next tick.",
+                "[reminders] FCM delivery returned 0 success with invalid tokens for teacher=%d assignment=%d type=%s — marking skipped after cleanup.",
                 teacher_id, assignment_id, notif_type,
             )
-            _finalize_claim(db, teacher_id, assignment_id, notif_type, "failed")
+            _finalize_claim(db, teacher_id, assignment_id, notif_type, "skipped")
+        else:
+            logger.warning(
+                "[reminders] FCM delivery returned 0 success and no invalid tokens for teacher=%d assignment=%d type=%s — marking skipped to prevent duplicate spam.",
+                teacher_id, assignment_id, notif_type,
+            )
+            _finalize_claim(db, teacher_id, assignment_id, notif_type, "skipped")
 
     except Exception as exc:
         logger.exception(
