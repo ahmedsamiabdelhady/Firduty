@@ -29,8 +29,8 @@ MUSCAT_TZ = pytz.timezone("Asia/Muscat")
 
 REMINDER_WIN_MIN = 10
 REMINDER_WIN_MAX = 20
-START_WIN_EARLY  = 3
-START_WIN_LATE   = 2
+START_WIN_EARLY = 3
+START_WIN_LATE = 2
 
 
 def _muscat_now() -> datetime:
@@ -47,7 +47,7 @@ def _already_sent(db: Session, teacher_id: int, assignment_id: int, notif_type: 
     Fallback dedup check.
 
     Production safety uses _claim_notification() first, but this helper remains
-    useful as a defensive fallback and for readable logs.
+    useful for diagnostics and defensive checks if ever needed.
     """
     try:
         from models.notification_log import NotificationLog
@@ -78,13 +78,13 @@ def _claim_notification(db: Session, teacher_id: int, assignment_id: int, notif_
     Atomically claim a notification slot BEFORE sending.
 
     This is the production-safe dedup mechanism:
-      - first scheduler tick INSERTs a row with status='processing'
+      - the first scheduler tick inserts a row with status='processing'
       - later ticks hit UNIQUE conflict and skip
       - after successful FCM send, the row is updated to status='sent'
 
-    This removes the race in the old flow:
+    This avoids the old race:
       already_sent? -> send -> insert log
-    where 2 workers could both send before either inserts.
+    where two workers could both send before either inserts.
     """
     try:
         from models.notification_log import NotificationLog
@@ -128,9 +128,9 @@ def _finalize_claim(
     Finalize a previously claimed notification row.
 
     status:
-      sent      -> keep dedup locked forever for this assignment/type
-      skipped   -> keep dedup locked (no tokens)
-      failed    -> release claim so next tick can retry
+      sent    -> keep dedup locked forever for this assignment/type
+      skipped -> keep dedup locked (no tokens)
+      failed  -> release claim so next tick can retry
     """
     try:
         from models.notification_log import NotificationLog
@@ -168,7 +168,8 @@ def _build_ctx(a: Assignment) -> dict:
     shift: Shift = sl.shift
     duty_type = str(shift.duty_type)
 
-    loc_en = loc_ar = None
+    loc_en = None
+    loc_ar = None
     if duty_type == "morning_endofday" and sl.location:
         loc_en = sl.location.name_en
         loc_ar = sl.location.name_ar
@@ -219,15 +220,8 @@ def _send_one(db: Session, ctx: dict, notif_type: str) -> None:
     teacher_id = ctx["teacher_id"]
     assignment_id = ctx["assignment_id"]
 
-    # Defensive fast-path check for readability in logs.
-    if _already_sent(db, teacher_id, assignment_id, notif_type):
-        logger.info(
-            "[reminders] skip %s teacher=%d assignment=%d (already sent / already processing)",
-            notif_type, teacher_id, assignment_id,
-        )
-        return
-
-    # Production-safe claim before external side effect.
+    # Use the atomic DB claim as the single source of truth.
+    # This is safer than doing a separate pre-check before claiming.
     if not _claim_notification(db, teacher_id, assignment_id, notif_type):
         return
 
@@ -300,6 +294,19 @@ def _send_one(db: Session, ctx: dict, notif_type: str) -> None:
             pass
 
 
+def _dedupe_assignments(assignments: list[Assignment]) -> list[Assignment]:
+    """
+    Deduplicate assignments by Assignment.id.
+
+    Extra protection in case ORM joins or unexpected relational duplication
+    return the same assignment more than once in a single scheduler tick.
+    """
+    unique: dict[int, Assignment] = {}
+    for a in assignments:
+        unique[a.id] = a
+    return list(unique.values())
+
+
 def run_duty_reminders() -> None:
     now = _muscat_now()
     today = now.date()
@@ -330,13 +337,26 @@ def run_duty_reminders() -> None:
             logger.info("[reminders] No published assignments for %s — nothing to send.", today)
             return
 
+        raw_count = len(assignments)
+        assignments = _dedupe_assignments(assignments)
+
+        if len(assignments) != raw_count:
+            logger.warning(
+                "[reminders] Deduplicated assignments %d -> %d for %s",
+                raw_count, len(assignments), today,
+            )
+
         logger.info(
-            "[reminders] Found %d published assignment(s) for %s — checking windows...",
+            "[reminders] Found %d unique published assignment(s) for %s — checking windows...",
             len(assignments), today,
         )
 
         reminder_count = 0
         start_count = 0
+
+        # In-memory tick-level dedup to prevent duplicate send attempts
+        # even if unexpected code/data paths reintroduce duplicates.
+        processed_keys: set[tuple[int, int, str]] = set()
 
         for a in assignments:
             try:
@@ -357,14 +377,36 @@ def run_duty_reminders() -> None:
 
                 ctx = _build_ctx(a)
 
+                notif_type = None
                 if REMINDER_WIN_MIN <= mins_away <= REMINDER_WIN_MAX:
-                    logger.info("[reminders] → REMINDER WINDOW HIT: assignment=%d mins_away=%.2f", a.id, mins_away)
-                    _send_one(db, ctx, "reminder_15m")
-                    reminder_count += 1
+                    notif_type = "reminder_15m"
                 elif -START_WIN_LATE <= mins_away <= START_WIN_EARLY:
+                    notif_type = "duty_started"
+
+                if not notif_type:
+                    continue
+
+                dedupe_key = (ctx["teacher_id"], ctx["assignment_id"], notif_type)
+                if dedupe_key in processed_keys:
+                    logger.warning(
+                        "[reminders] Duplicate in same tick skipped: teacher=%d assignment=%d type=%s",
+                        ctx["teacher_id"],
+                        ctx["assignment_id"],
+                        notif_type,
+                    )
+                    continue
+
+                processed_keys.add(dedupe_key)
+
+                if notif_type == "reminder_15m":
+                    logger.info("[reminders] → REMINDER WINDOW HIT: assignment=%d mins_away=%.2f", a.id, mins_away)
+                    _send_one(db, ctx, notif_type)
+                    reminder_count += 1
+                else:
                     logger.info("[reminders] → START WINDOW HIT: assignment=%d mins_away=%.2f", a.id, mins_away)
-                    _send_one(db, ctx, "duty_started")
+                    _send_one(db, ctx, notif_type)
                     start_count += 1
+
             except Exception as exc:
                 logger.error("[reminders] Error processing assignment id=%d: %s", a.id, exc)
                 try:

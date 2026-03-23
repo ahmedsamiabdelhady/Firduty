@@ -3,8 +3,8 @@ scheduler.py — APScheduler background job integration for Firduty.
 
 Production-safe behavior:
 - Prevents duplicate scheduler startup across multiple app processes
-- Uses PostgreSQL advisory lock so only one process becomes scheduler leader
-- Safe on Koyeb / Gunicorn / multi-worker / accidental duplicate startup paths
+- Uses a dedicated PostgreSQL advisory-lock connection
+- Keeps the lock alive for the whole scheduler lifetime
 """
 
 import logging
@@ -18,7 +18,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
 from sqlalchemy import text
 
-# ── Ensure backend path is available ───────────────────────────────────────────
+# Ensure backend path is available
 _backend_dir = os.path.dirname(os.path.abspath(__file__))
 if _backend_dir not in sys.path:
     sys.path.insert(0, _backend_dir)
@@ -33,14 +33,13 @@ logger = logging.getLogger("firduty.scheduler")
 MUSCAT_TZ = pytz.timezone("Asia/Muscat")
 _JITTER = int(os.getenv("SCHEDULER_JITTER", "30"))
 
-# Unique advisory lock key (must be constant across all instances)
+# Must be constant across all app processes
 _SCHEDULER_LOCK_KEY = 918274661239
 
 _scheduler: BackgroundScheduler | None = None
 _scheduler_lock_acquired = False
+_scheduler_lock_conn = None
 
-
-# ── Job wrappers ───────────────────────────────────────────────────────────────
 
 def _run_auto_clone_job() -> None:
     logger.info("[scheduler] ▶ Starting job: auto_clone")
@@ -53,66 +52,77 @@ def _run_monthly_reset_job() -> None:
 
 
 def _run_duty_reminders_job() -> None:
-    # duty_reminders handles its own logging
     run_duty_reminders()
 
 
-# ── Advisory lock helpers ──────────────────────────────────────────────────────
-
 def _try_acquire_scheduler_lock() -> bool:
     """
-    Attempt to acquire a PostgreSQL advisory lock.
-    Only one process will succeed and become the scheduler leader.
+    Acquire a PostgreSQL advisory lock using a dedicated connection.
+    The same connection must remain open for the entire scheduler lifetime.
     """
-    global _scheduler_lock_acquired
+    global _scheduler_lock_acquired, _scheduler_lock_conn
 
-    if _scheduler_lock_acquired:
+    if _scheduler_lock_acquired and _scheduler_lock_conn is not None:
         return True
 
     try:
-        with engine.connect() as conn:
-            acquired = conn.execute(
-                text("SELECT pg_try_advisory_lock(:key)"),
-                {"key": _SCHEDULER_LOCK_KEY},
-            ).scalar()
-
+        conn = engine.connect()
+        acquired = conn.execute(
+            text("SELECT pg_try_advisory_lock(:key)"),
+            {"key": _SCHEDULER_LOCK_KEY},
+        ).scalar()
         acquired = bool(acquired)
-        _scheduler_lock_acquired = acquired
 
         if acquired:
-            logger.info("[scheduler] Advisory lock acquired. This process is the scheduler leader.")
-        else:
-            logger.info("[scheduler] Advisory lock NOT acquired. Another process is already running the scheduler.")
+            _scheduler_lock_conn = conn
+            _scheduler_lock_acquired = True
+            logger.info(
+                "[scheduler] Advisory lock acquired. This process is the scheduler leader."
+            )
+            return True
 
-        return acquired
+        conn.close()
+        logger.info(
+            "[scheduler] Advisory lock NOT acquired. Another process is already running the scheduler."
+        )
+        return False
     except Exception:
         logger.exception("[scheduler] Failed to acquire advisory lock.")
+        try:
+            if _scheduler_lock_conn is not None:
+                _scheduler_lock_conn.close()
+        except Exception:
+            pass
+        _scheduler_lock_conn = None
+        _scheduler_lock_acquired = False
         return False
 
 
 def _release_scheduler_lock() -> None:
     """
-    Release the advisory lock when shutting down.
+    Release the advisory lock and close the dedicated connection.
     """
-    global _scheduler_lock_acquired
+    global _scheduler_lock_acquired, _scheduler_lock_conn
 
-    if not _scheduler_lock_acquired:
+    if not _scheduler_lock_acquired or _scheduler_lock_conn is None:
         return
 
     try:
-        with engine.connect() as conn:
-            conn.execute(
-                text("SELECT pg_advisory_unlock(:key)"),
-                {"key": _SCHEDULER_LOCK_KEY},
-            )
+        _scheduler_lock_conn.execute(
+            text("SELECT pg_advisory_unlock(:key)"),
+            {"key": _SCHEDULER_LOCK_KEY},
+        )
         logger.info("[scheduler] Advisory lock released.")
     except Exception:
         logger.exception("[scheduler] Failed to release advisory lock.")
     finally:
+        try:
+            _scheduler_lock_conn.close()
+        except Exception:
+            pass
+        _scheduler_lock_conn = None
         _scheduler_lock_acquired = False
 
-
-# ── Scheduler event listener ───────────────────────────────────────────────────
 
 def _job_listener(event) -> None:
     if event.exception:
@@ -123,12 +133,9 @@ def _job_listener(event) -> None:
             event.exception,
         )
     else:
-        # Suppress frequent logs for duty_reminders (runs every minute)
         if event.job_id != "duty_reminders":
             logger.info("[scheduler] ✓ Job '%s' finished successfully.", event.job_id)
 
-
-# ── API helpers ────────────────────────────────────────────────────────────────
 
 def _serialize_jobs() -> list[dict[str, Any]]:
     if not _scheduler:
@@ -156,8 +163,6 @@ def scheduler_status() -> dict[str, Any]:
     }
 
 
-# ── Public API ─────────────────────────────────────────────────────────────────
-
 def start_scheduler() -> None:
     """
     Start APScheduler safely.
@@ -165,7 +170,7 @@ def start_scheduler() -> None:
     Guarantees:
     - Respects RUN_SCHEDULER env variable
     - Runs once per process
-    - Only one process becomes scheduler leader (via DB lock)
+    - Only one process becomes scheduler leader via PostgreSQL advisory lock
     """
     global _scheduler
 
@@ -183,7 +188,6 @@ def start_scheduler() -> None:
 
     _scheduler = BackgroundScheduler(timezone=MUSCAT_TZ)
 
-    # Weekly auto-clone job
     _scheduler.add_job(
         func=_run_auto_clone_job,
         trigger="cron",
@@ -199,7 +203,6 @@ def start_scheduler() -> None:
         misfire_grace_time=3600,
     )
 
-    # Monthly reset job
     _scheduler.add_job(
         func=_run_monthly_reset_job,
         trigger="cron",
@@ -215,7 +218,6 @@ def start_scheduler() -> None:
         misfire_grace_time=3600,
     )
 
-    # Duty reminders job (every 60 seconds)
     _scheduler.add_job(
         func=_run_duty_reminders_job,
         trigger="interval",

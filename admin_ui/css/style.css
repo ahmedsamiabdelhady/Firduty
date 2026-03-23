@@ -932,3 +932,33 @@ body.planner-dragging .slots-list .slot-item:hover {
   /* Week controls fully stacked */
   .week-controls { flex-direction: column; align-items: flex-start; }
 }
+
+
+/* ─── Planner desktop drag hover feedback (reinforced) ───────────────────── */
+@media (min-width: 769px) {
+  body.planner-dragging .location-column[data-editable="true"] .slot-item.slot-drag-add {
+    outline: 3px solid #22c55e !important;
+    border-color: #22c55e !important;
+    background: linear-gradient(180deg, #f7fff9 0%, #ecfdf3 100%) !important;
+    box-shadow: 0 0 0 6px rgba(34,197,94,0.18), 0 12px 28px rgba(34,197,94,0.16) !important;
+    transform: translateY(-2px) scale(1.01);
+  }
+
+  body.planner-dragging .location-column[data-editable="true"] .slot-item.slot-drag-replace {
+    outline: 3px solid #ef4444 !important;
+    border-color: #ef4444 !important;
+    background: linear-gradient(180deg, #fff8f8 0%, #fef2f2 100%) !important;
+    box-shadow: 0 0 0 6px rgba(239,68,68,0.18), 0 12px 28px rgba(239,68,68,0.14) !important;
+    transform: translateY(-2px) scale(1.01);
+  }
+
+  body.planner-dragging .slot-item.slot-drag-replace .teacher-card {
+    background: linear-gradient(135deg, #f97373 0%, #ef4444 100%) !important;
+    box-shadow: 0 10px 20px rgba(239,68,68,0.24) !important;
+  }
+
+  body.planner-dragging .slot-item.slot-drag-add .slot-empty-label {
+    color: #15803d !important;
+    font-weight: 700;
+  }
+}

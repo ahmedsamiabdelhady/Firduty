@@ -1157,6 +1157,52 @@ function _bindDesktopSlotHoverFallback() {
   });
 }
 
+function _bindGlobalDragHoverTracking() {
+  if (isMobilePlanner()) return;
+  if (document.body.dataset.globalPlannerDragHoverBound === 'true') return;
+
+  const updateHoveredSlotFromPoint = (clientX, clientY) => {
+    if (!document.body.classList.contains('planner-dragging')) return;
+
+    const el = document.elementFromPoint(clientX, clientY);
+    const slot = el?.closest?.('.slot-item');
+
+    if (!slot) {
+      _clearDragClasses();
+      return;
+    }
+
+    const list = slot.closest('.slots-list');
+    const col = slot.closest('.location-column');
+
+    if (!list || !col || col.dataset.editable !== 'true') {
+      _clearDragClasses();
+      return;
+    }
+
+    _applySlotHoverState(slot, list);
+  };
+
+  document.addEventListener('dragover', (e) => {
+    if (!document.body.classList.contains('planner-dragging')) return;
+    if (typeof e.clientX !== 'number' || typeof e.clientY !== 'number') return;
+    updateHoveredSlotFromPoint(e.clientX, e.clientY);
+    e.preventDefault();
+  }, true);
+
+  document.addEventListener('drop', () => {
+    _clearDragClasses();
+    _setPlannerDragging(false);
+  }, true);
+
+  document.addEventListener('dragend', () => {
+    _clearDragClasses();
+    _setPlannerDragging(false);
+  }, true);
+
+  document.body.dataset.globalPlannerDragHoverBound = 'true';
+}
+
 function initDragAndDrop() {
   // ── Mobile: no Sortable whatsoever ──────────────────────────────────────
   if (isMobilePlanner()) return;
@@ -1178,6 +1224,8 @@ function initDragAndDrop() {
     });
     sidebar.dataset.sortableInit = 'true';
   }
+
+  _bindGlobalDragHoverTracking();
 
   // ── Slot lists (targets, no reorder) ────────────────────────────────────
   document.querySelectorAll('.slots-list').forEach(list => {
