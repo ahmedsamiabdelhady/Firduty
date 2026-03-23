@@ -76,7 +76,7 @@ MORNING_LOCATION_SPECS = [
 END_OF_DAY_LOCATION_SPECS = [
     {"name_en": "Waiting room", "slots_count": 2},
     {"name_en": "Glass door", "slots_count": 2},
-    {"name_en": "KG yard", "slots_count": 2},
+    {"name_en": "Stairs - KG", "slots_count": 2},
     {"name_en": "Area A", "slots_count": 1},
     {"name_en": "Area B", "slots_count": 1},
     {"name_en": "Area C", "slots_count": 1},
