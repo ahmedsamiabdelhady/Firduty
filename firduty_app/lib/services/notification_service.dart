@@ -118,7 +118,12 @@ class NotificationService {
     );
 
     await _onMessageSub?.cancel();
-    _onMessageSub = FirebaseMessaging.onMessage.listen(_showLocalNotification);
+      _onMessageSub = FirebaseMessaging.onMessage.listen((RemoteMessage msg) async {
+        if (kDebugMode) {
+          debugPrint('[FCM] Foreground message received: ${msg.data}');
+        }
+        await _showLocalNotification(msg);
+      });
 
     FirebaseMessaging.onMessageOpenedApp.listen(_handleNotificationTap);
     final initial = await _messaging.getInitialMessage();
@@ -262,25 +267,41 @@ class NotificationService {
   }
 
   static Future<void> _showLocalNotification(RemoteMessage message) async {
-    if (kIsWeb) return;
+  if (kIsWeb) return;
 
-    final notification = message.notification;
-    if (notification == null) return;
+  final data = message.data;
+  final title = (data['title'] ?? '').toString().trim();
+  final body = (data['body'] ?? '').toString().trim();
+
+  if (title.isEmpty && body.isEmpty) {
+    debugPrint('[NotificationService] Skipping local notification: empty data payload.');
+    return;
+  }
+
+  final notifId = Object.hash(
+    data['type'] ?? '',
+    data['assignment_id'] ?? '',
+    data['teacher_id'] ?? '',
+    title,
+    body,
+  );
 
     await _localNotifications.show(
-      id: notification.hashCode,
-      title: notification.title,
-      body: notification.body,
-      notificationDetails: const NotificationDetails(
-        android: AndroidNotificationDetails(
-          'firduty_channel',
-          'Duty Notifications',
-          importance: Importance.high,
-          priority: Priority.high,
-        ),
+    id: notifId,
+    title: title,
+    body: body,
+    notificationDetails: const NotificationDetails(
+      android: AndroidNotificationDetails(
+        'firduty_channel',
+        'Duty Notifications',
+        channelDescription: 'Notifications about your duty assignments',
+        importance: Importance.high,
+        priority: Priority.high,
       ),
-    );
-  }
+      iOS: DarwinNotificationDetails(),
+    ),
+  );
+}
 
   static Future<void> toggle({required int teacherId}) async {
     if (bellState.value == NotificationBellState.loading) return;

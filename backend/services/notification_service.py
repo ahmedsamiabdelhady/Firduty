@@ -143,15 +143,15 @@ def send_notification_to_tokens(
     data: Optional[dict] = None,
 ) -> Tuple[int, List[str]]:
     """
-    Send an FCM multicast push notification.
+    Send a DATA-ONLY FCM multicast push notification.
 
     Returns:
         (success_count, failed_tokens)
-        success_count — number of tokens Firebase accepted
-        failed_tokens — list of tokens that returned errors (should be removed from DB)
 
-    Never raises — all errors are caught and logged.
-    Callers MUST check success_count > 0 before treating the send as successful.
+    Notes:
+    - No top-level notification payload is sent.
+    - Client platforms are responsible for rendering the notification locally.
+    - This prevents duplicate OS + app + service-worker rendering.
     """
     _init_firebase()
 
@@ -169,7 +169,11 @@ def send_notification_to_tokens(
     if len(unique_tokens) < len(tokens):
         logger.debug("[FCM] Deduplicated %d → %d tokens", len(tokens), len(unique_tokens))
 
-    str_data = {k: str(v) for k, v in (data or {}).items()}
+    payload_data = {
+        "title": title,
+        "body": body,
+        **{k: str(v) for k, v in (data or {}).items()},
+    }
 
     web_base_url = (
         os.getenv("WEB_APP_URL")
@@ -179,21 +183,27 @@ def send_notification_to_tokens(
 
     message = messaging.MulticastMessage(
         tokens=unique_tokens,
-        notification=messaging.Notification(title=title, body=body),
-        data=str_data,
-        android=messaging.AndroidConfig(priority="high"),
+        data=payload_data,
+        android=messaging.AndroidConfig(
+            priority="high",
+            data=payload_data,
+        ),
         apns=messaging.APNSConfig(
+            headers={
+                "apns-priority": "10",
+                "apns-push-type": "background",
+            },
             payload=messaging.APNSPayload(
-                aps=messaging.Aps(sound="default", content_available=True)
-            )
+                aps=messaging.Aps(
+                    content_available=True,
+                )
+            ),
         ),
         webpush=messaging.WebpushConfig(
-            notification=messaging.WebpushNotification(
-                title=title,
-                body=body,
-                icon="/icons/Icon-192.png",
-                badge="/icons/Icon-192.png",
-            ),
+            headers={
+                "Urgency": "high",
+            },
+            data=payload_data,
             fcm_options=messaging.WebpushFCMOptions(link=f"{web_base_url}/"),
         ),
     )
@@ -214,7 +224,7 @@ def send_notification_to_tokens(
     for idx, result in enumerate(response.responses):
         token = unique_tokens[idx]
         if result.success:
-            logger.debug("[FCM] ✓ token[%d] delivered", idx)
+            logger.debug("[FCM] ✓ token[%d] accepted", idx)
         else:
             err = result.exception
             err_code = getattr(err, "code", "") or ""
@@ -227,7 +237,7 @@ def send_notification_to_tokens(
                 failed_tokens.append(token)
 
     logger.info(
-        "[FCM] Multicast result: %d/%d succeeded, %d invalid tokens to remove",
+        "[FCM] Data-only multicast result: %d/%d succeeded, %d invalid tokens to remove",
         response.success_count,
         len(unique_tokens),
         len(failed_tokens),
@@ -276,6 +286,8 @@ def notify_duty_reminder(
     duty_type: str = "morning_endofday",
     location: Optional[str] = None,
     grade_class: Optional[str] = None,
+    assignment_id: Optional[int] = None,
+    teacher_id: Optional[int] = None,
 ) -> Tuple[int, List[str]]:
     """
     Send 15-minute reminder before a duty.
@@ -284,17 +296,23 @@ def notify_duty_reminder(
     if duty_type == "break" and grade_class:
         text = get_notification_text(
             "reminder_break", lang, shift=shift, grade_class=grade_class
-        )
-        data: dict = {"type": "duty_reminder", "duty_type": "break"}
+    )
+        data: dict = {
+            "type": "duty_reminder",
+            "duty_type": "break",
+            "assignment_id": assignment_id or "",
+            "teacher_id": teacher_id or "",
+    }
     else:
         text = get_notification_text(
             "reminder_location", lang, shift=shift, location=location or ""
-        )
-        data = {"type": "duty_reminder", "duty_type": "morning_endofday"}
-
-    return send_notification_to_tokens(
-        teacher_tokens, text["title"], text["body"], data=data
     )
+    data = {
+        "type": "duty_reminder",
+        "duty_type": "morning_endofday",
+        "assignment_id": assignment_id or "",
+        "teacher_id": teacher_id or "",
+    }
 
 
 def notify_duty_start(
@@ -303,6 +321,8 @@ def notify_duty_start(
     duty_type: str = "morning_endofday",
     location: Optional[str] = None,
     grade_class: Optional[str] = None,
+    assignment_id: Optional[int] = None,
+    teacher_id: Optional[int] = None,
 ) -> Tuple[int, List[str]]:
     """
     Notify teacher that their duty has started.
@@ -310,13 +330,19 @@ def notify_duty_start(
     """
     if duty_type == "break" and grade_class:
         text = get_notification_text("start_break", lang, grade_class=grade_class)
-        data: dict = {"type": "duty_start", "duty_type": "break"}
+        data: dict = {
+            "type": "duty_start",
+            "duty_type": "break",
+            "assignment_id": assignment_id or "",
+            "teacher_id": teacher_id or "",
+        }
     else:
         text = get_notification_text(
             "start_location", lang, location=location or ""
         )
-        data = {"type": "duty_start", "duty_type": "morning_endofday"}
-
-    return send_notification_to_tokens(
-        teacher_tokens, text["title"], text["body"], data=data
-    )
+        data = {
+            "type": "duty_start",
+            "duty_type": "morning_endofday",
+            "assignment_id": assignment_id or "",
+            "teacher_id": teacher_id or "",
+        }
