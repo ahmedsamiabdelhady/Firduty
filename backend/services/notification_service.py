@@ -7,12 +7,12 @@ Delivery paths:
 
 Both paths use send_notification_to_tokens() — Firebase routes by token type.
 
-Key guarantees (v3.2 rewrite):
+Key guarantees:
   • send_notification_to_tokens() returns (success_count, failed_tokens)
   • Callers can check success_count > 0 before recording delivery
   • Invalid/expired tokens are returned so the caller can clean them from DB
   • Firebase init failure is logged clearly; every send returns 0 + all tokens failed
-  • notify_duty_reminder / notify_duty_start return success_count (not None)
+  • notify_duty_reminder / notify_duty_start always return (success_count, failed_tokens)
 """
 
 import logging
@@ -26,7 +26,7 @@ from config import settings
 logger = logging.getLogger(__name__)
 
 _firebase_initialized = False
-_firebase_init_attempted = False   # prevent repeated noisy warnings
+_firebase_init_attempted = False
 
 
 # ── Firebase initialisation ───────────────────────────────────────────────────
@@ -38,7 +38,6 @@ def _init_firebase() -> None:
         return
 
     if _firebase_init_attempted:
-        # Already tried and failed — don't spam the logs on every notification
         return
 
     _firebase_init_attempted = True
@@ -54,7 +53,6 @@ def _init_firebase() -> None:
         return
 
     try:
-        # Guard against duplicate-app error on hot reload / test environments
         if firebase_admin._DEFAULT_APP_NAME in firebase_admin._apps:
             _firebase_initialized = True
             logger.info("[FCM] Firebase Admin SDK already initialized — reusing.")
@@ -65,7 +63,7 @@ def _init_firebase() -> None:
         _firebase_initialized = True
         logger.info("[FCM] Firebase Admin SDK initialized successfully.")
     except Exception as exc:
-        logger.error("[FCM] Firebase Admin SDK init FAILED: %s", exc)
+        logger.error("[FCM] Firebase Admin SDK init FAILED: %s", exc, exc_info=True)
 
 
 # ── Notification templates ────────────────────────────────────────────────────
@@ -130,7 +128,7 @@ def get_notification_text(template_key: str, lang: str, **kwargs: str) -> dict:
     tmpl: dict = TEMPLATES.get(template_key, {}).get(lang, {})
     return {
         "title": tmpl.get("title", "Duty Roster"),
-        "body":  tmpl.get("body", "").format(**kwargs),
+        "body": tmpl.get("body", "").format(**kwargs),
     }
 
 
@@ -211,7 +209,7 @@ def send_notification_to_tokens(
     try:
         response = messaging.send_each_for_multicast(message)
     except Exception as exc:
-        logger.error("[FCM] send_each_for_multicast raised: %s", exc)
+        logger.error("[FCM] send_each_for_multicast raised: %s", exc, exc_info=True)
         return 0, unique_tokens
 
     failed_tokens: List[str] = []
@@ -219,22 +217,26 @@ def send_notification_to_tokens(
         "registration-token-not-registered",
         "invalid-registration-token",
         "invalid-argument",
+        "unregistered",
     }
 
     for idx, result in enumerate(response.responses):
         token = unique_tokens[idx]
         if result.success:
             logger.debug("[FCM] ✓ token[%d] accepted", idx)
-        else:
-            err = result.exception
-            err_code = getattr(err, "code", "") or ""
-            err_msg = str(err) if err else "unknown error"
-            logger.warning(
-                "[FCM] ✗ token[%d] failed — code=%s msg=%s",
-                idx, err_code, err_msg,
-            )
-            if err_code in invalid_codes:
-                failed_tokens.append(token)
+            continue
+
+        err = result.exception
+        err_code = (getattr(err, "code", "") or "").lower()
+        err_msg = str(err) if err else "unknown error"
+        logger.warning(
+            "[FCM] ✗ token[%d] failed — code=%s msg=%s",
+            idx,
+            err_code,
+            err_msg,
+        )
+        if err_code in invalid_codes or "notregistered" in err_msg.lower():
+            failed_tokens.append(token)
 
     logger.info(
         "[FCM] Data-only multicast result: %d/%d succeeded, %d invalid tokens to remove",
@@ -245,6 +247,7 @@ def send_notification_to_tokens(
 
     return response.success_count, failed_tokens
 
+
 def remove_invalid_tokens(db, failed_tokens: List[str]) -> None:
     """
     Delete invalid/expired FCM tokens from the device_tokens table.
@@ -252,8 +255,10 @@ def remove_invalid_tokens(db, failed_tokens: List[str]) -> None:
     """
     if not failed_tokens:
         return
+
     try:
         from models.models import DeviceToken
+
         deleted = (
             db.query(DeviceToken)
             .filter(DeviceToken.token.in_(failed_tokens))
@@ -263,7 +268,7 @@ def remove_invalid_tokens(db, failed_tokens: List[str]) -> None:
         if deleted:
             logger.info("[FCM] Removed %d invalid/expired device token(s).", deleted)
     except Exception as exc:
-        logger.error("[FCM] Failed to remove invalid tokens: %s", exc)
+        logger.error("[FCM] Failed to remove invalid tokens: %s", exc, exc_info=True)
         db.rollback()
 
 
@@ -273,7 +278,9 @@ def notify_teacher_updated(teacher_tokens: List[str], lang: str) -> int:
     """Notify a teacher that their weekly schedule was updated. Returns success_count."""
     text = get_notification_text("updated", lang)
     success, _ = send_notification_to_tokens(
-        teacher_tokens, text["title"], text["body"],
+        teacher_tokens,
+        text["title"],
+        text["body"],
         data={"type": "schedule_updated"},
     )
     return success
@@ -295,24 +302,37 @@ def notify_duty_reminder(
     """
     if duty_type == "break" and grade_class:
         text = get_notification_text(
-            "reminder_break", lang, shift=shift, grade_class=grade_class
-    )
+            "reminder_break",
+            lang,
+            shift=shift,
+            grade_class=grade_class,
+        )
         data: dict = {
             "type": "duty_reminder",
             "duty_type": "break",
             "assignment_id": assignment_id or "",
             "teacher_id": teacher_id or "",
-    }
+        }
     else:
         text = get_notification_text(
-            "reminder_location", lang, shift=shift, location=location or ""
+            "reminder_location",
+            lang,
+            shift=shift,
+            location=location or "",
+        )
+        data = {
+            "type": "duty_reminder",
+            "duty_type": "morning_endofday",
+            "assignment_id": assignment_id or "",
+            "teacher_id": teacher_id or "",
+        }
+
+    return send_notification_to_tokens(
+        teacher_tokens,
+        text["title"],
+        text["body"],
+        data=data,
     )
-    data = {
-        "type": "duty_reminder",
-        "duty_type": "morning_endofday",
-        "assignment_id": assignment_id or "",
-        "teacher_id": teacher_id or "",
-    }
 
 
 def notify_duty_start(
@@ -338,7 +358,9 @@ def notify_duty_start(
         }
     else:
         text = get_notification_text(
-            "start_location", lang, location=location or ""
+            "start_location",
+            lang,
+            location=location or "",
         )
         data = {
             "type": "duty_start",
@@ -346,3 +368,10 @@ def notify_duty_start(
             "assignment_id": assignment_id or "",
             "teacher_id": teacher_id or "",
         }
+
+    return send_notification_to_tokens(
+        teacher_tokens,
+        text["title"],
+        text["body"],
+        data=data,
+    )

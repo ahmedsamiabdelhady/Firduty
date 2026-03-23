@@ -220,8 +220,6 @@ def _send_one(db: Session, ctx: dict, notif_type: str) -> None:
     teacher_id = ctx["teacher_id"]
     assignment_id = ctx["assignment_id"]
 
-    # Use the atomic DB claim as the single source of truth.
-    # This is safer than doing a separate pre-check before claiming.
     if not _claim_notification(db, teacher_id, assignment_id, notif_type):
         return
 
@@ -252,6 +250,8 @@ def _send_one(db: Session, ctx: dict, notif_type: str) -> None:
                 duty_type=ctx["duty_type"],
                 location=ctx["location_ar"] if lang == "ar" else ctx["location_en"],
                 grade_class=ctx.get("grade_class"),
+                assignment_id=assignment_id,
+                teacher_id=teacher_id,
             )
         elif notif_type == "duty_started":
             success, bad_tokens = notify_duty_start(
@@ -260,6 +260,8 @@ def _send_one(db: Session, ctx: dict, notif_type: str) -> None:
                 duty_type=ctx["duty_type"],
                 location=ctx["location_ar"] if lang == "ar" else ctx["location_en"],
                 grade_class=ctx.get("grade_class"),
+                assignment_id=assignment_id,
+                teacher_id=teacher_id,
             )
         else:
             logger.error("[reminders] Unknown notif_type: %s", notif_type)
@@ -353,9 +355,6 @@ def run_duty_reminders() -> None:
 
         reminder_count = 0
         start_count = 0
-
-        # In-memory tick-level dedup to prevent duplicate send attempts
-        # even if unexpected code/data paths reintroduce duplicates.
         processed_keys: set[tuple[int, int, str]] = set()
 
         for a in assignments:

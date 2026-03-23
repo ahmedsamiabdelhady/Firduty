@@ -11,6 +11,7 @@ Fixes vs v2.4:
   - publish_day() same hasattr removal.
 """
 
+import hashlib
 import json
 import logging
 from datetime import date, datetime, timedelta
@@ -31,6 +32,7 @@ from models.models import (
     Location,
     GradeClass,
 )
+from models.notification_log import NotificationLog
 
 logger = logging.getLogger(__name__)
 
@@ -755,6 +757,7 @@ def update_assignment(
 
 # ─── Publishing ───────────────────────────────────────────────────────────────
 
+
 def publish_week(
     db: Session,
     week: WeekPlan,
@@ -763,17 +766,10 @@ def publish_week(
     notify_teacher_ids: Optional[set[int]] = None,
 ) -> WeekPlan:
     """
-    Publish the full week (idempotent — safe to call on already-published weeks).
+    Publish the full week.
 
-    Parameters
-    ----------
-    notify_scope
-        "all"      → notify every teacher assigned anywhere in the week.
-        "affected" → notify only the IDs in notify_teacher_ids.
-        "none"     → publish silently, no push notifications.
-    notify_teacher_ids
-        Used only when notify_scope == "affected".
-        Typically the teacher IDs that changed in this editing session.
+    A repeated publish on an already-published week keeps the same version/hash,
+    so teachers are notified once for that exact published state.
     """
     week = (
         db.query(WeekPlan)
@@ -788,30 +784,50 @@ def publish_week(
     if not week:
         raise ValueError("Week not found")
 
-    week.status  = "published"
-    week.version = (week.version or 0) + 1
+    was_already_published = (
+        str(week.status) == "published"
+        and all(bool(day.is_published) for day in week.day_plans)
+    )
+
+    if not was_already_published:
+        week.version = (week.version or 0) + 1
+
+    week.status = "published"
 
     for day in week.day_plans:
-        day.is_published = True   # direct assignment — no hasattr guard needed
+        day.is_published = True
 
     _log_change(db, week, actor, "publish", {
         "version": week.version,
         "notify_scope": notify_scope,
+        "already_published": was_already_published,
     })
     db.commit()
     db.refresh(week)
+
+    update_hash = _build_week_update_hash(week)
+
     logger.info(
-        "Week %s published (v%s) notify_scope=%s",
-        week.week_start_date, week.version, notify_scope,
+        "Week %s published (v%s) notify_scope=%s already_published=%s hash=%s",
+        week.week_start_date,
+        week.version,
+        notify_scope,
+        was_already_published,
+        update_hash,
     )
 
     if notify_scope == "all":
-        _notify_assigned_teachers(db, week)
+        _notify_assigned_teachers(db, week, update_hash=update_hash)
     elif notify_scope == "affected" and notify_teacher_ids:
-        _notify_assigned_teachers(db, week, teacher_ids=notify_teacher_ids)
-    # "none": no notifications sent
+        _notify_assigned_teachers(
+            db,
+            week,
+            teacher_ids=notify_teacher_ids,
+            update_hash=update_hash,
+        )
 
     return week
+
 
 
 def publish_day(
@@ -823,14 +839,12 @@ def publish_day(
     notify_teacher_ids: Optional[set[int]] = None,
 ) -> DayPlan:
     """
-    Publish a single day (idempotent — safe to call on already-published days).
+    Publish a single day.
 
-    Parameters
-    ----------
-    notify_scope
-        "all"      → notify every teacher assigned on this day.
-        "affected" → notify only the IDs in notify_teacher_ids that are on this day.
-        "none"     → publish silently.
+    The week version is incremented only when publishing changes visibility
+    state (first publish of the week or first publish of that day). Repeating
+    the same publish keeps the same version/hash, so update notifications are
+    deduplicated cleanly.
     """
     day = (
         db.query(DayPlan)
@@ -845,35 +859,54 @@ def publish_day(
     if not day:
         raise ValueError(f"Day {day_date} not found in week {week.week_start_date}")
 
-    # Phase 1 fix: teacher endpoints check day.is_published for per-day visibility.
-    # They also fall back to week.status for contextual "draft" messages, so we
-    # must promote the week to "published" when the first day is published so that
-    # the teacher Today / This-Week screens actually show the day.
-    # publish_day is idempotent — calling it again on an already-published day is safe.
-    if str(week.status) != "published":
-        # Reload week in this session so the update is tracked correctly
-        _week_obj = db.query(WeekPlan).filter(WeekPlan.id == week.id).first()
-        if _week_obj:
-            _week_obj.status = "published"
-            logger.info(
-                "publish_day: week %s promoted to published (first day publish)",
-                week.week_start_date,
-            )
+    week_obj = db.query(WeekPlan).filter(WeekPlan.id == week.id).first()
+    if not week_obj:
+        raise ValueError("Week not found")
 
-    day.is_published = True
+    week_was_published = str(week_obj.status) == "published"
+    day_was_published = bool(day.is_published)
 
-    _log_change(db, week, actor, "publish_day", {
+    state_changed = False
+
+    if not week_was_published:
+        week_obj.status = "published"
+        state_changed = True
+        logger.info(
+            "publish_day: week %s promoted to published (first day publish)",
+            week.week_start_date,
+        )
+
+    if not day_was_published:
+        day.is_published = True
+        state_changed = True
+    else:
+        day.is_published = True
+
+    if state_changed:
+        week_obj.version = (week_obj.version or 0) + 1
+
+    _log_change(db, week_obj, actor, "publish_day", {
         "day": str(day_date),
         "notify_scope": notify_scope,
+        "state_changed": state_changed,
+        "version": week_obj.version,
     })
     db.commit()
     db.refresh(day)
+    db.refresh(week_obj)
+
+    update_hash = _build_week_update_hash(week_obj, day_date=day_date)
+
     logger.info(
-        "Published day %s in week %s notify_scope=%s",
-        day_date, week.week_start_date, notify_scope,
+        "Published day %s in week %s notify_scope=%s state_changed=%s version=%s hash=%s",
+        day_date,
+        week_obj.week_start_date,
+        notify_scope,
+        state_changed,
+        week_obj.version,
+        update_hash,
     )
 
-    # Collect teachers assigned on this specific day
     day_teacher_ids: set[int] = set()
     for sl in day.shift_locations:
         for a in sl.assignments:
@@ -881,12 +914,21 @@ def publish_day(
                 day_teacher_ids.add(int(a.teacher_id))
 
     if notify_scope == "all" and day_teacher_ids:
-        _notify_assigned_teachers(db, week, teacher_ids=day_teacher_ids)
+        _notify_assigned_teachers(
+            db,
+            week_obj,
+            teacher_ids=day_teacher_ids,
+            update_hash=update_hash,
+        )
     elif notify_scope == "affected" and notify_teacher_ids:
         targets = notify_teacher_ids & day_teacher_ids
         if targets:
-            _notify_assigned_teachers(db, week, teacher_ids=targets)
-    # "none": no notifications
+            _notify_assigned_teachers(
+                db,
+                week_obj,
+                teacher_ids=targets,
+                update_hash=update_hash,
+            )
 
     return day
 
@@ -942,13 +984,34 @@ def _get_latest_teacher_tokens_by_installation(
         teacher_seen_tokens.add(token)
         tokens_by_teacher.setdefault(teacher_id, []).append(token)
 
+
     return tokens_by_teacher
+
+
+def _build_week_update_hash(week: WeekPlan, *, day_date: Optional[date] = None) -> str:
+    """
+    Build a stable hash for the current published update version.
+
+    The hash is tied to the effective week version. Re-publishing the same
+    already-published state keeps the same hash, so update notifications are
+    sent once per teacher for that version only.
+    """
+    day_part = day_date.isoformat() if day_date else "full-week"
+    raw = f"{week.id}|{week.week_start_date.isoformat()}|v{int(week.version or 0)}|{day_part}"
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def _build_duty_update_notification_type(update_hash: str) -> str:
+    return f"duty_update:{update_hash}"
+
 
 
 def _notify_assigned_teachers(
     db: Session,
     week: WeekPlan,
     teacher_ids: Optional[set[int]] = None,
+    *,
+    update_hash: Optional[str] = None,
 ) -> None:
     """
     Send push notifications to assigned teachers.
@@ -956,17 +1019,17 @@ def _notify_assigned_teachers(
     Parameters
     ----------
     teacher_ids
-        Optional subset of teacher IDs to notify.  When None (default),
+        Optional subset of teacher IDs to notify. When None (default),
         every teacher assigned anywhere in the week is notified.
-        Pass a set to scope notifications to newly assigned teachers only,
-        avoiding re-notification of teachers already in the roster.
+    update_hash
+        Stable hash for the published week version. Each teacher receives
+        at most one update notification for the same hash.
     """
     try:
         from services.notification_service import notify_teacher_updated
     except Exception:
         return
 
-    # Re-load week with full relations if needed
     week = (
         db.query(WeekPlan)
         .options(
@@ -980,7 +1043,6 @@ def _notify_assigned_teachers(
     if not week:
         return
 
-    # Collect all teacher IDs assigned in the week (union across all days)
     all_assigned: set[int] = set()
     for day in week.day_plans:
         for sl in day.shift_locations:
@@ -988,28 +1050,67 @@ def _notify_assigned_teachers(
                 if a.teacher_id is not None:
                     all_assigned.add(int(a.teacher_id))
 
-    # If caller specified a subset, intersect to avoid notifying unassigned teachers
     targets = (all_assigned & teacher_ids) if teacher_ids is not None else all_assigned
-
     if not targets:
         return
 
     teachers = db.query(Teacher).filter(Teacher.id.in_(targets)).all()
     teachers_by_id = {int(t.id): t for t in teachers}
-
     tokens_by_teacher = _get_latest_teacher_tokens_by_installation(db, targets)
+
+    notification_type = (
+        _build_duty_update_notification_type(update_hash)
+        if update_hash
+        else "duty_update"
+    )
+
+    pending_logs: list[NotificationLog] = []
 
     for tid in sorted(targets):
         teacher = teachers_by_id.get(tid)
         if not teacher:
             continue
+
         tokens = tokens_by_teacher.get(tid, [])
-        if tokens:
-            lang = str(teacher.preferred_language) if teacher.preferred_language else "ar"
-            try:
-                notify_teacher_updated(tokens, lang)
-            except Exception as exc:
-                logger.warning("Failed to notify teacher %s: %s", tid, exc)
+        if not tokens:
+            continue
+
+        existing_log = (
+            db.query(NotificationLog)
+            .filter(
+                NotificationLog.teacher_id == tid,
+                NotificationLog.assignment_id.is_(None),
+                NotificationLog.notification_type == notification_type,
+            )
+            .first()
+        )
+        if existing_log:
+            logger.info(
+                "[notify] Skipping duplicate duty update for teacher=%s hash=%s",
+                tid,
+                update_hash or "legacy",
+            )
+            continue
+
+        lang = str(teacher.preferred_language) if teacher.preferred_language else "ar"
+
+        try:
+            success_count, _bad_tokens = notify_teacher_updated(tokens, lang)
+        except Exception as exc:
+            logger.warning("Failed to notify teacher %s: %s", tid, exc)
+            continue
+
+        if int(success_count or 0) > 0:
+            pending_logs.append(NotificationLog(
+                teacher_id=tid,
+                assignment_id=None,
+                notification_type=notification_type,
+                status="sent",
+            ))
+
+    if pending_logs:
+        db.add_all(pending_logs)
+        db.commit()
 
 
 # ─── Old week cleanup ─────────────────────────────────────────────────────────

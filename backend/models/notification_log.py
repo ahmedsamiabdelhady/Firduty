@@ -12,8 +12,8 @@ SQL (idempotent — safe to run multiple times):
   CREATE TABLE IF NOT EXISTS notification_logs (
       id                SERIAL PRIMARY KEY,
       teacher_id        INTEGER NOT NULL REFERENCES teachers(id)    ON DELETE CASCADE,
-      assignment_id     INTEGER NOT NULL REFERENCES assignments(id)  ON DELETE CASCADE,
-      notification_type VARCHAR(30)  NOT NULL,   -- 'reminder_15m' | 'duty_started' | 'duty_updated'
+      assignment_id     INTEGER NULL REFERENCES assignments(id)  ON DELETE CASCADE,
+      notification_type VARCHAR(64)  NOT NULL,   -- supports hashed week/day updates
       sent_at           TIMESTAMP    NOT NULL DEFAULT NOW(),
       status            VARCHAR(10)  NOT NULL DEFAULT 'sent',       -- 'sent' | 'skipped' | 'failed'
       CONSTRAINT uq_notif_teacher_assignment_type
@@ -39,6 +39,9 @@ class NotificationLog(Base):
     """
     One row per (teacher_id, assignment_id, notification_type).
 
+    assignment_id is nullable for week/day update notifications that are not tied
+    to a single assignment row.
+
     The UNIQUE constraint is the deduplication key.
     The scheduler uses INSERT … ON CONFLICT DO NOTHING so it's idempotent
     even if called multiple times within the same minute window.
@@ -58,9 +61,9 @@ class NotificationLog(Base):
         Integer, ForeignKey("teachers.id",    ondelete="CASCADE"), nullable=False,
     )
     assignment_id     = Column(
-        Integer, ForeignKey("assignments.id", ondelete="CASCADE"), nullable=False,
+        Integer, ForeignKey("assignments.id", ondelete="CASCADE"), nullable=True,
     )
-    notification_type = Column(String(30), nullable=False)
+    notification_type = Column(String(64), nullable=False)
     sent_at           = Column(DateTime, nullable=False, default=_utcnow)
     status            = Column(String(10), nullable=False, default="sent")
 
