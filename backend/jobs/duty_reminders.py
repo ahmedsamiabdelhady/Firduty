@@ -6,7 +6,7 @@ jobs/duty_reminders.py — Duty reminder notification job.
 import sys
 import os
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytz
 
@@ -27,10 +27,6 @@ logger = logging.getLogger("firduty.jobs.duty_reminders")
 
 MUSCAT_TZ = pytz.timezone("Asia/Muscat")
 
-REMINDER_WIN_MIN = 10
-REMINDER_WIN_MAX = 20
-START_WIN_EARLY = 3
-START_WIN_LATE = 2
 
 
 def _muscat_now() -> datetime:
@@ -220,6 +216,8 @@ def _send_one(db: Session, ctx: dict, notif_type: str) -> None:
     teacher_id = ctx["teacher_id"]
     assignment_id = ctx["assignment_id"]
 
+    # Use the atomic DB claim as the single source of truth.
+    # This is safer than doing a separate pre-check before claiming.
     if not _claim_notification(db, teacher_id, assignment_id, notif_type):
         return
 
@@ -244,25 +242,25 @@ def _send_one(db: Session, ctx: dict, notif_type: str) -> None:
 
         if notif_type == "reminder_15m":
             success, bad_tokens = notify_duty_reminder(
-                teacher_tokens=tokens,
-                lang=lang,
-                shift=ctx["shift_name_ar"] if lang == "ar" else ctx["shift_name_en"],
-                duty_type=ctx["duty_type"],
-                location=ctx["location_ar"] if lang == "ar" else ctx["location_en"],
-                grade_class=ctx.get("grade_class"),
-                assignment_id=assignment_id,
-                teacher_id=teacher_id,
-            )
+            teacher_tokens=tokens,
+            lang=lang,
+            shift=ctx["shift_name_ar"] if lang == "ar" else ctx["shift_name_en"],
+            duty_type=ctx["duty_type"],
+            location=ctx["location_ar"] if lang == "ar" else ctx["location_en"],
+            grade_class=ctx.get("grade_class"),
+            assignment_id=assignment_id,
+            teacher_id=teacher_id,
+        )
         elif notif_type == "duty_started":
             success, bad_tokens = notify_duty_start(
-                teacher_tokens=tokens,
-                lang=lang,
-                duty_type=ctx["duty_type"],
-                location=ctx["location_ar"] if lang == "ar" else ctx["location_en"],
-                grade_class=ctx.get("grade_class"),
-                assignment_id=assignment_id,
-                teacher_id=teacher_id,
-            )
+            teacher_tokens=tokens,
+            lang=lang,
+            duty_type=ctx["duty_type"],
+            location=ctx["location_ar"] if lang == "ar" else ctx["location_en"],
+            grade_class=ctx.get("grade_class"),
+            assignment_id=assignment_id,
+            teacher_id=teacher_id,
+        )
         else:
             logger.error("[reminders] Unknown notif_type: %s", notif_type)
             _finalize_claim(db, teacher_id, assignment_id, notif_type, "failed")
@@ -277,18 +275,12 @@ def _send_one(db: Session, ctx: dict, notif_type: str) -> None:
                 "[reminders] ✓ %s → teacher=%d assignment=%d lang=%s (%d/%d tokens OK)",
                 notif_type, teacher_id, assignment_id, lang, success, len(tokens),
             )
-        elif bad_tokens:
-            logger.warning(
-                "[reminders] FCM delivery returned 0 success with invalid tokens for teacher=%d assignment=%d type=%s — marking skipped after cleanup.",
-                teacher_id, assignment_id, notif_type,
-            )
-            _finalize_claim(db, teacher_id, assignment_id, notif_type, "skipped")
         else:
             logger.warning(
-                "[reminders] FCM delivery returned 0 success and no invalid tokens for teacher=%d assignment=%d type=%s — marking skipped to prevent duplicate spam.",
+                "[reminders] FCM delivery FAILED for teacher=%d assignment=%d type=%s — will retry on next tick.",
                 teacher_id, assignment_id, notif_type,
             )
-            _finalize_claim(db, teacher_id, assignment_id, notif_type, "skipped")
+            _finalize_claim(db, teacher_id, assignment_id, notif_type, "failed")
 
     except Exception as exc:
         logger.exception(
@@ -361,31 +353,33 @@ def run_duty_reminders() -> None:
 
         reminder_count = 0
         start_count = 0
+
+        # In-memory tick-level dedup to prevent duplicate send attempts
+        # even if unexpected code/data paths reintroduce duplicates.
         processed_keys: set[tuple[int, int, str]] = set()
 
         for a in assignments:
             try:
                 start_time = a.shift_location.shift.start_time
                 shift_dt = MUSCAT_TZ.localize(datetime.combine(today, start_time))
-                mins_away = (shift_dt - now).total_seconds() / 60
+                reminder_dt = shift_dt - timedelta(minutes=15)
+                now_minute = now.replace(second=0, microsecond=0)
 
                 logger.info(
-                    "[REMINDER DEBUG] assignment=%d teacher=%d shift=%s now=%s mins_away=%.2f | reminder_win=[%d,%d] start_win=[-%d,+%d]",
+                    "[REMINDER DEBUG] assignment=%d teacher=%d now=%s reminder_at=%s start_at=%s",
                     a.id,
                     int(a.teacher_id),
-                    shift_dt.strftime("%H:%M"),
-                    now.strftime("%H:%M:%S"),
-                    mins_away,
-                    REMINDER_WIN_MIN, REMINDER_WIN_MAX,
-                    START_WIN_LATE, START_WIN_EARLY,
+                    now_minute.strftime("%H:%M:%S"),
+                    reminder_dt.strftime("%H:%M:%S"),
+                    shift_dt.strftime("%H:%M:%S"),
                 )
 
                 ctx = _build_ctx(a)
 
                 notif_type = None
-                if REMINDER_WIN_MIN <= mins_away <= REMINDER_WIN_MAX:
+                if now_minute == reminder_dt:
                     notif_type = "reminder_15m"
-                elif -START_WIN_LATE <= mins_away <= START_WIN_EARLY:
+                elif now_minute == shift_dt:
                     notif_type = "duty_started"
 
                 if not notif_type:
@@ -404,11 +398,11 @@ def run_duty_reminders() -> None:
                 processed_keys.add(dedupe_key)
 
                 if notif_type == "reminder_15m":
-                    logger.info("[reminders] → REMINDER WINDOW HIT: assignment=%d mins_away=%.2f", a.id, mins_away)
+                    logger.info("[reminders] → EXACT REMINDER HIT: assignment=%d", a.id)
                     _send_one(db, ctx, notif_type)
                     reminder_count += 1
                 else:
-                    logger.info("[reminders] → START WINDOW HIT: assignment=%d mins_away=%.2f", a.id, mins_away)
+                    logger.info("[reminders] → EXACT START HIT: assignment=%d", a.id)
                     _send_one(db, ctx, notif_type)
                     start_count += 1
 
