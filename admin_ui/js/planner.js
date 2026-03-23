@@ -1098,6 +1098,11 @@ function _clearDragClasses() {
   });
 }
 
+function _setPlannerDraggingState(isDragging) {
+  document.body.classList.toggle('planner-dragging', !!isDragging);
+  if (!isDragging) _clearDragClasses();
+}
+
 function initDragAndDrop() {
   // ── Mobile: no Sortable whatsoever ──────────────────────────────────────
   if (isMobilePlanner()) return;
@@ -1110,8 +1115,11 @@ function initDragAndDrop() {
       group:     { name: 'teachers', pull: 'clone', put: false },
       sort:      false,
       animation: 150,
+      onStart() { _setPlannerDraggingState(true); },
       // Clean up any lingering drag highlights if user cancels drag from sidebar
-      onEnd() { _clearDragClasses(); },
+      onEnd() {
+        _setPlannerDraggingState(false);
+      },
     });
     sidebar.dataset.sortableInit = 'true';
   }
@@ -1126,6 +1134,7 @@ function initDragAndDrop() {
       group:     { name: 'teachers', pull: false, put: true },
       sort:      false,   // slots are FIXED — never reorder
       animation: 150,
+      onStart() { _setPlannerDraggingState(true); },
 
       // ── Called repeatedly while dragging OVER items ────────────────────
       onMove(evt) {
@@ -1224,7 +1233,7 @@ onAdd(evt) {
 },
 
       // ── Called when drag ends on THIS list (drop accepted or cancelled) ──
-      onEnd() { _clearDragClasses(); },
+      onEnd() { _setPlannerDraggingState(false); },
     });
 
     list.dataset.sortableInit = 'true';

@@ -396,9 +396,54 @@ input:focus, select:focus, textarea:focus {
 .slot-item.sortable-ghost { opacity: 0.4; }
 
 /* Desktop drag-over feedback */
-.slot-drag-add     { outline: 2px dashed var(--primary) !important; background: #f0fdf4 !important; transition: none; }
-.slot-drag-replace { outline: 2px dashed var(--warning) !important; background: #fffbeb !important; transition: none; }
-.slot-empty-label  { color: #bbb; font-size: 0.8rem; }
+.slot-item {
+  position: relative;
+  overflow: hidden;
+}
+.slot-item::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.16s ease;
+}
+body.planner-dragging .slot-item {
+  transition: background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+}
+body.planner-dragging .slot-item:not(.slot-drag-add):not(.slot-drag-replace) {
+  opacity: 0.92;
+}
+.slot-drag-add {
+  background: #edf9ee !important;
+  border-color: #6A9A33 !important;
+  box-shadow: 0 0 0 2px rgba(127,179,63,0.22), 0 8px 20px rgba(106,154,51,0.12) !important;
+  transform: translateY(-1px) scale(1.01);
+}
+.slot-drag-add::after {
+  opacity: 1;
+  background: linear-gradient(135deg, rgba(127,179,63,0.10), rgba(158,208,90,0.20));
+}
+.slot-drag-replace {
+  background: #fff1f1 !important;
+  border-color: var(--danger) !important;
+  box-shadow: 0 0 0 2px rgba(224,82,82,0.20), 0 8px 20px rgba(224,82,82,0.12) !important;
+  transform: translateY(-1px) scale(1.01);
+}
+.slot-drag-replace::after {
+  opacity: 1;
+  background: linear-gradient(135deg, rgba(224,82,82,0.08), rgba(224,82,82,0.18));
+}
+body.planner-dragging .slot-drag-add .slot-empty-label {
+  color: #3D6B1A;
+  font-weight: 700;
+}
+body.planner-dragging .slot-drag-replace .teacher-card {
+  background: var(--danger);
+  box-shadow: 0 6px 14px rgba(224,82,82,0.20);
+}
+.slot-empty-label  { color: #96a0ad; font-size: 0.8rem; transition: color 0.16s ease, font-weight 0.16s ease; }
 
 /* ─── Teacher card (inside filled slot) ─────────────────────────────────── */
 .teacher-card {
@@ -413,9 +458,9 @@ input:focus, select:focus, textarea:focus {
   align-items: center;
   justify-content: space-between;
   gap: 6px;
-  transition: background 0.15s;
+  transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
 }
-.teacher-card:hover  { background: var(--primary-dark); }
+.teacher-card:hover  { background: var(--primary-dark); box-shadow: 0 6px 14px rgba(127,179,63,0.18); transform: translateY(-1px); }
 .teacher-card:active { cursor: grabbing; }
 .teacher-card .remove-btn { cursor: pointer; opacity: 0.75; font-size: 0.75rem; padding: 2px 4px; }
 .teacher-card .remove-btn:hover { opacity: 1; }
