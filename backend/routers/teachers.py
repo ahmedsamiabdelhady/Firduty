@@ -402,13 +402,6 @@ def login_teacher(data: TeacherLogin, db: Session = Depends(get_db)):
             "Your account is pending admin approval. "
             "Please check back later.",
         )
-    if not bool(teacher.active):
-        raise HTTPException(
-            403,
-            "Your account has been deactivated. Contact the admin.",
-        )
-    logger.info("Teacher login: id=%d  email=%s", teacher.id, email_lower)
-    return teacher
 
 
 @router.post("/approve-all")
@@ -711,7 +704,7 @@ def update_teacher(
 
 
 @router.delete("/{teacher_id}", status_code=204)
-def deactivate_teacher(
+def delete_teacher(
     teacher_id: int,
     db: Session = Depends(get_db),
     _: str = Depends(get_current_admin),
@@ -719,5 +712,23 @@ def deactivate_teacher(
     teacher = db.query(Teacher).filter(Teacher.id == teacher_id).first()
     if not teacher:
         raise HTTPException(404, "Teacher not found")
-    teacher.active = False
-    db.commit()
+
+    try:
+        # Keep planner slots intact; only unassign this teacher from them.
+        db.query(Assignment).filter(
+            Assignment.teacher_id == teacher_id
+        ).update(
+            {Assignment.teacher_id: None},
+            synchronize_session=False,
+        )
+
+        # Permanently delete the teacher row.
+        # Related device tokens, confirmations, and monthly summaries
+        # are removed by ORM cascade from the Teacher model.
+        db.delete(teacher)
+        db.commit()
+
+    except Exception as e:
+        db.rollback()
+        logger.exception("Failed to permanently delete teacher id=%d", teacher_id)
+        raise HTTPException(500, f"Delete failed: {str(e)}")
