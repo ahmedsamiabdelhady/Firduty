@@ -1,12 +1,3 @@
-// teacher_select_screen.dart — Teacher self-registration form
-//
-// UX improvements (v2.4):
-//   • Tighter layout with card wrapping the form fields
-//   • Email format validated client-side before API call
-//   • Submit button shows "Submitting…" with spinner while loading
-//   • Keyboard action "Next" / "Done" for natural field flow
-//   • Error displayed inside a styled banner, not raw text
-
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
@@ -44,14 +35,23 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     setState(() { _submitting = true; _errorMsg = null; });
 
     try {
+      final currentLang = Localizations.localeOf(context).languageCode;
+
       final result = await ApiService.registerTeacher(
         name:  _nameCtrl.text.trim(),
         email: _emailCtrl.text.trim().toLowerCase(),
+        preferredLanguage: currentLang,
       );
 
       final teacherId = result['id'] as int;
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt('teacher_id', teacherId);
+
+      // Defensive sync right after register as well.
+      await ApiService.updateTeacherLanguage(
+        teacherId: teacherId,
+        lang: currentLang,
+      );
 
       if (!mounted) return;
       Navigator.pushReplacementNamed(context, '/pending');
@@ -95,8 +95,6 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                       ),
                     ],
                   ),
-
-                  // ── Logo ───────────────────────────────────────────────
                   Center(
                     child: Image.asset('assets/logo.png',
                         width: 140, height: 140),
@@ -111,8 +109,6 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                         height: 1.5),
                   ),
                   const SizedBox(height: 28),
-
-                  // ── Already have account? ─────────────────────────────
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -135,8 +131,6 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                     ],
                   ),
                   const SizedBox(height: 8),
-
-                  // ── Form card ──────────────────────────────────────────
                   Card(
                     elevation: 2,
                     shape: RoundedRectangleBorder(
@@ -148,7 +142,6 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            // Error banner
                             if (_errorMsg != null) ...[
                               Container(
                                 padding: const EdgeInsets.all(12),
@@ -176,8 +169,6 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                               ),
                               const SizedBox(height: 16),
                             ],
-
-                            // Name field
                             TextFormField(
                               controller: _nameCtrl,
                               textInputAction: TextInputAction.next,
@@ -195,8 +186,6 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                               },
                             ),
                             const SizedBox(height: 16),
-
-                            // Email field
                             TextFormField(
                               controller: _emailCtrl,
                               focusNode: _emailFocus,
@@ -221,8 +210,6 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                               },
                             ),
                             const SizedBox(height: 24),
-
-                            // Submit button
                             SizedBox(
                               height: 50,
                               child: ElevatedButton(
@@ -266,5 +253,3 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     );
   }
 }
-
-

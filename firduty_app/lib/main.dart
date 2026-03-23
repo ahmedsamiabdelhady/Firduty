@@ -57,14 +57,14 @@ class _FirdutyAppState extends State<FirdutyApp> {
   Future<void> _initLocale() async {
     final prefs = await SharedPreferences.getInstance();
     final savedLang = prefs.getString('language');
-    if (savedLang != null) {
+    if (savedLang != null && savedLang.isNotEmpty) {
       setState(() => _locale = Locale(savedLang));
     } else {
       setState(() => _locale = const Locale('ar'));
     }
   }
 
-  void _changeLocale(Locale locale) async {
+  Future<void> _changeLocale(Locale locale) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('language', locale.languageCode);
     setState(() => _locale = locale);
@@ -76,7 +76,9 @@ class _FirdutyAppState extends State<FirdutyApp> {
           teacherId: teacherId,
           lang: locale.languageCode,
         );
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('[Locale] Failed to sync preferred_language: $e');
+      }
     }
   }
 
@@ -156,6 +158,26 @@ class _StartupScreenState extends State<StartupScreen> {
     try {
       final result = await ApiService.getTeacherStatus(teacherId);
       final status = result['status'] as String;
+      final serverLang = ((result['preferred_language'] as String?) ?? 'ar').toLowerCase();
+      final localLang = (prefs.getString('language') ?? '').toLowerCase();
+
+      // Sync strategy:
+      // - if local app language exists, it wins and is pushed to backend
+      // - if local language is empty, adopt server language into the app
+      if (localLang.isNotEmpty) {
+        if (serverLang != localLang) {
+          try {
+            await ApiService.updateTeacherLanguage(
+              teacherId: teacherId,
+              lang: localLang,
+            );
+          } catch (e) {
+            debugPrint('[Startup] Failed backend language sync: $e');
+          }
+        }
+      } else {
+        widget.onLocaleChange(Locale(serverLang == 'en' ? 'en' : 'ar'));
+      }
 
       if (status == 'approved') {
         final platform = kIsWeb ? 'web' : 'android';

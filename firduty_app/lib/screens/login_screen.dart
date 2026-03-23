@@ -1,11 +1,3 @@
-// login_screen.dart — Teacher login screen
-//
-// Teachers log in with name + email only (no password, no OTP).
-// On success the teacher_id is stored in SharedPreferences and the app
-// navigates to /pending (if still awaiting approval) or /home (if approved).
-//
-// Matches the registration screen layout for visual consistency.
-
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
@@ -50,9 +42,17 @@ class _LoginScreenState extends State<LoginScreen> {
 
       final teacherId = result['id'] as int;
       final status    = result['status'] as String? ?? 'pending';
+      final currentLang = Localizations.localeOf(context).languageCode;
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt('teacher_id', teacherId);
+
+      // Real-time sync: if teacher changed app language before login,
+      // push it immediately after login succeeds.
+      await ApiService.updateTeacherLanguage(
+        teacherId: teacherId,
+        lang: currentLang,
+      );
 
       if (!mounted) return;
       if (status == 'approved') {
@@ -100,8 +100,6 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ],
                   ),
-
-                  // ── Logo ──────────────────────────────────────────────────
                   Center(
                     child: Image.asset('assets/logo.png',
                         width: 120, height: 120),
@@ -116,8 +114,6 @@ class _LoginScreenState extends State<LoginScreen> {
                         height: 1.5),
                   ),
                   const SizedBox(height: 28),
-
-                  // ── Form card ──────────────────────────────────────────────
                   Card(
                     elevation: 2,
                     shape: RoundedRectangleBorder(
@@ -129,7 +125,6 @@ class _LoginScreenState extends State<LoginScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            // Error banner
                             if (_errorMsg != null) ...[
                               Container(
                                 padding: const EdgeInsets.all(12),
@@ -157,8 +152,6 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                               const SizedBox(height: 16),
                             ],
-
-                            // Name field
                             TextFormField(
                               controller: _nameCtrl,
                               textInputAction: TextInputAction.next,
@@ -177,8 +170,6 @@ class _LoginScreenState extends State<LoginScreen> {
                               },
                             ),
                             const SizedBox(height: 16),
-
-                            // Email field
                             TextFormField(
                               controller: _emailCtrl,
                               focusNode: _emailFocus,
@@ -203,8 +194,6 @@ class _LoginScreenState extends State<LoginScreen> {
                               },
                             ),
                             const SizedBox(height: 24),
-
-                            // Login button
                             SizedBox(
                               height: 50,
                               child: ElevatedButton(
@@ -238,10 +227,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ),
                   ),
-
                   const SizedBox(height: 20),
-
-                  // ── Switch to Register ────────────────────────────────────
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -270,5 +256,3 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 }
-
-

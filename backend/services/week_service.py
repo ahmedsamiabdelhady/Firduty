@@ -58,26 +58,35 @@ SHIFT_NAME_ALIASES = {
 
 MORNING_LOCATION_SPECS = [
     {"name_en": "First floor - Interior corridor", "slots_count": 1},
-    {"name_en": "First floor - Main corridor", "slots_count": 1},
+    {"name_en": "First floor - Main corridor", "slots_count": 2},
     {"name_en": "First floor - Beside teachers room", "slots_count": 1},
     {"name_en": "Area A", "slots_count": 1},
     {"name_en": "Area B", "slots_count": 1},
     {"name_en": "Area C", "slots_count": 1},
     {"name_en": "Area D", "slots_count": 1},
-    {"name_en": "Second floor - Interior corridor", "slots_count": 1},
-    {"name_en": "Second floor - Main corridor", "slots_count": 1},
+    {"name_en": "Second floor - Interior corridor", "slots_count": 2},
+    {"name_en": "Second floor - Main corridor", "slots_count": 2},
+    {"name_en": "Second floor - Beside teachers room", "slots_count": 1},
+    {"name_en": "Playground", "slots_count": 5},
+    {"name_en": "Ground floor", "slots_count": 1},
+    {"name_en": "Ground floor - KG2A", "slots_count": 2},
+    {"name_en": "General supervision", "slots_count": 1}    
 ]
 
 END_OF_DAY_LOCATION_SPECS = [
-    {"name_en": "First floor - Interior corridor", "slots_count": 1},
-    {"name_en": "First floor - Main corridor", "slots_count": 1},
-    {"name_en": "First floor - Beside teachers room", "slots_count": 1},
+    {"name_en": "Waiting room", "slots_count": 2},
+    {"name_en": "Glass door", "slots_count": 2},
+    {"name_en": "KG yard", "slots_count": 2},
     {"name_en": "Area A", "slots_count": 1},
     {"name_en": "Area B", "slots_count": 1},
     {"name_en": "Area C", "slots_count": 1},
     {"name_en": "Area D", "slots_count": 1},
-    {"name_en": "Second floor - Interior corridor", "slots_count": 1},
-    {"name_en": "Second floor - Main corridor", "slots_count": 1},
+    {"name_en": "Second floor", "slots_count": 1},
+    {"name_en": "Basement floor", "slots_count": 7},
+    {"name_en": "First floor", "slots_count": 1},
+    {"name_en": "Playground", "slots_count": 6},
+    {"name_en": "Ground floor", "slots_count": 1},
+    {"name_en": "General Supervision", "slots_count": 1},
 ]
 
 # ─── Utilities ────────────────────────────────────────────────────────────────

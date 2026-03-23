@@ -1,72 +1,28 @@
 // api_service.dart — REST API communication layer for Firduty
-//
-// ── API base URL ─────────────────────────────────────────────────────────────
-// Injected at build/run time via --dart-define:
-//
-//   Platform              Command                                  Note
-//   ─────────────────     ──────────────────────────────────────   ──────────
-//   Flutter Web (Chrome)  --dart-define=API_BASE_URL=http://localhost:8000
-//   Android Studio emu    --dart-define=API_BASE_URL=http://10.0.2.2:8000
-//   Genymotion emulator   --dart-define=API_BASE_URL=http://10.0.3.2:8000
-//   Physical device       --dart-define=API_BASE_URL=http://<LAN-IP>:8000
-//   Production            --dart-define=API_BASE_URL=https://your-app.koyeb.app
-//
-//   API_BASE_URL must NOT have a trailing slash.
-//
-// ── Timezone-safe endpoints (preferred for Flutter mobile) ────────────────────
-// The server resolves "today" and "current week" in Asia/Muscat timezone,
-// so the result is correct regardless of the device's timezone setting.
-//
-//   getTeacherToday()        → GET /teachers/{id}/today
-//   getTeacherCurrentWeek()  → GET /teachers/{id}/current-week
-//
-// The legacy methods (getTeacherSchedule, getTeacherWeek) that require the
-// client to pass a date are kept for backward compatibility.
-//
-// ── Debug logging ─────────────────────────────────────────────────────────────
-// Every HTTP response is logged in debug builds:
-//   [API] GET http://…/teachers/5/today → 200 (143 ms)
-//   [API] GET http://…/teachers/5/today → 404
-//           body: {"detail":"Teacher not found"}
-//
-// ── Centralization ────────────────────────────────────────────────────────────
-// ALL endpoint paths live here. No screen constructs URLs directly.
 
 import 'dart:convert';
 import 'package:flutter/foundation.dart' show kDebugMode, debugPrint;
 import 'package:http/http.dart' as http;
 
 class ApiService {
-  // ── Single source of truth for the backend URL ─────────────────────────────
   static const String baseUrl = String.fromEnvironment(
     'API_BASE_URL',
     defaultValue: 'http://SERVER-NOT-CONFIGURED',
   );
 
-  /// Reusable HTTP client — avoids re-opening a TCP socket on every request.
   static final http.Client _client = http.Client();
-
-  /// Global request timeout — prevents indefinite hangs on slow networks.
   static const Duration _timeout = Duration(seconds: 15);
 
-  // ── Endpoint paths (all defined here, not in screen code) ──────────────────
   static String _pathRegister()                   => '$baseUrl/teachers/register';
   static String _pathStatus(int id)               => '$baseUrl/teachers/$id/status';
-
-  // Timezone-safe (server resolves Oman date) — PREFERRED for mobile
   static String _pathToday(int id)                => '$baseUrl/teachers/$id/today';
   static String _pathCurrentWeek(int id)          => '$baseUrl/teachers/$id/current-week';
-
-  // Legacy (client supplies date) — kept for backward compatibility
   static String _pathSchedule(int id, String d)   => '$baseUrl/teachers/$id/schedule?date=$d';
-  static String _pathWeek(int id, String ws)       => '$baseUrl/teachers/$id/week?week_start=$ws';
-
+  static String _pathWeek(int id, String ws)      => '$baseUrl/teachers/$id/week?week_start=$ws';
   static String _pathConfirm(int id)              => '$baseUrl/points/teachers/$id/confirm';
   static String _pathPoints(int id, int y, int m) => '$baseUrl/points/teachers/$id/monthly?year=$y&month=$m';
   static String _pathDeviceToken(int id)          => '$baseUrl/teachers/$id/device-token';
-  static String _pathUpdateTeacher(int id)        => '$baseUrl/teachers/$id';
-
-  // ── Debug logger ────────────────────────────────────────────────────────────
+  static String _pathUpdateTeacherLanguage(int id) => '$baseUrl/teachers/$id/language';
 
   static void _log(String method, String url, http.Response res, DateTime start) {
     if (!kDebugMode) return;
@@ -80,8 +36,6 @@ class ApiService {
       debugPrint('[API] $method $url → $code ($ms ms)\n        body: $snippet');
     }
   }
-
-  // ── Response helpers ────────────────────────────────────────────────────────
 
   static Map<String, dynamic>? _tryDecode(http.Response res) {
     try {
@@ -99,11 +53,15 @@ class ApiService {
       if (detail is String && detail.isNotEmpty) return detail;
     }
     switch (res.statusCode) {
-      case 404: return 'The requested resource was not found (404). Check API_BASE_URL.';
-      case 500: return 'Server internal error (500). Check backend logs.';
-      case 502: case 503:
+      case 404:
+        return 'The requested resource was not found (404). Check API_BASE_URL.';
+      case 500:
+        return 'Server internal error (500). Check backend logs.';
+      case 502:
+      case 503:
         return 'Server starting up or temporarily unavailable. Try again in a moment.';
-      default: return '$fallback (HTTP ${res.statusCode})';
+      default:
+        return '$fallback (HTTP ${res.statusCode})';
     }
   }
 
@@ -124,11 +82,10 @@ class ApiService {
     return _client.get(Uri.parse(url)).timeout(_timeout);
   }
 
-  // ── Registration & Status ───────────────────────────────────────────────────
-
   static Future<Map<String, dynamic>> registerTeacher({
     required String name,
     required String email,
+    required String preferredLanguage,
   }) async {
     _checkBaseUrl();
     final url   = _pathRegister();
@@ -140,7 +97,11 @@ class ApiService {
           .post(
             Uri.parse(url),
             headers: {'Content-Type': 'application/json'},
-            body: jsonEncode({'name': name, 'email': email}),
+            body: jsonEncode({
+              'name': name,
+              'email': email,
+              'preferred_language': preferredLanguage,
+            }),
           )
           .timeout(_timeout);
     } catch (e) {
@@ -164,14 +125,12 @@ class ApiService {
     if (res.statusCode == 409) {
       final body = _tryDecode(res);
       throw Exception(
-          (body?['detail'] as String?) ?? 'This email is already registered.');
+        (body?['detail'] as String?) ?? 'This email is already registered.',
+      );
     }
     throw Exception(_errorMessage(res, 'Registration failed'));
   }
 
-  /// Login with name + email — returns the teacher record on success.
-  /// Throws descriptive Exception on 404 (not found), 409 (name mismatch),
-  /// 403 (pending / inactive).
   static Future<Map<String, dynamic>> loginTeacher({
     required String name,
     required String email,
@@ -205,18 +164,19 @@ class ApiService {
       throw Exception('Unexpected response from server.');
     }
     if (res.statusCode == 404) {
-      throw Exception(
-          'No account found with this email. Please register first.');
+      throw Exception('No account found with this email. Please register first.');
     }
     if (res.statusCode == 409) {
       throw Exception(
-          'The name you entered does not match the registered name for this email.');
+        'The name you entered does not match the registered name for this email.',
+      );
     }
     if (res.statusCode == 403) {
       final body = _tryDecode(res);
       throw Exception(
-          (body?['detail'] as String?) ??
-          'Your account is pending admin approval.');
+        (body?['detail'] as String?) ??
+            'Your account is pending admin approval.',
+      );
     }
     throw Exception(_errorMessage(res, 'Login failed'));
   }
@@ -247,14 +207,6 @@ class ApiService {
     throw Exception(_errorMessage(res, 'Could not fetch teacher status'));
   }
 
-  // ── Schedule — Timezone-safe (PREFERRED for mobile today tab) ───────────────
-
-  /// Fetch today's duties using the **server's** Asia/Muscat clock.
-  ///
-  /// No date parameter needed. The server resolves "today in Oman" correctly
-  /// regardless of the device timezone setting.
-  ///
-  /// Returns `{teacher_id, teacher_name, week_status, duties}`.
   static Future<Map<String, dynamic>> getTeacherToday({
     required int teacherId,
   }) async {
@@ -280,12 +232,6 @@ class ApiService {
     throw Exception(_errorMessage(res, "Could not load today's duties"));
   }
 
-  /// Fetch the current week's duties using the **server's** Asia/Muscat clock.
-  ///
-  /// No week_start parameter needed. The server resolves the current Oman
-  /// school week (Sunday–Thursday) correctly regardless of the device timezone.
-  ///
-  /// Returns `{teacher_id, teacher_name, week_status, duties}`.
   static Future<Map<String, dynamic>> getTeacherCurrentWeek({
     required int teacherId,
   }) async {
@@ -311,14 +257,9 @@ class ApiService {
     throw Exception(_errorMessage(res, 'Could not load current week duties'));
   }
 
-  // ── Schedule — Legacy (client supplies date) ──────────────────────────────
-
-  /// Fetch duties for a specific date supplied by the client.
-  ///
-  /// Prefer [getTeacherToday] to avoid timezone mismatch on mobile.
   static Future<Map<String, dynamic>> getTeacherSchedule({
     required int teacherId,
-    required String date, // YYYY-MM-DD
+    required String date,
   }) async {
     _checkBaseUrl();
     final url   = _pathSchedule(teacherId, date);
@@ -342,12 +283,9 @@ class ApiService {
     throw Exception(_errorMessage(res, "Could not load today's duties"));
   }
 
-  /// Fetch duties for a specific week supplied by the client.
-  ///
-  /// Prefer [getTeacherCurrentWeek] to avoid timezone mismatch on mobile.
   static Future<Map<String, dynamic>> getTeacherWeek({
     required int teacherId,
-    required String weekStart, // YYYY-MM-DD (Sunday)
+    required String weekStart,
   }) async {
     _checkBaseUrl();
     final url   = _pathWeek(teacherId, weekStart);
@@ -370,8 +308,6 @@ class ApiService {
     }
     throw Exception(_errorMessage(res, 'Could not load week duties'));
   }
-
-  // ── Confirmation ─────────────────────────────────────────────────────────
 
   static Future<Map<String, dynamic>> confirmDuty({
     required int teacherId,
@@ -405,8 +341,6 @@ class ApiService {
     throw Exception(_errorMessage(res, 'Could not confirm duty'));
   }
 
-  // ── Points ───────────────────────────────────────────────────────────────
-
   static Future<Map<String, dynamic>> getTeacherPoints({
     required int teacherId,
     required int year,
@@ -434,26 +368,18 @@ class ApiService {
     throw Exception(_errorMessage(res, 'Could not load points'));
   }
 
-  // ── Device token ─────────────────────────────────────────────────────────
-
-  /// Register or update an FCM token for a teacher.
-  ///
-  /// [installationId] is a stable UUID generated once per device/browser
-  /// (stored in SharedPreferences). The backend upserts on
-  /// (teacher_id, installation_id) so that token rotation UPDATES the
-  /// existing row instead of inserting a new one — preventing duplicates.
   static Future<void> registerDeviceToken({
-    required int    teacherId,
+    required int teacherId,
     required String token,
     required String platform,
-    String?         installationId,   // stable device UUID, v3.3+
+    String? installationId,
   }) async {
     if (baseUrl == 'http://SERVER-NOT-CONFIGURED') return;
     final url   = _pathDeviceToken(teacherId);
     final start = DateTime.now();
 
     final body = <String, dynamic>{
-      'token':    token,
+      'token': token,
       'platform': platform,
     };
     if (installationId != null) {
@@ -474,27 +400,32 @@ class ApiService {
     }
   }
 
-  // ── Teacher profile ──────────────────────────────────────────────────────
-
   static Future<void> updateTeacherLanguage({
     required int teacherId,
     required String lang,
   }) async {
     if (baseUrl == 'http://SERVER-NOT-CONFIGURED') return;
-    final url   = _pathUpdateTeacher(teacherId);
+    final url   = _pathUpdateTeacherLanguage(teacherId);
     final start = DateTime.now();
 
+    late http.Response res;
     try {
-      final res = await _client
+      res = await _client
           .put(
             Uri.parse(url),
             headers: {'Content-Type': 'application/json'},
             body: jsonEncode({'preferred_language': lang}),
           )
           .timeout(_timeout);
-      _log('PUT', url, res, start);
     } catch (e) {
       debugPrint('[API] PUT $url → language update failed: $e');
+      throw Exception('Could not update language preference.');
+    }
+
+    _log('PUT', url, res, start);
+
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw Exception(_errorMessage(res, 'Could not update language preference'));
     }
   }
 }

@@ -54,6 +54,7 @@ class TeacherRegister(BaseModel):
     """Public self-registration payload. Creates a 'pending' teacher record."""
     name: str
     email: EmailStr
+    preferred_language: str = "ar"
 
 
 class TeacherLogin(BaseModel):
@@ -77,11 +78,17 @@ class TeacherUpdate(BaseModel):
     preferred_language: Optional[str] = None
 
 
+class TeacherLanguageUpdate(BaseModel):
+    preferred_language: str
+
+
 class TeacherStatusOut(_OrmBase):
     """Lightweight status check — used by the Flutter app on every launch."""
     id: int
     name: str
+    email: Optional[str] = None
     status: str   # 'pending' | 'approved'
+    preferred_language: str
 
 
 class TeacherOut(_OrmBase):
@@ -209,12 +216,8 @@ class AssignmentUpdate(BaseModel):
 
 class WeekStatusUpdate(BaseModel):
     status: str   # 'draft' | 'published'
-    # ── Notification scope (for publish actions) ───────────────────────────────
-    # "all"      → notify every teacher currently assigned in the week/day
-    # "affected" → notify only the teacher IDs listed in notify_teacher_ids
-    # "none"     → publish silently, no push notifications sent
     notify_scope: str = "all"
-    notify_teacher_ids: Optional[List[int]] = None  # used when scope = "affected"
+    notify_teacher_ids: Optional[List[int]] = None
 
 
 class ShiftTimeUpdate(BaseModel):
