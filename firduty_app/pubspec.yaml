@@ -10,41 +10,40 @@ dependencies:
   flutter:
     sdk: flutter
 
-  # Localizations (SDK flutter package — required for delegates)
   flutter_localizations:
     sdk: flutter
 
-  # HTTP
   http: ^1.2.1
-
-  # Local storage
   shared_preferences: ^2.2.3
 
-  # Firebase — supports Android (native) and Web (FCM web push / iOS Safari PWA)
   firebase_core: ^4.5.0
   firebase_messaging: ^16.1.2
   firebase_messaging_web: ^4.1.3
 
-  # Local notification display — Android only.
-  # Guarded with kIsWeb in notification_service.dart (not invoked on web).
   flutter_local_notifications: ^21.0.0
 
-  # Internationalisation utilities (DateFormat etc.)
-  # Must be ^0.20.2 — flutter_localizations (SDK) pins intl to 0.20.2.
   intl: ^0.20.2
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.3
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: assets/app_icon.png
+  min_sdk_android: 21
+  adaptive_icon_background: "#2E7DA7"
+  adaptive_icon_foreground: assets/app_icon.png
 
 flutter:
   uses-material-design: true
 
-  # Enables automatic `flutter gen-l10n` during build.
-  # Config is in l10n.yaml (project root).
   generate: true
 
   assets:
     - assets/logo.png
     - assets/logo_small.png
+    - assets/app_icon.png

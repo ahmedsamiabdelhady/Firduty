@@ -377,9 +377,9 @@ def run_duty_reminders() -> None:
                 ctx = _build_ctx(a)
 
                 notif_type = None
-                if now_minute == reminder_dt:
+                if 0 <= (now_minute - reminder_dt).total_seconds() <= 60:
                     notif_type = "reminder_15m"
-                elif now_minute == shift_dt:
+                elif 0 <= (now_minute - shift_dt).total_seconds() <= 60:
                     notif_type = "duty_started"
 
                 if not notif_type:

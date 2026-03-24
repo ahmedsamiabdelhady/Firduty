@@ -403,6 +403,8 @@ def login_teacher(data: TeacherLogin, db: Session = Depends(get_db)):
             "Please check back later.",
         )
 
+    return teacher
+
 
 @router.post("/approve-all")
 def approve_all_pending(
@@ -475,7 +477,7 @@ def update_teacher_language(
     }
 
 
-@router.post("/{teacher_id}/approve")
+@router.post("/{teacher_id}/approve", response_model=TeacherOut)
 def approve_teacher(
     teacher_id: int,
     db: Session = Depends(get_db),
