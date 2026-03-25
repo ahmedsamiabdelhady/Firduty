@@ -218,7 +218,7 @@ def start_scheduler() -> None:
         misfire_grace_time=3600,
     )
 
-    scheduler.add_job(
+    _scheduler.add_job(
         func=_run_duty_reminders_job,
         trigger="cron",
         second=0,
