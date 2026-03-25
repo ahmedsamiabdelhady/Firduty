@@ -179,7 +179,7 @@ class _StartupScreenState extends State<StartupScreen> {
       if (status == 'approved') {
         final platform = kIsWeb ? 'web' : 'android';
 
-        /// 🔥 أهم نقطة
+
         await NotificationService.initialize(
           teacherId: teacherId,
           platform: platform,
