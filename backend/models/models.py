@@ -140,6 +140,8 @@ class DeviceToken(Base):
     platform        = Column(String(10),  nullable=False)   # 'android' | 'web'
     installation_id = Column(String(100), nullable=True,  index=True)
     updated_at      = Column(DateTime, default=_utcnow, onupdate=_utcnow)
+    last_seen_at    = Column(DateTime, default=_utcnow, onupdate=_utcnow)
+    created_at      = Column(DateTime, default=_utcnow)
     teacher         = relationship("Teacher", back_populates="device_tokens")
 
 
