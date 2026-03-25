@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -65,9 +64,6 @@ class _FirdutyAppState extends State<FirdutyApp> {
   void initState() {
     super.initState();
     _initLocale();
-
-
-    NotificationService.navigatorKey = _navigatorKey;
   }
 
   Future<void> _initLocale() async {
@@ -177,12 +173,9 @@ class _StartupScreenState extends State<StartupScreen> {
       final status = result['status'];
 
       if (status == 'approved') {
-        final platform = kIsWeb ? 'web' : 'android';
-
 
         await NotificationService.initialize(
           teacherId: teacherId,
-          platform: platform,
         );
 
         Navigator.pushReplacementNamed(context, '/home');

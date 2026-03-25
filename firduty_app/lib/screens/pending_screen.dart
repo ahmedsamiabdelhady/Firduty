@@ -7,7 +7,6 @@
 //   • Logout confirmation dialog
 
 import 'dart:async';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
@@ -106,11 +105,9 @@ class _PendingScreenState extends State<PendingScreen>
     if (status == 'approved') {
       _pollTimer?.cancel();
 
-      const platform = kIsWeb ? 'web' : 'android';
 
       await NotificationService.initialize(
         teacherId: teacherId,
-        platform: platform,
       );
 
       if (!mounted) return;

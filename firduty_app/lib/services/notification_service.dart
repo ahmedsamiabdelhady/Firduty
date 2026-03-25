@@ -1,59 +1,53 @@
 import 'package:flutter/material.dart';
-import '../services/notification_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-class NotificationBell extends StatelessWidget {
-  final int teacherId;
+enum NotificationBellState {
+  enabled,
+  disabled,
+  loading,
+  unknown,
+}
 
-  const NotificationBell({super.key, required this.teacherId});
+class NotificationService {
+  static final ValueNotifier<NotificationBellState> bellState =
+      ValueNotifier(NotificationBellState.unknown);
 
-  @override
-  Widget build(BuildContext context) {
-    return ValueListenableBuilder<NotificationBellState>(
-      valueListenable: NotificationService.bellState,
-      builder: (context, state, _) {
-        return IconButton(
-          tooltip: _tooltip(state),
-          icon: _icon(state),
-          onPressed: _isInteractable(state)
-              ? () => NotificationService.toggle(teacherId: teacherId)
-              : null,
-        );
-      },
-    );
+  static const _key = 'notifications_enabled';
+
+  static Future<void> initialize({required int teacherId}) async {
+    bellState.value = NotificationBellState.loading;
+
+    final prefs = await SharedPreferences.getInstance();
+    final enabled = prefs.getBool(_key) ?? false;
+
+    bellState.value =
+        enabled ? NotificationBellState.enabled : NotificationBellState.disabled;
   }
 
-  static String _tooltip(NotificationBellState state) {
-    switch (state) {
-      case NotificationBellState.enabled:
-        return 'Disable notifications';
-      case NotificationBellState.disabled:
-        return 'Enable notifications';
-      case NotificationBellState.loading:
-        return 'Updating...';
-      case NotificationBellState.unknown:
-        return 'Checking...';
-    }
+  static Future<void> toggle({required int teacherId}) async {
+    final prefs = await SharedPreferences.getInstance();
+    final current = prefs.getBool(_key) ?? false;
+
+    bellState.value = NotificationBellState.loading;
+
+    await prefs.setBool(_key, !current);
+
+    bellState.value = !current
+        ? NotificationBellState.enabled
+        : NotificationBellState.disabled;
   }
 
-  static Widget _icon(NotificationBellState state) {
-    switch (state) {
-      case NotificationBellState.enabled:
-        return const Icon(Icons.notifications_active);
-      case NotificationBellState.disabled:
-        return const Icon(Icons.notifications_off);
-      case NotificationBellState.loading:
-        return const SizedBox(
-          width: 20,
-          height: 20,
-          child: CircularProgressIndicator(strokeWidth: 2),
-        );
-      case NotificationBellState.unknown:
-        return const Icon(Icons.notifications);
-    }
+  static Future<void> reset() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_key);
+    bellState.value = NotificationBellState.disabled;
   }
 
-  static bool _isInteractable(NotificationBellState state) {
-    return state == NotificationBellState.enabled ||
-        state == NotificationBellState.disabled;
+  static void syncBellStateFromPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    final enabled = prefs.getBool(_key) ?? false;
+
+    bellState.value =
+        enabled ? NotificationBellState.enabled : NotificationBellState.disabled;
   }
 }
