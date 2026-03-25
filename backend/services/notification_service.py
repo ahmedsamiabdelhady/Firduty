@@ -5,7 +5,7 @@ from typing import List, Tuple
 from firebase_admin import messaging
 
 from database import SessionLocal
-from models import DeviceToken
+from models.models import DeviceToken
 
 logger = logging.getLogger("services.notification_service")
 
