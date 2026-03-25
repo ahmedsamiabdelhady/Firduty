@@ -218,14 +218,15 @@ def start_scheduler() -> None:
         misfire_grace_time=3600,
     )
 
-    _scheduler.add_job(
+    scheduler.add_job(
         func=_run_duty_reminders_job,
-        trigger="interval",
-        seconds=60,
+        trigger="cron",
+        second=0,
+        timezone=MUSCAT_TZ,
         id="duty_reminders",
         name="Duty reminder notifications",
         replace_existing=True,
-        misfire_grace_time=90,
+        misfire_grace_time=5,
         max_instances=1,
         coalesce=True,
     )

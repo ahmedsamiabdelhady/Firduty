@@ -556,6 +556,423 @@
       .day-header { padding: 12px; }
     }
 
+
+    .planner-summary {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin: 14px 0 16px;
+    }
+    .planner-stat {
+      background: linear-gradient(180deg, #ffffff 0%, #f8fbfd 100%);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 14px 16px;
+      box-shadow: 0 8px 24px rgba(15,23,42,0.05);
+      min-height: 86px;
+    }
+    .planner-stat__label {
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 8px;
+    }
+    .planner-stat__value {
+      font-size: 1.45rem;
+      line-height: 1;
+      font-weight: 800;
+      color: var(--nav);
+      margin-bottom: 6px;
+    }
+    .planner-stat__sub {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+    }
+    .planner-stat--success .planner-stat__value { color: #15803d; }
+    .planner-stat--warning .planner-stat__value { color: #b45309; }
+    .planner-stat--info .planner-stat__value { color: #1d4ed8; }
+
+    .sidebar {
+      position: sticky;
+      top: 12px;
+      align-self: flex-start;
+      max-height: calc(100vh - 96px);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .sidebar h3 {
+      margin-bottom: 8px;
+    }
+    .sidebar-caption {
+      font-size: 0.76rem;
+      color: var(--text-muted);
+      margin-bottom: 10px;
+    }
+    .teacher-list {
+      overflow-y: auto;
+      padding-right: 2px;
+    }
+    .teacher-list-item {
+      border: 1px solid rgba(127,179,63,0.18);
+      background: linear-gradient(180deg, #8cc44e 0%, #74ac35 100%);
+    }
+    .teacher-list-item:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 20px rgba(127,179,63,0.18);
+    }
+    .teacher-list-item__meta-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-width: 0;
+    }
+    .teacher-duty-badge {
+      flex: 0 0 auto;
+      min-width: 28px;
+      height: 22px;
+      padding: 0 7px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.18);
+      color: #fff;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.7rem;
+      font-weight: 800;
+      border: 1px solid rgba(255,255,255,0.18);
+    }
+    .teacher-list-item--busy .teacher-duty-badge {
+      background: rgba(255,255,255,0.26);
+    }
+
+    .day-header {
+      box-shadow: 0 8px 24px rgba(15,23,42,0.05);
+    }
+    .tab-panel {
+      animation: plannerFadeIn 0.18s ease;
+    }
+    @keyframes plannerFadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    @media (max-width: 1100px) {
+      .planner-summary {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+    @media (max-width: 768px) {
+      .planner-summary {
+        grid-template-columns: 1fr 1fr;
+        margin-top: 10px;
+      }
+      .planner-stat {
+        min-height: 76px;
+        padding: 12px;
+      }
+    }
+
+
+    /* ── v3 premium desktop polish ───────────────────────────────────── */
+    body {
+      background:
+        radial-gradient(circle at top left, rgba(29,78,216,0.05), transparent 28%),
+        radial-gradient(circle at top right, rgba(34,197,94,0.04), transparent 24%);
+    }
+    .main-content {
+      max-width: 1600px;
+      margin-inline: auto;
+    }
+    .nav-bar,
+    .week-controls {
+      backdrop-filter: blur(10px);
+      box-shadow: 0 8px 26px rgba(15,23,42,0.05);
+    }
+    .week-controls {
+      position: sticky;
+      top: 10px;
+      z-index: 20;
+      border-radius: 18px;
+      padding: 14px 16px;
+      background: rgba(255,255,255,0.9);
+      border: 1px solid rgba(148,163,184,0.2);
+    }
+    .planner-layout {
+      align-items: start;
+      gap: 16px;
+    }
+    .planner-main {
+      background: linear-gradient(180deg, rgba(255,255,255,0.82), rgba(248,250,252,0.9));
+      border: 1px solid rgba(148,163,184,0.18);
+      border-radius: 22px;
+      box-shadow: 0 14px 42px rgba(15,23,42,0.06);
+      padding: 14px;
+    }
+    .tabs#dayTabs {
+      position: sticky;
+      top: 92px;
+      z-index: 8;
+      padding: 8px;
+      margin-bottom: 12px;
+      border-radius: 18px;
+      background: rgba(248,250,252,0.9);
+      border: 1px solid rgba(148,163,184,0.18);
+      backdrop-filter: blur(8px);
+    }
+    .tab-btn {
+      border-radius: 14px !important;
+      padding: 10px 14px !important;
+      transition: transform .16s ease, box-shadow .16s ease, background .16s ease;
+    }
+    .tab-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 20px rgba(15,23,42,0.08);
+    }
+    .tab-btn.active {
+      box-shadow: 0 12px 22px rgba(29,78,216,0.18);
+    }
+    .planner-stat {
+      position: relative;
+      overflow: hidden;
+    }
+    .planner-stat::after {
+      content: "";
+      position: absolute;
+      inset-inline-end: -18px;
+      inset-block-start: -18px;
+      width: 74px;
+      height: 74px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.6);
+      pointer-events: none;
+    }
+    .sidebar {
+      border: 1px solid rgba(148,163,184,0.18);
+      border-radius: 22px;
+      padding: 14px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(248,250,252,0.96));
+      box-shadow: 0 14px 42px rgba(15,23,42,0.06);
+    }
+    .sidebar h3 {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .sidebar h3::after {
+      content: "Drag • Drop";
+      font-size: 0.68rem;
+      font-weight: 800;
+      color: #2563eb;
+      background: #dbeafe;
+      padding: 5px 8px;
+      border-radius: 999px;
+    }
+    .teacher-search-input {
+      border-radius: 12px;
+      padding: 10px 12px;
+      background: #fff;
+    }
+    .teacher-list-item {
+      position: relative;
+      overflow: hidden;
+      transition: transform .16s ease, box-shadow .16s ease, filter .16s ease;
+    }
+    .teacher-list-item::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(120deg, rgba(255,255,255,0.16), transparent 55%);
+      pointer-events: none;
+    }
+    .teacher-list-item:hover {
+      filter: saturate(1.05);
+    }
+    .teacher-list .sortable-chosen {
+      transform: rotate(2deg) scale(1.02);
+      box-shadow: 0 16px 32px rgba(15,23,42,0.18);
+    }
+    .day-header {
+      border-radius: 18px;
+      background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+    }
+    .day-date-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .day-date-pretty {
+      font-size: 0.77rem;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+    .day-load-pill,
+    .shift-panel-pill,
+    .published-badge {
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.25);
+    }
+    .shift-tabs {
+      position: sticky;
+      top: 152px;
+      z-index: 7;
+      padding: 8px;
+      border-radius: 16px;
+      background: rgba(255,255,255,0.84);
+      border: 1px solid rgba(148,163,184,0.16);
+      backdrop-filter: blur(8px);
+    }
+    .shift-tab-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 38px;
+      box-shadow: 0 4px 12px rgba(15,23,42,0.04);
+    }
+    .shift-tab-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 22px rgba(15,23,42,0.08);
+    }
+    .shift-tab-btn__label {
+      font-weight: 700;
+    }
+    .shift-tab-btn__meta {
+      font-size: 0.72rem;
+      font-weight: 800;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(15,23,42,0.06);
+      color: var(--text);
+    }
+    .shift-tab-btn.active .shift-tab-btn__meta {
+      background: rgba(255,255,255,0.2);
+      color: #fff;
+    }
+    .shift-panel {
+      border-radius: 18px;
+      padding: 12px;
+      background: rgba(255,255,255,0.68);
+      border: 1px solid rgba(148,163,184,0.16);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.7);
+    }
+    .shift-panel-header {
+      border-radius: 16px;
+      background: linear-gradient(180deg, rgba(239,246,255,0.9), rgba(255,255,255,0.9));
+      border: 1px solid rgba(147,197,253,0.24);
+    }
+    .location-column {
+      border-radius: 18px;
+      box-shadow: 0 10px 26px rgba(15,23,42,0.05);
+      transition: transform .16s ease, box-shadow .16s ease;
+      background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+    }
+    .location-column:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 18px 34px rgba(15,23,42,0.08);
+    }
+    .loc-title-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+    }
+    .loc-subtitle {
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: var(--text-muted);
+    }
+    .slots-list,
+    .break-grid {
+      gap: 10px !important;
+    }
+    .slot-item {
+      position: relative;
+      border-radius: 14px !important;
+      border: 1px solid rgba(148,163,184,0.18);
+      background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+      box-shadow: 0 8px 18px rgba(15,23,42,0.05);
+      transition: transform .14s ease, box-shadow .14s ease, border-color .14s ease, background .14s ease;
+      overflow: hidden;
+    }
+    .slot-item::after {
+      content: "";
+      position: absolute;
+      inset-inline-start: 0;
+      inset-block: 0;
+      width: 4px;
+      background: transparent;
+      transition: background .14s ease;
+    }
+    .slot-item:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 14px 24px rgba(15,23,42,0.08);
+      border-color: rgba(59,130,246,0.22);
+    }
+    .slot-item.filled::after {
+      background: linear-gradient(180deg, #16a34a, #22c55e);
+    }
+    .slot-item:not(.filled)::after {
+      background: linear-gradient(180deg, #cbd5e1, #94a3b8);
+    }
+    .slot-empty-label {
+      font-weight: 700;
+      color: #64748b;
+    }
+    .slot-empty-sub {
+      margin-top: 4px;
+      font-size: 0.72rem;
+      color: #94a3b8;
+      display: block;
+    }
+    .teacher-card {
+      gap: 10px;
+    }
+    .teacher-card__avatar {
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.2);
+    }
+    .remove-btn {
+      opacity: .82;
+      transition: transform .12s ease, opacity .12s ease, background .12s ease;
+    }
+    .remove-btn:hover {
+      opacity: 1;
+      transform: scale(1.08);
+    }
+    .slot-drag-add {
+      transform: translateY(-1px) scale(1.01) !important;
+    }
+    .slot-drag-replace {
+      transform: translateY(-1px) scale(1.01) !important;
+    }
+    .toast-container {
+      z-index: 999;
+    }
+    .toast {
+      border-radius: 14px !important;
+      box-shadow: 0 14px 26px rgba(15,23,42,0.14);
+    }
+    @media (max-width: 1280px) {
+      .tabs#dayTabs { top: 84px; }
+      .shift-tabs { top: 144px; }
+    }
+    @media (max-width: 768px) {
+      .planner-main {
+        padding: 10px;
+        border-radius: 18px;
+      }
+      .week-controls,
+      .tabs#dayTabs,
+      .shift-tabs {
+        position: static;
+      }
+      .sidebar h3::after {
+        content: "";
+        display: none;
+      }
+    }
+
   </style>
 </head>
 <body>
@@ -612,12 +1029,36 @@
     </div>
   </div>
 
+  <div class="planner-summary" id="plannerSummary">
+    <div class="planner-stat planner-stat--info">
+      <div class="planner-stat__label">Week</div>
+      <div class="planner-stat__value">—</div>
+      <div class="planner-stat__sub">Load a week to see the summary</div>
+    </div>
+    <div class="planner-stat">
+      <div class="planner-stat__label">Assignments</div>
+      <div class="planner-stat__value">—</div>
+      <div class="planner-stat__sub">Assigned vs remaining</div>
+    </div>
+    <div class="planner-stat planner-stat--success">
+      <div class="planner-stat__label">Published days</div>
+      <div class="planner-stat__value">—</div>
+      <div class="planner-stat__sub">Sun–Thu overview</div>
+    </div>
+    <div class="planner-stat planner-stat--warning">
+      <div class="planner-stat__label">Teachers</div>
+      <div class="planner-stat__value">—</div>
+      <div class="planner-stat__sub">Teachers loaded in sidebar</div>
+    </div>
+  </div>
+
   <!-- Planner Layout -->
   <div class="planner-layout">
 
     <!-- Teacher Sidebar -->
     <aside class="sidebar">
       <h3 data-i18n="teachers">Teachers</h3>
+      <div class="sidebar-caption">Desktop planner optimized: drag teachers into slots, hover to preview add vs replace, and use the live search to find staff faster.</div>
 
       <!-- Search (desktop filter + mobile reference) -->
       <div class="teacher-search-wrap">

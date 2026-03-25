@@ -1,5 +1,5 @@
 /**
- * planner.js — Firduty Admin Week Planner  v2.5
+ * planner.js — Firduty Admin Week Planner  v3.0
  *
  * Changes from v2.4:
  *  - Single viewport helper `isMobilePlanner()` — removes broken `isMobileViewport` reference
@@ -74,6 +74,79 @@ function getInitials(name = '') {
     .map(part => part.charAt(0).toUpperCase())
     .join('') || '•';
 }
+
+function getTeacherDutyCounts() {
+  const counts = new Map();
+  const dayPlans = currentWeekData?.day_plans || [];
+  for (const day of dayPlans) {
+    for (const sl of (day.shift_locations || [])) {
+      const assignments = Array.isArray(sl.assignments) ? sl.assignments : [];
+      for (const assignment of assignments) {
+        const effective = getEffectiveAssignment(sl.id, assignment.slot_index, assignment);
+        const teacherId = effective?.teacher_id;
+        if (!teacherId) continue;
+        counts.set(teacherId, (counts.get(teacherId) || 0) + 1);
+      }
+    }
+  }
+  for (const [slId, slotMap] of Object.entries(pendingAssignments || {})) {
+    for (const [slotIdx, pending] of Object.entries(slotMap || {})) {
+      const teacherId = pending?.teacher_id;
+      if (!teacherId) continue;
+      const alreadyCounted = false;
+      // Pending values override the effective assignment already counted above,
+      // so increment only when there was no previously assigned teacher.
+      const sl = findShiftLocationById(Number(slId));
+      const orig = (sl?.assignments || []).find(a => Number(a.slot_index) === Number(slotIdx));
+      const origTeacherId = orig?.teacher_id || null;
+      if (!origTeacherId || Number(origTeacherId) !== Number(teacherId)) {
+        counts.set(Number(teacherId), (counts.get(Number(teacherId)) || 0) + 1);
+      }
+      if (origTeacherId && Number(origTeacherId) !== Number(teacherId)) {
+        counts.set(Number(origTeacherId), Math.max(0, (counts.get(Number(origTeacherId)) || 1) - 1));
+      }
+    }
+  }
+  return counts;
+}
+
+function updatePlannerSummary() {
+  const el = byId('plannerSummary');
+  if (!el) return;
+
+  const weekLabel = currentWeekData?.week_start || '—';
+  const dayPlans = currentWeekData?.day_plans || [];
+  const totalDays = dayPlans.length;
+  const publishedDays = dayPlans.filter(d => d.is_published).length;
+  const editableDays = dayPlans.filter(d => d.is_editable).length;
+  const load = getShiftLoad(dayPlans.flatMap(d => d.shift_locations || []));
+  const teacherCounts = getTeacherDutyCounts();
+  const assignedTeachers = [...teacherCounts.values()].filter(Boolean).length;
+
+  el.innerHTML = `
+    <div class="planner-stat planner-stat--info">
+      <div class="planner-stat__label">${I18N.t('week_planner') || 'Week planner'}</div>
+      <div class="planner-stat__value">${escHtml(weekLabel)}</div>
+      <div class="planner-stat__sub">${editableDays}/${totalDays || 0} ${(I18N.t('editable') || 'editable')} · ${selectedDate || '—'}</div>
+    </div>
+    <div class="planner-stat">
+      <div class="planner-stat__label">${I18N.t('assigned') || 'Assignments'}</div>
+      <div class="planner-stat__value">${load.filled}/${load.total}</div>
+      <div class="planner-stat__sub">${Math.max(0, load.total - load.filled)} ${(I18N.t('remaining') || 'remaining')}</div>
+    </div>
+    <div class="planner-stat planner-stat--success">
+      <div class="planner-stat__label">${I18N.t('published') || 'Published days'}</div>
+      <div class="planner-stat__value">${publishedDays}/${totalDays || 0}</div>
+      <div class="planner-stat__sub">${totalDays ? Math.round((publishedDays / totalDays) * 100) : 0}% ${(I18N.t('published') || 'published')}</div>
+    </div>
+    <div class="planner-stat planner-stat--warning">
+      <div class="planner-stat__label">${I18N.t('teachers') || 'Teachers'}</div>
+      <div class="planner-stat__value">${allTeachers.length}</div>
+      <div class="planner-stat__sub">${assignedTeachers} ${(I18N.t('assigned') || 'assigned')} ${(I18N.t('teachers') || 'teachers').toLowerCase?.() || 'teachers'}</div>
+    </div>
+  `;
+}
+
 function formatPlannerDate(dateStr) {
   try {
     const d = new Date(`${dateStr}T12:00:00`);
@@ -96,6 +169,16 @@ function getSlotLoad(sl) {
   }, 0);
   return { filled, total: Math.max(total, assignments.length) };
 }
+
+function findShiftLocationById(slId) {
+  const dayPlans = currentWeekData?.day_plans || [];
+  for (const day of dayPlans) {
+    const match = (day.shift_locations || []).find(sl => Number(sl.id) === Number(slId));
+    if (match) return match;
+  }
+  return null;
+}
+
 function getShiftLoad(shiftLocations = []) {
   return shiftLocations.reduce((acc, sl) => {
     const load = getSlotLoad(sl);
@@ -229,10 +312,12 @@ async function loadTeachers() {
       allTeachers = await res.json();
     }
     renderTeacherSidebar();
+    updatePlannerSummary();
   } catch (err) {
     console.error('loadTeachers failed:', err);
     allTeachers = [];
     renderTeacherSidebar();
+    updatePlannerSummary();
   } finally {
     hideEl(teachersLoading);
   }
@@ -259,18 +344,26 @@ function renderTeacherSidebar(filterQuery = '') {
 
   const mobile = isMobilePlanner();
 
-  list.innerHTML = filtered.map(t => `
-    <div class="teacher-list-item${mobile ? ' teacher-list-item--mobile' : ''}"
-         data-teacher-id="${t.id}"
-         data-teacher-name="${escHtml(t.name)}"
-         ${mobile ? '' : 'draggable="true"'}>
-      <span class="teacher-list-item__avatar">${escHtml(getInitials(t.name))}</span>
-      <span class="teacher-list-item__meta">
-        <span class="teacher-list-item__name">${escHtml(t.name)}</span>
-        <span class="teacher-list-item__hint">${mobile ? (I18N.t('pick_teacher') || 'Pick from sheet') : (I18N.t('drag_to_assign') || 'Drag to assign')}</span>
-      </span>
-    </div>
-  `).join('');
+  const teacherDutyCounts = getTeacherDutyCounts();
+
+  list.innerHTML = filtered.map(t => {
+    const dutyCount = teacherDutyCounts.get(Number(t.id)) || 0;
+    return `
+      <div class="teacher-list-item${mobile ? ' teacher-list-item--mobile' : ''}${dutyCount ? ' teacher-list-item--busy' : ''}"
+           data-teacher-id="${t.id}"
+           data-teacher-name="${escHtml(t.name)}"
+           ${mobile ? '' : 'draggable="true"'}>
+        <span class="teacher-list-item__avatar">${escHtml(getInitials(t.name))}</span>
+        <span class="teacher-list-item__meta">
+          <span class="teacher-list-item__meta-row">
+            <span class="teacher-list-item__name">${escHtml(t.name)}</span>
+            <span class="teacher-duty-badge">${dutyCount}</span>
+          </span>
+          <span class="teacher-list-item__hint">${dutyCount ? `${dutyCount} ${(I18N.t('assigned') || 'assigned').toLowerCase?.() || 'assigned'} · ${(I18N.t('week_planner') || 'week planner').toLowerCase?.() || 'week planner'}` : (mobile ? (I18N.t('pick_teacher') || 'Tap a slot to pick') : ((I18N.t('drag_to_assign') || 'Drag to assign') + ' • live preview'))}</span>
+        </span>
+      </div>
+    `;
+  }).join('');
 
   if (!mobile && typeof Sortable !== 'undefined') {
     const sidebar = byId('teacherList');
@@ -522,6 +615,7 @@ async function loadWeek() {
       currentWeekData = null;
       showEl(noPlanMsg, 'block');
       updateStatusBadge(null);
+      updatePlannerSummary();
       return;
     }
 
@@ -533,6 +627,7 @@ async function loadWeek() {
       }
       I18N.applyTranslations();
       updateStatusBadge(null);
+      updatePlannerSummary();
       showEl(noPlanMsg, 'block');
       showToast(I18N.t('no_week'), 'info');
       return;
@@ -542,17 +637,20 @@ async function loadWeek() {
       currentWeekData = null;
       showEl(noPlanMsg, 'block');
       updateStatusBadge(null);
+      updatePlannerSummary();
       showToast(await getApiErrorMessage(res, I18N.t('error_generic')), 'error');
       return;
     }
 
     currentWeekData = await res.json();
     renderWeek();
+    updatePlannerSummary();
   } catch (err) {
     console.error('loadWeek failed:', err);
     currentWeekData = null;
     showEl(noPlanMsg, 'block');
     updateStatusBadge(null);
+    updatePlannerSummary();
     showToast(I18N.t('error_generic'), 'error');
   } finally {
     hideEl(plannerLoading);
@@ -619,6 +717,8 @@ function renderWeek() {
   });
 
   initDragAndDrop();
+  updatePlannerSummary();
+  renderTeacherSidebar(byId('teacherSearch')?.value || '');
 }
 
 function getActiveDayIndex() {
@@ -1101,7 +1201,7 @@ function renderSlot(slId, slotIdx, assignment, isBreak, isEditable = true) {
          ${tapAttr}>
       ${gradeLabelHtml}
       <span class="slot-empty-label">${I18N.t('no_teacher')}</span>
-      <span class="slot-empty-sub">${isBreak ? (I18N.t('pick_teacher') || 'Assign teacher') : (I18N.t('drag_to_assign') || 'Drag teacher here')}</span>
+      <span class="slot-empty-sub">${isBreak ? (I18N.t('pick_teacher') || 'Assign teacher') : ((I18N.t('drag_to_assign') || 'Drag teacher here') + ' • green = add, red = replace')}</span>
     </div>`;
 }
 

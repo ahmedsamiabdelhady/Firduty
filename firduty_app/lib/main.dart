@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -17,6 +18,16 @@ import 'services/notification_service.dart';
 import 'gen/app_localizations.dart';
 import 'app_theme.dart';
 
+
+@pragma('vm:entry-point')
+Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+
+  debugPrint('[MAIN] Background message: ${message.data}');
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -26,12 +37,15 @@ Future<void> main() async {
         options: DefaultFirebaseOptions.currentPlatform,
       );
       debugPrint('[Firebase] Initialized successfully.');
-    } else {
-      debugPrint('[Firebase] Already initialized — skipping.');
     }
   } catch (e) {
-    debugPrint('[Firebase] Init skipped / already exists: $e');
+    debugPrint('[Firebase] Init skipped: $e');
   }
+
+
+  FirebaseMessaging.onBackgroundMessage(
+    firebaseMessagingBackgroundHandler,
+  );
 
   runApp(const FirdutyApp());
 }
@@ -51,17 +65,19 @@ class _FirdutyAppState extends State<FirdutyApp> {
   void initState() {
     super.initState();
     _initLocale();
+
+
     NotificationService.navigatorKey = _navigatorKey;
   }
 
   Future<void> _initLocale() async {
     final prefs = await SharedPreferences.getInstance();
     final savedLang = prefs.getString('language');
-    if (savedLang != null && savedLang.isNotEmpty) {
-      setState(() => _locale = Locale(savedLang));
-    } else {
-      setState(() => _locale = const Locale('ar'));
-    }
+    setState(() {
+      _locale = (savedLang != null && savedLang.isNotEmpty)
+          ? Locale(savedLang)
+          : const Locale('ar');
+    });
   }
 
   Future<void> _changeLocale(Locale locale) async {
@@ -77,7 +93,7 @@ class _FirdutyAppState extends State<FirdutyApp> {
           lang: locale.languageCode,
         );
       } catch (e) {
-        debugPrint('[Locale] Failed to sync preferred_language: $e');
+        debugPrint('[Locale] Sync failed: $e');
       }
     }
   }
@@ -90,6 +106,7 @@ class _FirdutyAppState extends State<FirdutyApp> {
       theme: buildFirdutyTheme(),
       navigatorKey: _navigatorKey,
       locale: _locale,
+
       localizationsDelegates: const [
         AppLocalizations.delegate,
         GlobalMaterialLocalizations.delegate,
@@ -97,6 +114,7 @@ class _FirdutyAppState extends State<FirdutyApp> {
         GlobalCupertinoLocalizations.delegate,
       ],
       supportedLocales: const [Locale('ar'), Locale('en')],
+
       initialRoute: '/',
       onGenerateRoute: (settings) {
         switch (settings.name) {
@@ -150,75 +168,36 @@ class _StartupScreenState extends State<StartupScreen> {
     final teacherId = prefs.getInt('teacher_id');
 
     if (teacherId == null) {
-      if (!mounted) return;
       Navigator.pushReplacementNamed(context, '/login');
       return;
     }
 
     try {
       final result = await ApiService.getTeacherStatus(teacherId);
-      final status = result['status'] as String;
-      final serverLang = ((result['preferred_language'] as String?) ?? 'ar').toLowerCase();
-      final localLang = (prefs.getString('language') ?? '').toLowerCase();
-
-      // Sync strategy:
-      // - if local app language exists, it wins and is pushed to backend
-      // - if local language is empty, adopt server language into the app
-      if (localLang.isNotEmpty) {
-        if (serverLang != localLang) {
-          try {
-            await ApiService.updateTeacherLanguage(
-              teacherId: teacherId,
-              lang: localLang,
-            );
-          } catch (e) {
-            debugPrint('[Startup] Failed backend language sync: $e');
-          }
-        }
-      } else {
-        widget.onLocaleChange(Locale(serverLang == 'en' ? 'en' : 'ar'));
-      }
+      final status = result['status'];
 
       if (status == 'approved') {
         final platform = kIsWeb ? 'web' : 'android';
+
+        /// 🔥 أهم نقطة
         await NotificationService.initialize(
           teacherId: teacherId,
           platform: platform,
         );
-        if (!mounted) return;
+
         Navigator.pushReplacementNamed(context, '/home');
       } else {
-        if (!mounted) return;
         Navigator.pushReplacementNamed(context, '/pending');
       }
     } catch (e) {
-      if (e.toString().contains('404')) {
-        await prefs.remove('teacher_id');
-        if (!mounted) return;
-        Navigator.pushReplacementNamed(context, '/login');
-      } else {
-        if (!mounted) return;
-        Navigator.pushReplacementNamed(context, '/pending');
-      }
+      Navigator.pushReplacementNamed(context, '/login');
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: FirdutyColors.navBlue,
-      body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Image.asset('assets/logo.png', width: 120, height: 120),
-            const SizedBox(height: 32),
-            const CircularProgressIndicator(
-              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-            ),
-          ],
-        ),
-      ),
+    return const Scaffold(
+      body: Center(child: CircularProgressIndicator()),
     );
   }
 }
@@ -245,49 +224,47 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _loadTeacherId();
+
+    /// 🔥 sync bell
+    NotificationService.syncBellStateFromPrefs();
   }
 
   Future<void> _loadTeacherId() async {
     final prefs = await SharedPreferences.getInstance();
-    if (!mounted) return;
-    setState(() {
-      _teacherId = prefs.getInt('teacher_id');
-    });
+    setState(() => _teacherId = prefs.getInt('teacher_id'));
   }
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final isAr = Localizations.localeOf(context).languageCode == 'ar';
-    final titles = [l10n.todayDuties, l10n.weekDuties, l10n.myPoints];
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(titles[_selectedIndex]),
-        centerTitle: true,
-        backgroundColor: FirdutyColors.navBlue,
-        foregroundColor: Colors.white,
+        title: Text([
+          l10n.todayDuties,
+          l10n.weekDuties,
+          l10n.myPoints
+        ][_selectedIndex]),
         actions: [
-          if (_teacherId != null) NotificationBell(teacherId: _teacherId!),
+          if (_teacherId != null)
+            NotificationBell(teacherId: _teacherId!),
+
           TextButton(
             onPressed: () {
               widget.onLocaleChange(
                 isAr ? const Locale('en') : const Locale('ar'),
               );
             },
-            child: Text(
-              isAr ? 'EN' : 'عربي',
-              style: const TextStyle(color: Colors.white, fontSize: 14),
-            ),
+            child: Text(isAr ? 'EN' : 'عربي'),
           ),
+
           IconButton(
-            icon: const Icon(Icons.logout, color: Colors.white),
-            tooltip: isAr ? 'تسجيل الخروج' : 'Sign Out',
+            icon: const Icon(Icons.logout),
             onPressed: () async {
               await NotificationService.reset();
               final prefs = await SharedPreferences.getInstance();
               await prefs.remove('teacher_id');
-              if (!context.mounted) return;
               Navigator.pushReplacementNamed(context, '/login');
             },
           ),
@@ -302,18 +279,15 @@ class _HomeScreenState extends State<HomeScreen> {
         onDestinationSelected: (i) => setState(() => _selectedIndex = i),
         destinations: [
           NavigationDestination(
-            icon: const Icon(Icons.today_outlined),
-            selectedIcon: const Icon(Icons.today),
+            icon: const Icon(Icons.today),
             label: l10n.todayDuties,
           ),
           NavigationDestination(
-            icon: const Icon(Icons.calendar_month_outlined),
-            selectedIcon: const Icon(Icons.calendar_month),
+            icon: const Icon(Icons.calendar_month),
             label: l10n.weekDuties,
           ),
           NavigationDestination(
-            icon: const Icon(Icons.star_outline),
-            selectedIcon: const Icon(Icons.star),
+            icon: const Icon(Icons.star),
             label: l10n.myPoints,
           ),
         ],
