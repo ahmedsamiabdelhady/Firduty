@@ -13,11 +13,23 @@ from models.models import DeviceToken
 
 logger = logging.getLogger("services.notification_service")
 
+_FIREBASE_INIT_ATTEMPTED = False
+_FIREBASE_INITIALIZED = False
+_MAX_MULTICAST_TOKENS = 500
 
-def _ensure_firebase_initialized() -> None:
-    """Initialize Firebase Admin once, with clear logging for production."""
+
+def _ensure_firebase_initialized() -> bool:
+    """Initialize Firebase Admin lazily and never crash module import."""
+    global _FIREBASE_INIT_ATTEMPTED, _FIREBASE_INITIALIZED
+
     if firebase_admin._apps:
-        return
+        _FIREBASE_INITIALIZED = True
+        return True
+
+    if _FIREBASE_INIT_ATTEMPTED:
+        return _FIREBASE_INITIALIZED
+
+    _FIREBASE_INIT_ATTEMPTED = True
 
     creds_json = os.getenv("FIREBASE_CREDENTIALS_JSON", "").strip()
     creds_path = os.getenv("FIREBASE_CREDENTIALS_PATH", "").strip()
@@ -27,31 +39,32 @@ def _ensure_firebase_initialized() -> None:
             cred = credentials.Certificate(json.loads(creds_json))
             firebase_admin.initialize_app(cred)
             logger.info("[FCM] Firebase initialized from FIREBASE_CREDENTIALS_JSON")
-            return
-
-        if creds_path and os.path.exists(creds_path):
+        elif creds_path and os.path.exists(creds_path):
             cred = credentials.Certificate(creds_path)
             firebase_admin.initialize_app(cred)
             logger.info("[FCM] Firebase initialized from FIREBASE_CREDENTIALS_PATH=%s", creds_path)
-            return
+        else:
+            firebase_admin.initialize_app()
+            logger.info("[FCM] Firebase initialized with default application credentials")
 
-        firebase_admin.initialize_app()
-        logger.info("[FCM] Firebase initialized with default application credentials")
+        _FIREBASE_INITIALIZED = True
+        return True
     except Exception:
         logger.exception("[FCM] Firebase initialization failed")
-        raise
+        _FIREBASE_INITIALIZED = False
+        return False
 
-
-_ensure_firebase_initialized()
 
 
 def _safe_str_dict(data: dict | None) -> dict[str, str]:
     return {str(k): "" if v is None else str(v) for k, v in (data or {}).items()}
 
 
+
 def _is_invalid_token_error(exc: Exception | None) -> bool:
     if exc is None:
         return False
+
     name = exc.__class__.__name__.lower()
     text = str(exc).lower()
     markers = (
@@ -63,7 +76,37 @@ def _is_invalid_token_error(exc: Exception | None) -> bool:
         "mismatchsenderid",
         "sender id mismatch",
     )
-    return "unregistered" in name or "invalidargument" in name or any(m in text for m in markers)
+    return "unregistered" in name or "invalidargument" in name or any(marker in text for marker in markers)
+
+
+
+def _chunked(items: list[str], size: int) -> Iterable[list[str]]:
+    for index in range(0, len(items), size):
+        yield items[index:index + size]
+
+
+
+def _dedupe_latest_token_rows(token_rows: Iterable[DeviceToken]) -> list[DeviceToken]:
+    deduped: list[DeviceToken] = []
+    seen_installations: set[str] = set()
+    seen_tokens: set[str] = set()
+
+    for row in token_rows:
+        token = str(getattr(row, "token", "") or "").strip()
+        if not token or token in seen_tokens:
+            continue
+
+        installation_id = str(getattr(row, "installation_id", "") or "").strip()
+        installation_key = installation_id or f"legacy:{token}"
+        if installation_key in seen_installations:
+            continue
+
+        seen_installations.add(installation_key)
+        seen_tokens.add(token)
+        deduped.append(row)
+
+    return deduped
+
 
 
 def _split_tokens_by_platform(token_rows: Iterable[DeviceToken]) -> tuple[list[str], list[str]]:
@@ -84,33 +127,43 @@ def _split_tokens_by_platform(token_rows: Iterable[DeviceToken]) -> tuple[list[s
     return android, web
 
 
+
 def _fetch_teacher_tokens(teacher_id: int) -> list[DeviceToken]:
     db = SessionLocal()
     try:
-        return (
+        rows = (
             db.query(DeviceToken)
             .filter(DeviceToken.teacher_id == teacher_id)
             .order_by(DeviceToken.updated_at.desc(), DeviceToken.id.desc())
             .all()
         )
+        return _dedupe_latest_token_rows(rows)
     finally:
         db.close()
 
 
+
 def _fetch_token_rows(tokens: Iterable[str]) -> list[DeviceToken]:
-    tokens = [str(t).strip() for t in tokens if str(t).strip()]
+    tokens = [str(token).strip() for token in tokens if str(token).strip()]
     if not tokens:
         return []
 
     db = SessionLocal()
     try:
-        return db.query(DeviceToken).filter(DeviceToken.token.in_(tokens)).all()
+        rows = (
+            db.query(DeviceToken)
+            .filter(DeviceToken.token.in_(tokens))
+            .order_by(DeviceToken.updated_at.desc(), DeviceToken.id.desc())
+            .all()
+        )
+        return _dedupe_latest_token_rows(rows)
     finally:
         db.close()
 
 
+
 def _delete_invalid_tokens(invalid_tokens: Iterable[str]) -> int:
-    invalid_tokens = [str(t).strip() for t in invalid_tokens if str(t).strip()]
+    invalid_tokens = [str(token).strip() for token in invalid_tokens if str(token).strip()]
     if not invalid_tokens:
         return 0
 
@@ -132,40 +185,92 @@ def _delete_invalid_tokens(invalid_tokens: Iterable[str]) -> int:
         db.close()
 
 
-def _send_multicast(*, tokens: list[str], data: dict, include_notification: bool) -> tuple[int, list[str], int]:
+
+def _build_android_message(tokens: list[str], data: dict) -> messaging.MulticastMessage:
+    return messaging.MulticastMessage(
+        data=_safe_str_dict(data),
+        tokens=tokens,
+        android=messaging.AndroidConfig(priority="high"),
+    )
+
+
+
+def _build_web_message(tokens: list[str], data: dict) -> messaging.MulticastMessage:
+    title = str(data.get("title", "Firduty") or "Firduty")
+    body = str(data.get("body", "") or "")
+    web_link = os.getenv("WEB_APP_URL", "").strip() or "/"
+
+    return messaging.MulticastMessage(
+        data=_safe_str_dict(data),
+        tokens=tokens,
+        notification=messaging.Notification(title=title, body=body),
+        webpush=messaging.WebpushConfig(
+            headers={"Urgency": "high", "TTL": "300"},
+            notification=messaging.WebpushNotification(
+                title=title,
+                body=body,
+                icon="/icons/Icon-192.png",
+                badge="/icons/Icon-192.png",
+                tag=str(data.get("event_id") or data.get("assignment_id") or data.get("notification_type") or "firduty"),
+                renotify=False,
+            ),
+            fcm_options=messaging.WebpushFCMOptions(link=web_link),
+        ),
+    )
+
+
+
+def _send_multicast(*, tokens: list[str], data: dict, platform: str) -> tuple[int, list[str], int]:
     if not tokens:
         return 0, [], 0
 
-    message_kwargs = {
-        "data": _safe_str_dict(data),
-        "tokens": tokens,
-    }
-    if include_notification:
-        message_kwargs["notification"] = messaging.Notification(
-            title=str(data.get("title", "Firduty") or "Firduty"),
-            body=str(data.get("body", "") or ""),
-        )
+    if not _ensure_firebase_initialized():
+        logger.error("[FCM] Skipping %s dispatch because Firebase is not initialized", platform)
+        return 0, list(tokens), len(tokens)
 
-    message = messaging.MulticastMessage(**message_kwargs)
-    response = messaging.send_each_for_multicast(message)
-
+    total_success = 0
+    total_failure = 0
     invalid_tokens: list[str] = []
-    failure_count = 0
 
-    for index, item in enumerate(response.responses):
-        if item.success:
+    for chunk_index, token_chunk in enumerate(_chunked(tokens, _MAX_MULTICAST_TOKENS), start=1):
+        try:
+            if platform == "android":
+                message = _build_android_message(token_chunk, data)
+            else:
+                message = _build_web_message(token_chunk, data)
+
+            response = messaging.send_each_for_multicast(message)
+        except Exception as exc:
+            logger.exception(
+                "[FCM] %s dispatch chunk=%s size=%s raised: %s",
+                platform,
+                chunk_index,
+                len(token_chunk),
+                exc,
+            )
+            total_failure += len(token_chunk)
+            invalid_tokens.extend(token_chunk)
             continue
-        failure_count += 1
-        if _is_invalid_token_error(item.exception):
-            invalid_tokens.append(tokens[index])
-        logger.warning(
-            "[FCM] token send failed include_notification=%s token_index=%s error=%s",
-            include_notification,
-            index,
-            item.exception,
-        )
 
-    return int(response.success_count or 0), invalid_tokens, failure_count
+        for index, item in enumerate(response.responses):
+            if item.success:
+                continue
+            total_failure += 1
+            token = token_chunk[index]
+            if _is_invalid_token_error(item.exception):
+                invalid_tokens.append(token)
+            logger.warning(
+                "[FCM] %s token send failed chunk=%s token_index=%s error=%s",
+                platform,
+                chunk_index,
+                index,
+                item.exception,
+            )
+
+        total_success += int(response.success_count or 0)
+
+    return total_success, invalid_tokens, total_failure
+
 
 
 def _dispatch_token_rows(token_rows: list[DeviceToken], data: dict) -> Tuple[int, List[str]]:
@@ -179,11 +284,7 @@ def _dispatch_token_rows(token_rows: list[DeviceToken], data: dict) -> Tuple[int
     invalid_tokens: list[str] = []
 
     if android_tokens:
-        ok, invalid, failed = _send_multicast(
-            tokens=android_tokens,
-            data=data,
-            include_notification=False,
-        )
+        ok, invalid, failed = _send_multicast(tokens=android_tokens, data=data, platform="android")
         success_total += ok
         failure_total += failed
         invalid_tokens.extend(invalid)
@@ -195,11 +296,7 @@ def _dispatch_token_rows(token_rows: list[DeviceToken], data: dict) -> Tuple[int
         )
 
     if web_tokens:
-        ok, invalid, failed = _send_multicast(
-            tokens=web_tokens,
-            data=data,
-            include_notification=True,
-        )
+        ok, invalid, failed = _send_multicast(tokens=web_tokens, data=data, platform="web")
         success_total += ok
         failure_total += failed
         invalid_tokens.extend(invalid)
@@ -221,11 +318,13 @@ def _dispatch_token_rows(token_rows: list[DeviceToken], data: dict) -> Tuple[int
     return success_total, invalid_tokens
 
 
+
 def send_notification(teacher_id: int, data: dict) -> Tuple[int, List[str]]:
     """Platform-aware send: Android=data-only, Web/iOS PWA=notification+data."""
     token_rows = _fetch_teacher_tokens(teacher_id)
     logger.info("[FCM] Sending notification teacher_id=%s token_rows=%s", teacher_id, len(token_rows))
     return _dispatch_token_rows(token_rows, data)
+
 
 
 def send_data_only_notification(teacher_id: int, data: dict) -> Tuple[int, List[str]]:
@@ -235,6 +334,7 @@ def send_data_only_notification(teacher_id: int, data: dict) -> Tuple[int, List[
     Android receives data-only, Web/PWA receives notification+data.
     """
     return send_notification(teacher_id, data)
+
 
 
 def notify_teacher_updated(tokens: List[str], lang: str = "ar") -> int:

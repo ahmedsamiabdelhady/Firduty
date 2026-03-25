@@ -63,6 +63,7 @@ class _FirdutyAppState extends State<FirdutyApp> {
   @override
   void initState() {
     super.initState();
+    NotificationService.navigatorKey = _navigatorKey;
     _initLocale();
   }
 
@@ -176,6 +177,7 @@ class _StartupScreenState extends State<StartupScreen> {
 
         await NotificationService.initialize(
           teacherId: teacherId,
+          navigator: (context.findAncestorStateOfType<_FirdutyAppState>())?._navigatorKey,
         );
 
         Navigator.pushReplacementNamed(context, '/home');
