@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 import logging
@@ -19,13 +20,8 @@ def _truncate_to_minute(dt: datetime) -> datetime:
     return dt.replace(second=0, microsecond=0)
 
 
-def _claim_notification(
-    db,
-    teacher_id: int,
-    assignment_id: int,
-    notif_type: str,
-) -> bool:
-    existing = (
+def _get_log_row(db, teacher_id: int, assignment_id: int, notif_type: str) -> NotificationLog | None:
+    return (
         db.query(NotificationLog)
         .filter(
             NotificationLog.teacher_id == teacher_id,
@@ -35,28 +31,23 @@ def _claim_notification(
         .first()
     )
 
-    if existing:
-        status = str(existing.status or "").lower().strip()
 
-        # Already handled or in-progress
-        if status in {"sent", "claimed", "processing"}:
-            return False
-
-        # Retry failed/skipped rows
-        existing.status = "claimed"
-        existing.sent_at = None
-        db.commit()
+def _claim_notification(db, teacher_id: int, assignment_id: int, notif_type: str) -> bool:
+    """
+    Production-safe claim strategy:
+    - Never write sent_at=None because notification_logs.sent_at is NOT NULL in schema.
+    - Treat the table as a delivery log, not a transient claim table.
+    - Only skip when we already have a durable 'sent' or in-flight marker row.
+    """
+    existing = _get_log_row(db, teacher_id, assignment_id, notif_type)
+    if not existing:
         return True
 
-    db.add(
-        NotificationLog(
-            teacher_id=teacher_id,
-            assignment_id=assignment_id,
-            notification_type=notif_type,
-            status="claimed",
-        )
-    )
-    db.commit()
+    status = str(existing.status or "").lower().strip()
+    if status in {"sent", "claimed", "processing"}:
+        return False
+
+    # Allow retry for failed/skipped rows without mutating sent_at to NULL.
     return True
 
 
@@ -67,20 +58,31 @@ def _mark_status(
     notif_type: str,
     status: str,
 ) -> None:
-    row = (
-        db.query(NotificationLog)
-        .filter(
-            NotificationLog.teacher_id == teacher_id,
-            NotificationLog.assignment_id == assignment_id,
-            NotificationLog.notification_type == notif_type,
-        )
-        .first()
-    )
+    row = _get_log_row(db, teacher_id, assignment_id, notif_type)
+    now = datetime.now(MUSCAT_TZ).replace(tzinfo=None)
+
     if row:
         row.status = status
         if status == "sent":
-            row.sent_at = datetime.now(MUSCAT_TZ)
+            row.sent_at = now
         db.commit()
+        return
+
+    kwargs = dict(
+        teacher_id=teacher_id,
+        assignment_id=assignment_id,
+        notification_type=notif_type,
+        status=status,
+    )
+    if status == "sent":
+        kwargs["sent_at"] = now
+    else:
+        # sent_at is NOT NULL in the current schema, so keep a durable timestamp
+        # even for failed/skipped rows. This preserves compatibility.
+        kwargs["sent_at"] = now
+
+    db.add(NotificationLog(**kwargs))
+    db.commit()
 
 
 def _localized_shift_name(shift, lang: str) -> str:
@@ -94,7 +96,6 @@ def _localized_location_name(location, lang: str) -> str:
     is_ar = (lang or "en").lower() == "ar"
     if not location:
         return "الموقع غير معروف" if is_ar else "Unknown location"
-
     if is_ar:
         return (
             getattr(location, "name_ar", None)
@@ -175,7 +176,6 @@ def run_duty_reminders() -> None:
             .all()
         )
 
-        # Extra safety against accidental duplicates from joins
         assignments = list({a.id: a for a in assignments}.values())
 
         if not assignments:
@@ -281,7 +281,6 @@ def run_duty_reminders() -> None:
                         teacher.id,
                         assignment.id,
                     )
-
             except Exception:
                 _mark_status(db, teacher.id, assignment.id, notif_type, "failed")
                 logger.exception(
@@ -297,7 +296,6 @@ def run_duty_reminders() -> None:
             sent_reminder,
             sent_started,
         )
-
     except Exception:
         logger.exception("[reminders] Job crashed unexpectedly.")
     finally:
