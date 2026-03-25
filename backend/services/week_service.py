@@ -15,7 +15,7 @@ import hashlib
 import json
 import logging
 from datetime import date, datetime, timedelta
-from typing import Optional
+from typing import Any, Optional
 
 import pytz
 from sqlalchemy.orm import Session, selectinload
@@ -210,7 +210,10 @@ def _get_week_with_day_plans(db: Session, week_id: int) -> WeekPlan:
         .options(
             selectinload(WeekPlan.day_plans)
             .selectinload(DayPlan.shift_locations)
-            .selectinload(ShiftLocation.assignments)
+            .selectinload(ShiftLocation.assignments),
+            selectinload(WeekPlan.day_plans)
+            .selectinload(DayPlan.shift_locations)
+            .selectinload(ShiftLocation.shift),
         )
         .filter(WeekPlan.id == week_id)
         .first()
@@ -553,7 +556,10 @@ def clone_week(
         .options(
             selectinload(WeekPlan.day_plans)
             .selectinload(DayPlan.shift_locations)
-            .selectinload(ShiftLocation.assignments)
+            .selectinload(ShiftLocation.assignments),
+            selectinload(WeekPlan.day_plans)
+            .selectinload(DayPlan.shift_locations)
+            .selectinload(ShiftLocation.shift),
         )
         .filter(WeekPlan.week_start_date == source_week_start)
         .first()
@@ -758,6 +764,7 @@ def update_assignment(
 # ─── Publishing ───────────────────────────────────────────────────────────────
 
 
+
 def publish_week(
     db: Session,
     week: WeekPlan,
@@ -776,7 +783,10 @@ def publish_week(
         .options(
             selectinload(WeekPlan.day_plans)
             .selectinload(DayPlan.shift_locations)
-            .selectinload(ShiftLocation.assignments)
+            .selectinload(ShiftLocation.assignments),
+            selectinload(WeekPlan.day_plans)
+            .selectinload(DayPlan.shift_locations)
+            .selectinload(ShiftLocation.shift),
         )
         .filter(WeekPlan.id == week.id)
         .first()
@@ -784,6 +794,7 @@ def publish_week(
     if not week:
         raise ValueError("Week not found")
 
+    previous_snapshot = _get_latest_published_snapshot(db, week.id)
     was_already_published = (
         str(week.status) == "published"
         and all(bool(day.is_published) for day in week.day_plans)
@@ -793,40 +804,57 @@ def publish_week(
         week.version = (week.version or 0) + 1
 
     week.status = "published"
-
     for day in week.day_plans:
         day.is_published = True
+
+    current_snapshot = _build_week_snapshot(week)
+    update_hash = _build_snapshot_hash(current_snapshot)
+    change_sets = _compute_changed_teacher_sets(previous_snapshot, current_snapshot)
+    computed_affected_teacher_ids = (
+        change_sets["time_changed_teacher_ids"]
+        | change_sets["assignment_changed_teacher_ids"]
+    )
 
     _log_change(db, week, actor, "publish", {
         "version": week.version,
         "notify_scope": notify_scope,
         "already_published": was_already_published,
+        "update_hash": update_hash,
+        "time_changed_teacher_ids": sorted(computed_affected_teacher_ids & change_sets["time_changed_teacher_ids"]),
+        "assignment_changed_teacher_ids": sorted(change_sets["assignment_changed_teacher_ids"]),
+        "snapshot": current_snapshot,
     })
     db.commit()
     db.refresh(week)
 
-    update_hash = _build_week_update_hash(week)
-
     logger.info(
-        "Week %s published (v%s) notify_scope=%s already_published=%s hash=%s",
+        "Week %s published (v%s) notify_scope=%s already_published=%s hash=%s time_changed=%s assignment_changed=%s",
         week.week_start_date,
         week.version,
         notify_scope,
         was_already_published,
         update_hash,
+        sorted(change_sets["time_changed_teacher_ids"]),
+        sorted(change_sets["assignment_changed_teacher_ids"]),
     )
 
-    if notify_scope == "all":
-        _notify_assigned_teachers(db, week, update_hash=update_hash)
-    elif notify_scope == "affected" and notify_teacher_ids:
+    effective_teacher_ids = _resolve_publish_teacher_targets(
+        notify_scope=notify_scope,
+        manual_teacher_ids=notify_teacher_ids,
+        computed_affected_teacher_ids=computed_affected_teacher_ids,
+        current_snapshot=current_snapshot,
+    )
+
+    if effective_teacher_ids:
         _notify_assigned_teachers(
             db,
             week,
-            teacher_ids=notify_teacher_ids,
+            teacher_ids=effective_teacher_ids,
             update_hash=update_hash,
         )
 
     return week
+
 
 
 
@@ -850,7 +878,9 @@ def publish_day(
         db.query(DayPlan)
         .options(
             selectinload(DayPlan.shift_locations)
-            .selectinload(ShiftLocation.assignments)
+            .selectinload(ShiftLocation.assignments),
+            selectinload(DayPlan.shift_locations)
+            .selectinload(ShiftLocation.shift),
         )
         .filter(DayPlan.week_plan_id == week.id, DayPlan.date == day_date)
         .first()
@@ -863,14 +893,15 @@ def publish_day(
     if not week_obj:
         raise ValueError("Week not found")
 
+    previous_snapshot = _get_latest_published_snapshot(db, week.id, day_date=day_date)
+
     week_was_published = str(week_obj.status) == "published"
     day_was_published = bool(day.is_published)
-
-    state_changed = False
+    publish_state_changed = False
 
     if not week_was_published:
         week_obj.status = "published"
-        state_changed = True
+        publish_state_changed = True
         logger.info(
             "publish_day: week %s promoted to published (first day publish)",
             week.week_start_date,
@@ -878,57 +909,62 @@ def publish_day(
 
     if not day_was_published:
         day.is_published = True
-        state_changed = True
+        publish_state_changed = True
     else:
         day.is_published = True
 
-    if state_changed:
+    if publish_state_changed:
         week_obj.version = (week_obj.version or 0) + 1
+
+    current_snapshot = _build_week_snapshot_for_day(day)
+    update_hash = _build_snapshot_hash(current_snapshot)
+    change_sets = _compute_changed_teacher_sets(previous_snapshot, current_snapshot)
+    computed_affected_teacher_ids = (
+        change_sets["time_changed_teacher_ids"]
+        | change_sets["assignment_changed_teacher_ids"]
+    )
+    content_state_changed = bool(computed_affected_teacher_ids)
 
     _log_change(db, week_obj, actor, "publish_day", {
         "day": str(day_date),
         "notify_scope": notify_scope,
-        "state_changed": state_changed,
+        "publish_state_changed": publish_state_changed,
+        "content_state_changed": content_state_changed,
         "version": week_obj.version,
+        "update_hash": update_hash,
+        "time_changed_teacher_ids": sorted(change_sets["time_changed_teacher_ids"]),
+        "assignment_changed_teacher_ids": sorted(change_sets["assignment_changed_teacher_ids"]),
+        "snapshot": current_snapshot,
     })
     db.commit()
     db.refresh(day)
     db.refresh(week_obj)
 
-    update_hash = _build_week_update_hash(week_obj, day_date=day_date)
-
     logger.info(
-        "Published day %s in week %s notify_scope=%s state_changed=%s version=%s hash=%s",
+        "Published day %s in week %s notify_scope=%s publish_state_changed=%s content_state_changed=%s version=%s hash=%s",
         day_date,
         week_obj.week_start_date,
         notify_scope,
-        state_changed,
+        publish_state_changed,
+        content_state_changed,
         week_obj.version,
         update_hash,
     )
 
-    day_teacher_ids: set[int] = set()
-    for sl in day.shift_locations:
-        for a in sl.assignments:
-            if a.teacher_id is not None:
-                day_teacher_ids.add(int(a.teacher_id))
+    effective_teacher_ids = _resolve_publish_teacher_targets(
+        notify_scope=notify_scope,
+        manual_teacher_ids=notify_teacher_ids,
+        computed_affected_teacher_ids=computed_affected_teacher_ids,
+        current_snapshot=current_snapshot,
+    )
 
-    if notify_scope == "all" and day_teacher_ids:
+    if effective_teacher_ids:
         _notify_assigned_teachers(
             db,
             week_obj,
-            teacher_ids=day_teacher_ids,
+            teacher_ids=effective_teacher_ids,
             update_hash=update_hash,
         )
-    elif notify_scope == "affected" and notify_teacher_ids:
-        targets = notify_teacher_ids & day_teacher_ids
-        if targets:
-            _notify_assigned_teachers(
-                db,
-                week_obj,
-                teacher_ids=targets,
-                update_hash=update_hash,
-            )
 
     return day
 
@@ -988,35 +1024,181 @@ def _get_latest_teacher_tokens_by_installation(
     return tokens_by_teacher
 
 
-def _build_week_update_hash(week: WeekPlan, *, day_date: Optional[date] = None) -> str:
-    """
-    Build hash based on REAL duty data (assignments + shift times).
-    Any real change (assignment OR shift time) => new hash.
-    """
 
-    data = []
+def _assignment_teacher_ids(assignments: list[dict[str, Any]]) -> set[int]:
+    ids: set[int] = set()
+    for item in assignments:
+        teacher_id = item.get("teacher_id")
+        if teacher_id is not None:
+            ids.add(int(teacher_id))
+    return ids
 
-    for day in week.day_plans:
+
+def _serialize_shift_location_snapshot(day: DayPlan, sl: ShiftLocation) -> dict[str, Any]:
+    shift = getattr(sl, "shift", None)
+    assignments = []
+    for assignment in sorted(sl.assignments or [], key=lambda a: ((a.slot_index or 0), a.id)):
+        assignments.append({
+            "slot_index": int(assignment.slot_index),
+            "teacher_id": int(assignment.teacher_id) if assignment.teacher_id is not None else None,
+            "grade_class": assignment.grade_class,
+        })
+
+    return {
+        "day": day.date.isoformat(),
+        "shift_id": int(sl.shift_id),
+        "location_id": int(sl.location_id) if sl.location_id is not None else None,
+        "start_time": str(getattr(shift, "start_time", "") or ""),
+        "end_time": str(getattr(shift, "end_time", "") or ""),
+        "assignments": assignments,
+    }
+
+
+def _build_week_snapshot(week: WeekPlan, *, day_date: Optional[date] = None) -> dict[str, Any]:
+    items: list[dict[str, Any]] = []
+    for day in sorted(week.day_plans or [], key=lambda d: d.date):
         if day_date and day.date != day_date:
             continue
+        for sl in sorted(day.shift_locations or [], key=lambda row: ((row.order or 0), row.id)):
+            items.append(_serialize_shift_location_snapshot(day, sl))
+    return {
+        "scope": "day" if day_date else "week",
+        "day_date": day_date.isoformat() if day_date else None,
+        "items": items,
+    }
 
-        for sl in day.shift_locations:
-            shift = sl.shift
 
-            for a in sl.assignments:
-                data.append({
-                    "day": day.date.isoformat(),
-                    "shift_id": sl.shift_id,
-                    "start": getattr(shift, "start_time", None),
-                    "end": getattr(shift, "end_time", None),
-                    "location_id": sl.location_id,
-                    "slot": a.slot_index,
-                    "teacher": a.teacher_id,
-                    "grade": a.grade_class,
-                })
+def _build_week_snapshot_for_day(day: DayPlan) -> dict[str, Any]:
+    items = [
+        _serialize_shift_location_snapshot(day, sl)
+        for sl in sorted(day.shift_locations or [], key=lambda row: ((row.order or 0), row.id))
+    ]
+    return {
+        "scope": "day",
+        "day_date": day.date.isoformat(),
+        "items": items,
+    }
 
-    raw = json.dumps(data, sort_keys=True, default=str)
+
+def _build_snapshot_hash(snapshot: dict[str, Any]) -> str:
+    raw = json.dumps(snapshot, sort_keys=True, ensure_ascii=False)
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def _build_week_update_hash(week: WeekPlan, *, day_date: Optional[date] = None) -> str:
+    return _build_snapshot_hash(_build_week_snapshot(week, day_date=day_date))
+
+
+def _snapshot_items_map(snapshot: Optional[dict[str, Any]]) -> dict[tuple[Any, ...], dict[str, Any]]:
+    if not snapshot:
+        return {}
+
+    result: dict[tuple[Any, ...], dict[str, Any]] = {}
+    for item in snapshot.get("items", []):
+        key = (
+            item.get("day"),
+            item.get("shift_id"),
+            item.get("location_id"),
+        )
+        result[key] = item
+    return result
+
+
+def _compute_changed_teacher_sets(
+    previous_snapshot: Optional[dict[str, Any]],
+    current_snapshot: dict[str, Any],
+) -> dict[str, set[int]]:
+    previous_map = _snapshot_items_map(previous_snapshot)
+    current_map = _snapshot_items_map(current_snapshot)
+    all_keys = set(previous_map) | set(current_map)
+
+    time_changed_teacher_ids: set[int] = set()
+    assignment_changed_teacher_ids: set[int] = set()
+
+    for key in all_keys:
+        before = previous_map.get(key)
+        after = current_map.get(key)
+
+        before_assignments = (before or {}).get("assignments", [])
+        after_assignments = (after or {}).get("assignments", [])
+        before_teachers = _assignment_teacher_ids(before_assignments)
+        after_teachers = _assignment_teacher_ids(after_assignments)
+
+        before_start = (before or {}).get("start_time")
+        before_end = (before or {}).get("end_time")
+        after_start = (after or {}).get("start_time")
+        after_end = (after or {}).get("end_time")
+
+        if (before_start, before_end) != (after_start, after_end):
+            time_changed_teacher_ids |= before_teachers | after_teachers
+
+        if json.dumps(before_assignments, sort_keys=True, default=str) != json.dumps(after_assignments, sort_keys=True, default=str):
+            assignment_changed_teacher_ids |= before_teachers | after_teachers
+
+    return {
+        "time_changed_teacher_ids": time_changed_teacher_ids,
+        "assignment_changed_teacher_ids": assignment_changed_teacher_ids,
+    }
+
+
+def _get_latest_published_snapshot(
+    db: Session,
+    week_id: int,
+    *,
+    day_date: Optional[date] = None,
+) -> Optional[dict[str, Any]]:
+    logs = (
+        db.query(ChangeLog)
+        .filter(
+            ChangeLog.week_plan_id == week_id,
+            ChangeLog.action.in_(["publish", "publish_day"]),
+        )
+        .order_by(ChangeLog.id.desc())
+        .all()
+    )
+
+    target_day = day_date.isoformat() if day_date else None
+
+    for log in logs:
+        try:
+            payload = json.loads(log.payload_json) if log.payload_json else {}
+        except Exception:
+            continue
+
+        snapshot = payload.get("snapshot")
+        if not snapshot:
+            continue
+
+        if day_date is None:
+            if payload.get("day") is None:
+                return snapshot
+            continue
+
+        payload_day = payload.get("day") or snapshot.get("day_date")
+        if payload_day == target_day:
+            return snapshot
+
+    return None
+
+
+def _resolve_publish_teacher_targets(
+    *,
+    notify_scope: str,
+    manual_teacher_ids: Optional[set[int]],
+    computed_affected_teacher_ids: set[int],
+    current_snapshot: dict[str, Any],
+) -> set[int]:
+    current_teacher_ids: set[int] = set()
+    for item in current_snapshot.get("items", []):
+        current_teacher_ids |= _assignment_teacher_ids(item.get("assignments", []))
+
+    manual_teacher_ids = manual_teacher_ids or set()
+
+    if notify_scope == "none":
+        return set()
+    if notify_scope == "affected":
+        return computed_affected_teacher_ids | manual_teacher_ids
+    return current_teacher_ids
 
 
 def _build_duty_update_notification_type(update_hash: str) -> str:
@@ -1037,7 +1219,7 @@ def _notify_assigned_teachers(
     """
     try:
         from sqlalchemy.exc import IntegrityError
-        from services.notification_service import notify_teacher_updated
+        from services.notification_service import send_notification
     except Exception:
         return
 
@@ -1046,7 +1228,10 @@ def _notify_assigned_teachers(
         .options(
             selectinload(WeekPlan.day_plans)
             .selectinload(DayPlan.shift_locations)
-            .selectinload(ShiftLocation.assignments)
+            .selectinload(ShiftLocation.assignments),
+            selectinload(WeekPlan.day_plans)
+            .selectinload(DayPlan.shift_locations)
+            .selectinload(ShiftLocation.shift),
         )
         .filter(WeekPlan.id == week.id)
         .first()
@@ -1067,7 +1252,6 @@ def _notify_assigned_teachers(
 
     teachers = db.query(Teacher).filter(Teacher.id.in_(targets)).all()
     teachers_by_id = {int(t.id): t for t in teachers}
-    tokens_by_teacher = _get_latest_teacher_tokens_by_installation(db, targets)
 
     notification_type = (
         _build_duty_update_notification_type(update_hash)
@@ -1078,10 +1262,6 @@ def _notify_assigned_teachers(
     for tid in sorted(targets):
         teacher = teachers_by_id.get(tid)
         if not teacher:
-            continue
-
-        tokens = tokens_by_teacher.get(tid, [])
-        if not tokens:
             continue
 
         try:
@@ -1106,10 +1286,24 @@ def _notify_assigned_teachers(
             logger.warning("Failed to claim teacher update for teacher %s: %s", tid, exc)
             continue
 
-        lang = str(teacher.preferred_language) if teacher.preferred_language else "ar"
+        lang = str(teacher.preferred_language or "ar").lower()
+        title = "تم تحديث المناوبات" if lang == "ar" else "Duties updated"
+        body = (
+            "تم تحديث جدول المناوبات. افتح التطبيق لمراجعة التغييرات."
+            if lang == "ar"
+            else "Your duty roster has been updated. Open the app to review the changes."
+        )
+        payload = {
+            "type": "duty_update",
+            "notification_type": notification_type,
+            "week_start_date": str(week.week_start_date),
+            "update_hash": update_hash or "",
+            "title": title,
+            "body": body,
+        }
 
         try:
-            success_count = notify_teacher_updated(tokens, lang)
+            success_count, invalid_tokens = send_notification(tid, payload)
         except Exception as exc:
             logger.warning("Failed to notify teacher %s: %s", tid, exc)
             try:
@@ -1123,6 +1317,13 @@ def _notify_assigned_teachers(
             log.status = "sent"
             db.add(log)
             db.commit()
+            logger.info(
+                "[notify] duty update sent teacher=%s hash=%s success_count=%s invalid_tokens=%s",
+                tid,
+                update_hash or "legacy",
+                success_count,
+                len(invalid_tokens),
+            )
         else:
             logger.warning(
                 "[notify] duty update delivered to 0 devices teacher=%s hash=%s — marking skipped to prevent spam",
