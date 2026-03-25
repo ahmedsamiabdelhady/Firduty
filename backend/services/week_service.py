@@ -1303,7 +1303,14 @@ def _notify_assigned_teachers(
         }
 
         try:
-            success_count, invalid_tokens = send_notification(tid, payload)
+            result = send_notification(
+                teacher_id=tid,
+                title=title,
+                body=body,
+                data=payload,
+            )
+            success_count = int((result or {}).get("success_count", 0) or 0)
+            invalid_tokens = list((result or {}).get("invalid_tokens", []) or [])
         except Exception as exc:
             logger.warning("Failed to notify teacher %s: %s", tid, exc)
             try:
