@@ -41,7 +41,6 @@ def _claim_notification(db, teacher_id: int, assignment_id: int, notif_type: str
         status = str(existing.status or "").lower().strip()
         if status in {"sent", "claimed", "processing"}:
             return False
-
         existing.status = "claimed"
         existing.sent_at = None
         db.commit()
@@ -88,6 +87,38 @@ def _mark_failed(db, teacher_id: int, assignment_id: int, notif_type: str) -> No
     if row:
         row.status = "failed"
         db.commit()
+
+
+def _localized_shift_name(shift, lang: str) -> str:
+    is_ar = (lang or "en").lower() == "ar"
+    if is_ar:
+        return (
+            getattr(shift, "name_ar", None)
+            or getattr(shift, "name_en", None)
+            or "المناوبة"
+        )
+    return (
+        getattr(shift, "name_en", None)
+        or getattr(shift, "name_ar", None)
+        or "Duty"
+    )
+
+
+def _localized_location_name(location, lang: str) -> str:
+    is_ar = (lang or "en").lower() == "ar"
+    if not location:
+        return "الموقع غير معروف" if is_ar else "Unknown location"
+    if is_ar:
+        return (
+            getattr(location, "name_ar", None)
+            or getattr(location, "name_en", None)
+            or "الموقع غير معروف"
+        )
+    return (
+        getattr(location, "name_en", None)
+        or getattr(location, "name_ar", None)
+        or "Unknown location"
+    )
 
 
 def _build_title_body(notif_type: str, shift_name: str, location_name: str, lang: str) -> tuple[str, str]:
@@ -207,10 +238,13 @@ def run_duty_reminders() -> None:
                 continue
 
             lang = (teacher.preferred_language or "en").lower()
+            shift_name = _localized_shift_name(shift, lang)
+            location_name = _localized_location_name(location, lang)
+
             title, body = _build_title_body(
                 notif_type=notif_type,
-                shift_name=shift.name,
-                location_name=(location.name if location else "Unknown location"),
+                shift_name=shift_name,
+                location_name=location_name,
                 lang=lang,
             )
 
@@ -220,8 +254,8 @@ def run_duty_reminders() -> None:
                 "teacher_id": str(teacher.id),
                 "assignment_id": str(assignment.id),
                 "day_date": str(day_plan.date),
-                "shift_name": shift.name,
-                "location_name": location.name if location else "",
+                "shift_name": shift_name,
+                "location_name": location_name,
                 "title": title,
                 "body": body,
             }
@@ -254,13 +288,13 @@ def run_duty_reminders() -> None:
                         teacher.id,
                         assignment.id,
                     )
+                    if invalid_tokens:
+                        logger.warning(
+                            "[reminders] invalid tokens removed for teacher=%s count=%s",
+                            teacher.id,
+                            len(invalid_tokens),
+                        )
 
-                if invalid_tokens:
-                    logger.warning(
-                        "[reminders] invalid tokens removed for teacher=%s count=%s",
-                        teacher.id,
-                        len(invalid_tokens),
-                    )
             except Exception:
                 _mark_failed(db, teacher.id, assignment.id, notif_type)
                 logger.exception(
@@ -276,6 +310,7 @@ def run_duty_reminders() -> None:
             sent_reminder,
             sent_started,
         )
+
     except Exception:
         logger.exception("[reminders] Job crashed unexpectedly.")
     finally:
