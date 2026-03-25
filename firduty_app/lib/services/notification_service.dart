@@ -1,9 +1,10 @@
 import 'dart:async';
 import 'dart:math';
 
-import 'package:flutter/foundation.dart' show kIsWeb, kDebugMode, debugPrint, ValueNotifier;
-import 'package:flutter/material.dart' show GlobalKey, NavigatorState;
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart'
+    show ValueNotifier, debugPrint, kDebugMode, kIsWeb;
+import 'package:flutter/material.dart' show GlobalKey, NavigatorState;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -38,8 +39,28 @@ class NotificationService {
   static final ValueNotifier<NotificationBellState> bellState =
       ValueNotifier(NotificationBellState.unknown);
 
-  static const _kNotificationsEnabled = 'firduty_notifications_enabled';
+  static const String _kNotificationsEnabled = 'firduty_notifications_enabled';
+  static const String _installationIdKey = 'firduty_installation_id';
+
   static String _currentPlatform = kIsWeb ? 'web' : 'android';
+
+  static GlobalKey<NavigatorState>? navigatorKey;
+
+  static Future<bool> _isUserEnabled() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_kNotificationsEnabled) ?? true;
+  }
+
+  static Future<void> _setUserEnabled(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kNotificationsEnabled, value);
+  }
+
+  static Future<void> syncBellStateFromPrefs() async {
+    final enabled = await _isUserEnabled();
+    bellState.value =
+        enabled ? NotificationBellState.enabled : NotificationBellState.disabled;
+  }
 
   static Future<void> initialize({
     required int teacherId,
@@ -47,23 +68,26 @@ class NotificationService {
   }) async {
     _currentPlatform = platform;
 
+    final userEnabled = await _isUserEnabled();
+
+    if (!userEnabled) {
+      bellState.value = NotificationBellState.disabled;
+      debugPrint(
+        '[NotificationService] Notifications are disabled by user preference.',
+      );
+      return;
+    }
+
+    if (_initialized) {
+      bellState.value = NotificationBellState.enabled;
+      debugPrint('[NotificationService] Already initialized — skipping.');
+      return;
+    }
+
+    bellState.value = NotificationBellState.loading;
+
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final savedEnabled = prefs.getBool(_kNotificationsEnabled) ?? true;
-
-      if (!savedEnabled) {
-        bellState.value = NotificationBellState.disabled;
-        debugPrint('[NotificationService] Notifications are disabled by user preference.');
-        return;
-      }
-
-      if (_initialized) {
-        bellState.value = NotificationBellState.enabled;
-        debugPrint('[NotificationService] Already initialized — skipping.');
-        return;
-      }
-
-      debugPrint('[NotificationService] Starting (platform: $platform)…');
+      debugPrint('[NotificationService] Starting (platform: $platform)...');
 
       if (kIsWeb) {
         await _initWeb(teacherId: teacherId);
@@ -76,13 +100,23 @@ class NotificationService {
       debugPrint('[NotificationService] Ready. bellState=${bellState.value}');
     } catch (e, st) {
       debugPrint('[NotificationService] Failed to initialize: $e\n$st');
-      bellState.value = NotificationBellState.disabled;
+
+      // Important:
+      // Do not visually turn notifications "off" unless the user explicitly
+      // disabled them. A transient startup/network/token failure should not
+      // reset the bell to disabled.
+      final stillEnabled = await _isUserEnabled();
+      bellState.value = stillEnabled
+          ? NotificationBellState.enabled
+          : NotificationBellState.disabled;
     }
   }
 
   static Future<void> _initAndroid({required int teacherId}) async {
     if (!_backgroundHandlerRegistered) {
-      FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+      FirebaseMessaging.onBackgroundMessage(
+        _firebaseMessagingBackgroundHandler,
+      );
       _backgroundHandlerRegistered = true;
     }
 
@@ -92,7 +126,8 @@ class NotificationService {
       sound: true,
     );
 
-    final granted = settings.authorizationStatus == AuthorizationStatus.authorized ||
+    final granted =
+        settings.authorizationStatus == AuthorizationStatus.authorized ||
         settings.authorizationStatus == AuthorizationStatus.provisional;
 
     if (!granted) {
@@ -105,32 +140,33 @@ class NotificationService {
       description: 'Notifications about your duty assignments',
       importance: Importance.high,
     );
+
     await _localNotifications
         .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>()
+          AndroidFlutterLocalNotificationsPlugin
+        >()
         ?.createNotificationChannel(channel);
 
     await _localNotifications.initialize(
-      settings: const InitializationSettings(
+      settings: InitializationSettings(
         android: AndroidInitializationSettings('@mipmap/ic_launcher'),
         iOS: DarwinInitializationSettings(),
       ),
     );
 
     await _onMessageSub?.cancel();
-      _onMessageSub = FirebaseMessaging.onMessage.listen((RemoteMessage msg) async {
-        if (kDebugMode) {
-          debugPrint('[FCM] Foreground message received: ${msg.data}');
-        }
-        await _showLocalNotification(msg);
-      });
+    _onMessageSub = FirebaseMessaging.onMessage.listen(_showLocalNotification);
 
     FirebaseMessaging.onMessageOpenedApp.listen(_handleNotificationTap);
+
     final initial = await _messaging.getInitialMessage();
-    if (initial != null) _handleNotificationTap(initial);
+    if (initial != null) {
+      _handleNotificationTap(initial);
+    }
 
     final installationId = await _getInstallationId();
     final token = await _messaging.getToken();
+
     if (token == null || token.isEmpty) {
       throw Exception('FCM token was null on Android.');
     }
@@ -160,7 +196,8 @@ class NotificationService {
       sound: true,
     );
 
-    final granted = settings.authorizationStatus == AuthorizationStatus.authorized ||
+    final granted =
+        settings.authorizationStatus == AuthorizationStatus.authorized ||
         settings.authorizationStatus == AuthorizationStatus.provisional;
 
     if (!granted) {
@@ -169,6 +206,7 @@ class NotificationService {
 
     final installationId = await _getInstallationId();
     final token = await _messaging.getToken(vapidKey: kVapidPublicKey);
+
     if (token == null || token.isEmpty) {
       throw Exception('FCM web token was null.');
     }
@@ -198,26 +236,29 @@ class NotificationService {
     });
   }
 
-  static const _installationIdKey = 'firduty_installation_id';
-
   static Future<String> _getInstallationId() async {
     final prefs = await SharedPreferences.getInstance();
     String? id = prefs.getString(_installationIdKey);
+
     if (id == null || id.isEmpty) {
       id = _generateUuidV4();
       await prefs.setString(_installationIdKey, id);
       debugPrint('[NotificationService] Generated new installation_id: $id');
     }
+
     return id;
   }
 
   static String _generateUuidV4() {
     final rng = Random.secure();
     final bytes = List<int>.generate(16, (_) => rng.nextInt(256));
+
     bytes[6] = (bytes[6] & 0x0f) | 0x40;
     bytes[8] = (bytes[8] & 0x3f) | 0x80;
+
     String hex(List<int> b) =>
         b.map((v) => v.toRadixString(16).padLeft(2, '0')).join();
+
     return '${hex(bytes.sublist(0, 4))}-'
         '${hex(bytes.sublist(4, 6))}-'
         '${hex(bytes.sublist(6, 8))}-'
@@ -228,14 +269,14 @@ class NotificationService {
   static Future<void> reset() async {
     await _onMessageSub?.cancel();
     await _onTokenRefreshSub?.cancel();
+
     _onMessageSub = null;
     _onTokenRefreshSub = null;
     _initialized = false;
+
     bellState.value = NotificationBellState.unknown;
     debugPrint('[NotificationService] Reset — ready for next login.');
   }
-
-  static GlobalKey<NavigatorState>? navigatorKey;
 
   static void _handleNotificationTap(RemoteMessage message) {
     debugPrint('[NotificationService] Notification tapped: ${message.messageId}');
@@ -258,8 +299,11 @@ class NotificationService {
         platform: platform,
         installationId: installationId,
       );
-      debugPrint('[NotificationService] Token registered ($platform) '
-          'install=${installationId?.substring(0, 8) ?? "legacy"}');
+
+      debugPrint(
+        '[NotificationService] Token registered ($platform) '
+        'install=${installationId?.substring(0, 8) ?? "legacy"}',
+      );
     } catch (e) {
       debugPrint('[NotificationService] Token registration failed: $e');
       rethrow;
@@ -267,99 +311,91 @@ class NotificationService {
   }
 
   static Future<void> _showLocalNotification(RemoteMessage message) async {
-  if (kIsWeb) return;
+    if (kIsWeb) return;
 
-  final data = message.data;
-  final title = (data['title'] ?? '').toString().trim();
-  final body = (data['body'] ?? '').toString().trim();
-
-  if (title.isEmpty && body.isEmpty) {
-    debugPrint('[NotificationService] Skipping local notification: empty data payload.');
-    return;
-  }
-
-  final notifId = Object.hash(
-    data['type'] ?? '',
-    data['assignment_id'] ?? '',
-    data['teacher_id'] ?? '',
-    title,
-    body,
-  );
+    final notification = message.notification;
+    if (notification == null) return;
 
     await _localNotifications.show(
-    id: notifId,
-    title: title,
-    body: body,
-    notificationDetails: const NotificationDetails(
-      android: AndroidNotificationDetails(
-        'firduty_channel',
-        'Duty Notifications',
-        channelDescription: 'Notifications about your duty assignments',
-        importance: Importance.high,
-        priority: Priority.high,
+      id: notification.hashCode,
+      title: notification.title,
+      body: notification.body,
+      notificationDetails: const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'firduty_channel',
+          'Duty Notifications',
+          importance: Importance.high,
+          priority: Priority.high,
+        ),
       ),
-      iOS: DarwinNotificationDetails(),
-    ),
-  );
-}
+    );
+  }
 
   static Future<void> toggle({required int teacherId}) async {
     if (bellState.value == NotificationBellState.loading) return;
 
-    final previous = bellState.value;
+    final wasEnabled = await _isUserEnabled();
     bellState.value = NotificationBellState.loading;
 
     try {
-      if (previous == NotificationBellState.enabled) {
-        await _messaging.deleteToken();
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setBool(_kNotificationsEnabled, false);
+      if (wasEnabled) {
+        await _setUserEnabled(false);
+
+        try {
+          await _messaging.deleteToken();
+        } catch (e) {
+          debugPrint('[NotificationService] Local token delete failed: $e');
+        }
+
         _initialized = false;
         bellState.value = NotificationBellState.disabled;
         debugPrint('[NotificationService] Notifications disabled for teacher $teacherId');
-      } else {
-        final settings = await _messaging.requestPermission(
-          alert: true,
-          badge: true,
-          sound: true,
-        );
-
-        final granted = settings.authorizationStatus == AuthorizationStatus.authorized ||
-            settings.authorizationStatus == AuthorizationStatus.provisional;
-
-        if (!granted) {
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setBool(_kNotificationsEnabled, false);
-          bellState.value = NotificationBellState.disabled;
-          debugPrint('[NotificationService] Permission denied — cannot enable.');
-          return;
-        }
-
-        final installationId = await _getInstallationId();
-        final token = kIsWeb
-            ? await _messaging.getToken(vapidKey: kVapidPublicKey)
-            : await _messaging.getToken();
-
-        if (token == null || token.isEmpty) {
-          throw Exception('Could not obtain FCM token while enabling notifications.');
-        }
-
-        await _registerToken(
-          teacherId: teacherId,
-          token: token,
-          platform: _currentPlatform,
-          installationId: installationId,
-        );
-
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setBool(_kNotificationsEnabled, true);
-        _initialized = true;
-        bellState.value = NotificationBellState.enabled;
-        debugPrint('[NotificationService] Notifications enabled for teacher $teacherId');
+        return;
       }
+
+      final settings = await _messaging.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+
+      final granted =
+          settings.authorizationStatus == AuthorizationStatus.authorized ||
+          settings.authorizationStatus == AuthorizationStatus.provisional;
+
+      if (!granted) {
+        await _setUserEnabled(false);
+        bellState.value = NotificationBellState.disabled;
+        debugPrint('[NotificationService] Permission denied — cannot enable.');
+        return;
+      }
+
+      final installationId = await _getInstallationId();
+      final token = kIsWeb
+          ? await _messaging.getToken(vapidKey: kVapidPublicKey)
+          : await _messaging.getToken();
+
+      if (token == null || token.isEmpty) {
+        throw Exception('Could not obtain FCM token while enabling notifications.');
+      }
+
+      await _registerToken(
+        teacherId: teacherId,
+        token: token,
+        platform: _currentPlatform,
+        installationId: installationId,
+      );
+
+      await _setUserEnabled(true);
+      _initialized = true;
+      bellState.value = NotificationBellState.enabled;
+
+      debugPrint('[NotificationService] Notifications enabled for teacher $teacherId');
     } catch (e, st) {
       debugPrint('[NotificationService] Toggle failed: $e\n$st');
-      bellState.value = previous == NotificationBellState.enabled
+
+      final restored = await _isUserEnabled();
+      bellState.value = restored
           ? NotificationBellState.enabled
           : NotificationBellState.disabled;
     }

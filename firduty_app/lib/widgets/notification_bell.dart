@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../services/notification_service.dart';
 
 class NotificationBell extends StatelessWidget {
@@ -31,8 +32,8 @@ class NotificationBell extends StatelessWidget {
     return switch (state) {
       NotificationBellState.enabled => 'Disable notifications',
       NotificationBellState.disabled => 'Enable notifications',
-      NotificationBellState.loading => 'Updating…',
-      NotificationBellState.unknown => 'Enable notifications',
+      NotificationBellState.loading => 'Updating...',
+      NotificationBellState.unknown => 'Checking notifications...',
     };
   }
 
@@ -45,7 +46,7 @@ class NotificationBell extends StatelessWidget {
           height: 20,
           child: CircularProgressIndicator(strokeWidth: 2),
         ),
-      NotificationBellState.unknown => const Icon(Icons.notifications_none),
+      NotificationBellState.unknown => const Icon(Icons.notifications),
     };
   }
 
@@ -54,7 +55,7 @@ class NotificationBell extends StatelessWidget {
       NotificationBellState.enabled => true,
       NotificationBellState.disabled => true,
       NotificationBellState.loading => false,
-      NotificationBellState.unknown => true,
+      NotificationBellState.unknown => false,
     };
   }
 }

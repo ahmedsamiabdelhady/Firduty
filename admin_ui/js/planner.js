@@ -66,6 +66,45 @@ function escHtml(str) {
 }
 
 function lang() { return I18N.getLang(); }
+function getInitials(name = '') {
+  return String(name)
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map(part => part.charAt(0).toUpperCase())
+    .join('') || '•';
+}
+function formatPlannerDate(dateStr) {
+  try {
+    const d = new Date(`${dateStr}T12:00:00`);
+    return d.toLocaleDateString(lang() === 'ar' ? 'ar' : 'en-GB', {
+      weekday: 'long', day: 'numeric', month: 'short'
+    });
+  } catch (_) {
+    return dateStr;
+  }
+}
+function countAssignedAssignments(items = []) {
+  return items.reduce((sum, item) => sum + ((item?.teacher_id || getEffectiveAssignment(item?.__slId, item?.slot_index, item)?.teacher_id) ? 1 : 0), 0);
+}
+function getSlotLoad(sl) {
+  const assignments = Array.isArray(sl?.assignments) ? sl.assignments : [];
+  const total = Number(sl?.slots_count) || assignments.length || 0;
+  const filled = assignments.reduce((sum, a) => {
+    const eff = getEffectiveAssignment(sl.id, a.slot_index, a);
+    return sum + (eff.teacher_id ? 1 : 0);
+  }, 0);
+  return { filled, total: Math.max(total, assignments.length) };
+}
+function getShiftLoad(shiftLocations = []) {
+  return shiftLocations.reduce((acc, sl) => {
+    const load = getSlotLoad(sl);
+    acc.filled += load.filled;
+    acc.total += load.total;
+    return acc;
+  }, { filled: 0, total: 0 });
+}
+
 
 /* ─── Date utilities ──────────────────────────────────────────────────────── */
 
@@ -213,20 +252,26 @@ function renderTeacherSidebar(filterQuery = '') {
     return;
   }
 
+  if (!filtered.length) {
+    list.innerHTML = `<p class="sidebar-empty">${I18N.t('no_results') || 'No teachers match your search.'}</p>`;
+    return;
+  }
+
   const mobile = isMobilePlanner();
 
-  // On mobile: items are NOT draggable — they serve as reference / search target.
-  // Teacher assignment happens via the bottom-sheet (opened by tapping a slot).
   list.innerHTML = filtered.map(t => `
     <div class="teacher-list-item${mobile ? ' teacher-list-item--mobile' : ''}"
          data-teacher-id="${t.id}"
          data-teacher-name="${escHtml(t.name)}"
-         ${mobile ? '' : 'draggable="true"'}
-         >${escHtml(t.name)}</div>
+         ${mobile ? '' : 'draggable="true"'}>
+      <span class="teacher-list-item__avatar">${escHtml(getInitials(t.name))}</span>
+      <span class="teacher-list-item__meta">
+        <span class="teacher-list-item__name">${escHtml(t.name)}</span>
+        <span class="teacher-list-item__hint">${mobile ? (I18N.t('pick_teacher') || 'Pick from sheet') : (I18N.t('drag_to_assign') || 'Drag to assign')}</span>
+      </span>
+    </div>
   `).join('');
 
-  // Re-init DnD on the sidebar when not mobile
-  // (list items were just replaced, so Sortable needs the updated children)
   if (!mobile && typeof Sortable !== 'undefined') {
     const sidebar = byId('teacherList');
     if (sidebar && !sidebar.dataset.sortableInit) {
@@ -238,10 +283,6 @@ function renderTeacherSidebar(filterQuery = '') {
       sidebar.dataset.sortableInit = 'true';
     }
   }
-}
-
-function filterTeacherSidebar(query) {
-  renderTeacherSidebar(query);
 }
 
 /* ─── Mobile bottom-sheet teacher picker ─────────────────────────────────── */
@@ -632,27 +673,44 @@ function renderDayPanel(dayPlan, isEditable) {
     : `<button class="btn btn-success btn-sm" id="publish-day-btn-${dayPlan.date}"
            onclick="publishDay('${dayPlan.date}')">${I18N.t('publish_day') || 'Publish Day'}</button>`;
 
+  const dayLoad = getShiftLoad(dayPlan.shift_locations || []);
+  const dayPrettyDate = formatPlannerDate(dayPlan.date);
+
   const shiftTabsHtml = shifts.map((s, i) => {
     const dutyBadge = s.shift.duty_type === 'break'
       ? `<span class="break-badge">${I18N.t('break')}</span>` : '';
+    const load = getShiftLoad(s.locations || []);
     return `
       <button class="shift-tab-btn${i === 0 ? ' active' : ''}"
               onclick="switchShiftTab(this, 'shift-panel-${dayPlan.date}-${s.shift.id}')">
-        ${lang() === 'ar' ? escHtml(s.shift.name_ar) : escHtml(s.shift.name_en)}
+        <span class="shift-tab-btn__label">${lang() === 'ar' ? escHtml(s.shift.name_ar) : escHtml(s.shift.name_en)}</span>
+        <span class="shift-tab-btn__meta">${load.filled}/${load.total}</span>
         ${dutyBadge}
       </button>`;
   }).join('');
 
   const shiftPanelsHtml = shifts.map((s, i) => {
-    const locCols = s.locations
-      .sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999))
+    const sortedLocations = s.locations.sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999));
+    const locCols = sortedLocations
       .map(sl => renderLocationColumn(dayPlan.date, sl, isEditable))
       .join('');
     const timeBar = renderShiftTimeBar(s.shift, dayPlan.date, isEditable);
+    const load = getShiftLoad(sortedLocations);
+    const shiftName = lang() === 'ar' ? escHtml(s.shift.name_ar) : escHtml(s.shift.name_en);
     return `
       <div id="shift-panel-${dayPlan.date}-${s.shift.id}"
            class="shift-panel${i === 0 ? ' active' : ''}"
            style="${i === 0 ? '' : 'display:none'}">
+        <div class="shift-panel-header">
+          <div>
+            <div class="shift-panel-title-row">
+              <h3 class="shift-panel-title">${shiftName}</h3>
+              ${s.shift.duty_type === 'break' ? `<span class="break-badge">${I18N.t('break')}</span>` : ''}
+            </div>
+            <div class="shift-panel-subtitle">${I18N.t('assigned') || 'Assigned'} ${load.filled}/${load.total}</div>
+          </div>
+          <div class="shift-panel-pill">${load.total - load.filled} ${(I18N.t('remaining') || 'remaining')}</div>
+        </div>
         ${timeBar}
         <div class="locations-grid">${locCols}</div>
       </div>`;
@@ -661,10 +719,15 @@ function renderDayPanel(dayPlan, isEditable) {
   return `
     <div class="day-header">
       <div class="day-header-meta">
-        <span class="day-date">${dayPlan.date}</span>
+        <div class="day-date-wrap">
+          <span class="day-date">${dayPlan.date}</span>
+          <span class="day-date-pretty">${escHtml(dayPrettyDate)}</span>
+        </div>
         ${editableBadge}
+        ${dayPlan.is_published ? `<span class="published-badge">${I18N.t('published') || 'Published'}</span>` : ''}
       </div>
       <div class="day-header-actions" data-day-header-actions>
+        <span class="day-load-pill">${dayLoad.filled}/${dayLoad.total} ${(I18N.t('assigned') || 'assigned')}</span>
         ${publishBtn}
       </div>
     </div>
@@ -714,7 +777,7 @@ function renderLocationColumn(dayDate, sl, isEditable) {
          data-editable="${isEditable ? 'true' : 'false'}"
          data-duty-type="morning_endofday">
       <div class="location-column-header">
-        <span class="loc-title">${colTitle}</span>
+        <div class="loc-title-wrap"><span class="loc-title">${colTitle}</span><span class="loc-subtitle">${(() => { const load = getSlotLoad(sl); return `${load.filled}/${load.total} ${I18N.t('assigned') || 'assigned'}`; })()}</span></div>
         ${isEditable ? `
           <div class="slot-controls">
             <button class="btn-slot btn-slot-sub"
@@ -818,6 +881,8 @@ function renderBreakGrid(dayDate, sl, isEditable) {
     .map(a => renderSlot(sl.id, a.slot_index, a, true, isEditable))
     .join('');
 
+  const breakLoad = getSlotLoad({ id: sl.id, slots_count: targetCount, assignments: source });
+
   return `
     <div class="location-column break-location-column"
          data-sl-id="${sl.id}"
@@ -826,6 +891,10 @@ function renderBreakGrid(dayDate, sl, isEditable) {
          data-loc=""
          data-editable="${isEditable ? 'true' : 'false'}"
          data-duty-type="break">
+      <div class="break-grid-toolbar">
+        <div class="break-grid-toolbar__title">${I18N.t('classes') || 'Classes'}</div>
+        <div class="break-grid-toolbar__stats">${breakLoad.filled}/${breakLoad.total} ${I18N.t('assigned') || 'assigned'}</div>
+      </div>
       <div id="slots-${sl.id}"
            class="slots-list break-grid"
            data-sl-id="${sl.id}"
@@ -985,15 +1054,11 @@ function renderGradeOptions(selected = '') {
 /* ─── Slot rendering ──────────────────────────────────────────────────────── */
 
 function renderSlot(slId, slotIdx, assignment, isBreak, isEditable = true) {
-  // `onSlotTap` is attached to every slot.
-  // • Desktop: handler returns immediately (isMobilePlanner() === false).
-  // • Mobile:  opens the bottom-sheet picker.
   const tapAttr    = `onclick="onSlotTap(${slId}, ${slotIdx})"`;
   const gradeClass = assignment?.grade_class || '';
+  const teacherName = assignment?.teacher_name || '';
+  const initials = getInitials(teacherName);
 
-  // For break duties: always show the grade class as a static label.
-  // The grade class is pre-assigned from seeding — it is NOT user-selectable.
-  // data-grade-class is stored on the element so it survives DOM replacement.
   const gcAttr         = isBreak ? `data-grade-class="${escHtml(gradeClass)}"` : '';
   const gradeLabelHtml = isBreak && gradeClass
     ? `<div class="break-cell-grade">${escHtml(gradeClass)}</div>`
@@ -1012,8 +1077,12 @@ function renderSlot(slId, slotIdx, assignment, isBreak, isEditable = true) {
         ${gradeLabelHtml}
         <div class="teacher-card"
              data-teacher-id="${assignment.teacher_id}"
-             data-teacher-name="${escHtml(assignment.teacher_name || '')}">
-          <span>${escHtml(assignment.teacher_name || '—')}</span>
+             data-teacher-name="${escHtml(teacherName)}">
+          <span class="teacher-card__avatar">${escHtml(initials)}</span>
+          <span class="teacher-card__meta">
+            <span class="teacher-card__name">${escHtml(teacherName || '—')}</span>
+            <span class="teacher-card__sub">${isBreak ? (I18N.t('break') || 'Break duty') : (I18N.t('assigned') || 'Assigned')}</span>
+          </span>
           ${isEditable
             ? `<span class="remove-btn"
                      onclick="event.stopPropagation();removeTeacher(${slId}, ${slotIdx})"
@@ -1023,7 +1092,6 @@ function renderSlot(slId, slotIdx, assignment, isBreak, isEditable = true) {
       </div>`;
   }
 
-  // Empty slot
   return `
     <div class="slot-item${breakClass}"
          data-sl-id="${slId}"
@@ -1033,6 +1101,7 @@ function renderSlot(slId, slotIdx, assignment, isBreak, isEditable = true) {
          ${tapAttr}>
       ${gradeLabelHtml}
       <span class="slot-empty-label">${I18N.t('no_teacher')}</span>
+      <span class="slot-empty-sub">${isBreak ? (I18N.t('pick_teacher') || 'Assign teacher') : (I18N.t('drag_to_assign') || 'Drag teacher here')}</span>
     </div>`;
 }
 

@@ -1,18 +1,20 @@
 // points_screen.dart — Teacher's monthly points summary and history
 //
-// UX/Performance improvements (v2.4):
-//   • AutomaticKeepAliveClientMixin: scroll position survives tab switches
-//   • Points header has larger, cleaner total display
-//   • Stat chips (on-time / late / missed) show inside gradient header
-//   • Confirmation rows use consistent card style matching week_screen
-//   • Empty state and error state with retry
-//   • No deprecated APIs
+// UX/UI upgrade (v2.5):
+//   • Stronger hero header with score meaning and progress
+//   • Better month navigation
+//   • Cleaner stats with percentages
+//   • Sorted confirmations (newest first)
+//   • More informative confirmation cards with status chip
+//   • Better empty/error states
+//   • AutomaticKeepAliveClientMixin to preserve tab scroll state
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../services/api_service.dart';
-import '../gen/app_localizations.dart';
+
 import '../app_theme.dart';
+import '../gen/app_localizations.dart';
+import '../services/api_service.dart';
 
 class PointsScreen extends StatefulWidget {
   const PointsScreen({super.key});
@@ -44,11 +46,15 @@ class _PointsScreenState extends State<PointsScreen>
       _loading = true;
       _error = null;
     });
+
     try {
       final prefs = await SharedPreferences.getInstance();
       final teacherId = prefs.getInt('teacher_id');
+
       if (teacherId == null) {
-        if (mounted) Navigator.pushReplacementNamed(context, '/');
+        if (mounted) {
+          Navigator.pushReplacementNamed(context, '/');
+        }
         return;
       }
 
@@ -58,9 +64,18 @@ class _PointsScreenState extends State<PointsScreen>
         month: _month,
       );
 
+      final confirmations =
+          List<Map<String, dynamic>>.from(data['confirmations'] ?? []);
+
+      confirmations.sort((a, b) {
+        final aDate = '${a['date'] ?? ''} ${a['confirmed_at_muscat'] ?? ''}';
+        final bDate = '${b['date'] ?? ''} ${b['confirmed_at_muscat'] ?? ''}';
+        return bDate.compareTo(aDate);
+      });
+
       setState(() {
         _totalPoints = data['total_points'] as int? ?? 0;
-        _details = List<Map<String, dynamic>>.from(data['details'] ?? []);
+        _details = confirmations;
         _loading = false;
       });
     } catch (e) {
@@ -74,23 +89,108 @@ class _PointsScreenState extends State<PointsScreen>
   void _changeMonth(int delta) {
     setState(() {
       _month += delta;
-      if (_month > 12) { _month = 1; _year++; }
-      if (_month < 1)  { _month = 12; _year--; }
+      if (_month > 12) {
+        _month = 1;
+        _year++;
+      }
+      if (_month < 1) {
+        _month = 12;
+        _year--;
+      }
     });
     _load();
   }
 
   String _monthName(int m, bool isAr) {
-    const en = ['', 'January','February','March','April','May','June',
-        'July','August','September','October','November','December'];
-    const ar = ['', 'يناير','فبراير','مارس','أبريل','مايو','يونيو',
-        'يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
+    const en = [
+      '',
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
+    ];
+    const ar = [
+      '',
+      'يناير',
+      'فبراير',
+      'مارس',
+      'أبريل',
+      'مايو',
+      'يونيو',
+      'يوليو',
+      'أغسطس',
+      'سبتمبر',
+      'أكتوبر',
+      'نوفمبر',
+      'ديسمبر',
+    ];
     return isAr ? ar[m] : en[m];
+  }
+
+  String _scoreMessage(bool isAr) {
+    if (_totalPoints >= 100) {
+      return isAr ? 'أداء ممتاز جدًا 🔥' : 'Excellent performance 🔥';
+    }
+    if (_totalPoints >= 60) {
+      return isAr ? 'شغل رائع 👏' : 'Great job 👏';
+    }
+    if (_totalPoints >= 25) {
+      return isAr ? 'أداء جيد 👍' : 'Good progress 👍';
+    }
+    if (_totalPoints > 0) {
+      return isAr ? 'كمّل، أنت ماشي كويس 💪' : 'Keep going, you are doing well 💪';
+    }
+    return isAr ? 'ابدأ أول تأكيد لك لتحصد النقاط ✨' : 'Start confirming duties to earn points ✨';
+  }
+
+  String _scoreSubMessage(bool isAr) {
+    final count = _details.length;
+    if (count == 0) {
+      return isAr
+          ? 'لا توجد تأكيدات مسجلة لهذا الشهر'
+          : 'No confirmations recorded this month';
+    }
+    return isAr
+        ? '$count تأكيد${count == 1 ? '' : ''} هذا الشهر'
+        : '$count confirmation${count == 1 ? '' : 's'} this month';
+  }
+
+  double _monthProgress() {
+    if (_totalPoints <= 0) return 0;
+    final normalized = (_totalPoints % 100) / 100;
+    return normalized == 0 ? 1 : normalized;
+  }
+
+  String _recentSectionTitle(bool isAr) {
+    return isAr ? 'آخر التأكيدات' : 'Recent confirmations';
+  }
+
+  String _retryLabel(bool isAr) {
+    return isAr ? 'إعادة المحاولة' : 'Retry';
+  }
+
+  String _emptyTitle(bool isAr) {
+    return isAr ? 'لا توجد نقاط بعد' : 'No points yet';
+  }
+
+  String _emptySubtitle(bool isAr) {
+    return isAr
+        ? 'أكمل أول مناوبة مؤكدة لتبدأ في جمع النقاط'
+        : 'Complete your first confirmed duty to start earning points';
   }
 
   @override
   Widget build(BuildContext context) {
     super.build(context);
+
     final l10n = AppLocalizations.of(context);
     final isAr = Localizations.localeOf(context).languageCode == 'ar';
 
@@ -99,96 +199,51 @@ class _PointsScreenState extends State<PointsScreen>
         onRefresh: _load,
         color: FirdutyColors.navBlue,
         child: CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
           slivers: [
-            // ── Points Header ────────────────────────────────────────────
             SliverToBoxAdapter(
-              child: Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      FirdutyColors.primaryGreen,
-                      FirdutyColors.primaryGreen.withBlue(190),
-                    ],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                ),
-                padding: const EdgeInsets.fromLTRB(20, 24, 20, 28),
-                child: Column(
-                  children: [
-                    // Month navigator
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        _NavButton(
-                          icon: Icons.chevron_left,
-                          onTap: () => _changeMonth(-1),
-                        ),
-                        Text(
-                          '${_monthName(_month, isAr)} $_year',
-                          style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold),
-                        ),
-                        _NavButton(
-                          icon: Icons.chevron_right,
-                          onTap: () => _changeMonth(1),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
-
-                    // Total points
-                    if (_loading)
-                      const CircularProgressIndicator(
-                          color: Colors.white, strokeWidth: 2.5)
-                    else ...[
-                      Text(
-                        '$_totalPoints',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 60,
-                          fontWeight: FontWeight.w800,
-                          height: 1,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        l10n.myPoints,
-                        style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.75),
-                            fontSize: 14),
-                      ),
-                      const SizedBox(height: 20),
-                      _StatsRow(details: _details, l10n: l10n),
-                    ],
-                  ],
-                ),
+              child: _PointsHeader(
+                loading: _loading,
+                monthLabel: '${_monthName(_month, isAr)} $_year',
+                totalPoints: _totalPoints,
+                scoreMessage: _scoreMessage(isAr),
+                scoreSubMessage: _scoreSubMessage(isAr),
+                progress: _monthProgress(),
+                details: _details,
+                l10n: l10n,
+                onPrev: () => _changeMonth(-1),
+                onNext: () => _changeMonth(1),
               ),
             ),
 
-            // ── Error or empty state ─────────────────────────────────────
             if (_error != null)
               SliverFillRemaining(
+                hasScrollBody: false,
                 child: Center(
                   child: Padding(
-                    padding: const EdgeInsets.all(40),
+                    padding: const EdgeInsets.all(28),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.wifi_off_rounded,
-                            size: 48, color: FirdutyColors.textMuted),
-                        const SizedBox(height: 12),
-                        Text(_error!,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                                color: FirdutyColors.textMuted)),
-                        const SizedBox(height: 20),
+                        const Icon(
+                          Icons.wifi_off_rounded,
+                          size: 52,
+                          color: FirdutyColors.textMuted,
+                        ),
+                        const SizedBox(height: 14),
+                        Text(
+                          _error!,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: FirdutyColors.textMuted,
+                            fontSize: 14,
+                          ),
+                        ),
+                        const SizedBox(height: 18),
                         ElevatedButton.icon(
                           onPressed: _load,
                           icon: const Icon(Icons.refresh),
-                          label: const Text('Retry'),
+                          label: Text(_retryLabel(isAr)),
                         ),
                       ],
                     ),
@@ -197,38 +252,94 @@ class _PointsScreenState extends State<PointsScreen>
               )
             else if (!_loading && _details.isEmpty)
               SliverFillRemaining(
+                hasScrollBody: false,
                 child: Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.emoji_events_outlined,
-                          size: 52,
-                          color: FirdutyColors.textMuted.withValues(alpha: 0.5)),
-                      const SizedBox(height: 16),
-                      Text(
-                        l10n.noConfirmationsYet,
-                        style: const TextStyle(color: FirdutyColors.textMuted),
-                      ),
-                    ],
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 28),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.emoji_events_outlined,
+                          size: 56,
+                          color:
+                              FirdutyColors.textMuted.withValues(alpha: 0.45),
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          _emptyTitle(isAr),
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                            color: FirdutyColors.textDark,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          _emptySubtitle(isAr),
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: FirdutyColors.textMuted,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               )
-            else
-
-            // ── Confirmation List ─────────────────────────────────────────
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
-              sliver: SliverList(
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) => _ConfirmationCard(
-                    detail: _details[index],
-                    isAr: isAr,
-                    l10n: l10n,
+            else ...[
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 18, 16, 8),
+                  child: Row(
+                    children: [
+                      Text(
+                        _recentSectionTitle(isAr),
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          color: FirdutyColors.textDark,
+                        ),
+                      ),
+                      const Spacer(),
+                      if (!_loading)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 5,
+                          ),
+                          decoration: BoxDecoration(
+                            color: FirdutyColors.navBlue.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            '${_details.length}',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: FirdutyColors.navBlue,
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
-                  childCount: _details.length,
                 ),
               ),
-            ),
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 100),
+                sliver: SliverList(
+                  delegate: SliverChildBuilderDelegate(
+                    (context, index) => _ConfirmationCard(
+                      detail: _details[index],
+                      isAr: isAr,
+                      l10n: l10n,
+                    ),
+                    childCount: _details.length,
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -236,52 +347,228 @@ class _PointsScreenState extends State<PointsScreen>
   }
 }
 
-// ─── Month nav button ─────────────────────────────────────────────────────────
+class _PointsHeader extends StatelessWidget {
+  final bool loading;
+  final String monthLabel;
+  final int totalPoints;
+  final String scoreMessage;
+  final String scoreSubMessage;
+  final double progress;
+  final List<Map<String, dynamic>> details;
+  final AppLocalizations l10n;
+  final VoidCallback onPrev;
+  final VoidCallback onNext;
 
-class _NavButton extends StatelessWidget {
-  final IconData icon;
-  final VoidCallback onTap;
-  const _NavButton({required this.icon, required this.onTap});
+  const _PointsHeader({
+    required this.loading,
+    required this.monthLabel,
+    required this.totalPoints,
+    required this.scoreMessage,
+    required this.scoreSubMessage,
+    required this.progress,
+    required this.details,
+    required this.l10n,
+    required this.onPrev,
+    required this.onNext,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(6),
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.2),
-          borderRadius: BorderRadius.circular(8),
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            FirdutyColors.primaryGreen,
+            FirdutyColors.primaryGreen.withBlue(190),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
-        child: Icon(icon, color: Colors.white, size: 24),
+        borderRadius: const BorderRadius.vertical(
+          bottom: Radius.circular(24),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: FirdutyColors.primaryGreen.withValues(alpha: 0.18),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.fromLTRB(20, 24, 20, 22),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              _NavButton(
+                icon: Icons.chevron_left,
+                onTap: onPrev,
+              ),
+              Expanded(
+                child: Text(
+                  monthLabel,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              _NavButton(
+                icon: Icons.chevron_right,
+                onTap: onNext,
+              ),
+            ],
+          ),
+          const SizedBox(height: 22),
+          if (loading)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 28),
+              child: CircularProgressIndicator(
+                color: Colors.white,
+                strokeWidth: 2.6,
+              ),
+            )
+          else ...[
+            Text(
+              '$totalPoints',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 60,
+                fontWeight: FontWeight.w900,
+                height: 1,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              l10n.myPoints,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.82),
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              scoreMessage,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 17,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              scoreSubMessage,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.85),
+                fontSize: 12.5,
+              ),
+            ),
+            const SizedBox(height: 18),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(999),
+              child: LinearProgressIndicator(
+                minHeight: 8,
+                value: progress,
+                backgroundColor: Colors.white.withValues(alpha: 0.18),
+                valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+              ),
+            ),
+            const SizedBox(height: 16),
+            _StatsRow(details: details, l10n: l10n),
+          ],
+        ],
       ),
     );
   }
 }
 
-// ─── Stats Row ────────────────────────────────────────────────────────────────
+class _NavButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _NavButton({
+    required this.icon,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: onTap,
+      child: Ink(
+        padding: const EdgeInsets.all(7),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.18),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Icon(
+          icon,
+          color: Colors.white,
+          size: 24,
+        ),
+      ),
+    );
+  }
+}
 
 class _StatsRow extends StatelessWidget {
   final List<Map<String, dynamic>> details;
   final AppLocalizations l10n;
 
-  const _StatsRow({required this.details, required this.l10n});
+  const _StatsRow({
+    required this.details,
+    required this.l10n,
+  });
+
+  String _percent(int value, int total) {
+    if (total == 0) return '0%';
+    return '${((value / total) * 100).round()}%';
+  }
 
   @override
   Widget build(BuildContext context) {
-    final onTime  = details.where((d) => d['points_earned'] == 2).length;
-    final late    = details.where((d) => d['points_earned'] == 1).length;
-    final missed  = details.where((d) => d['points_earned'] == 0).length;
+    final onTime = details.where((d) => d['points_earned'] == 2).length;
+    final late = details.where((d) => d['points_earned'] == 1).length;
+    final missed = details.where((d) => d['points_earned'] == 0).length;
+    final total = details.length;
 
     return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: [
-        _StatChip(label: l10n.onTime, value: '$onTime',
-            color: Colors.white, bgColor: Colors.white.withValues(alpha: 0.2)),
-        _StatChip(label: l10n.late, value: '$late',
-            color: FirdutyColors.warning, bgColor: Colors.white.withValues(alpha: 0.15)),
-        _StatChip(label: l10n.missed, value: '$missed',
-            color: Colors.redAccent.shade100, bgColor: Colors.white.withValues(alpha: 0.12)),
+        Expanded(
+          child: _StatChip(
+            label: l10n.onTime,
+            value: '$onTime',
+            percent: _percent(onTime, total),
+            color: Colors.white,
+            bgColor: Colors.white.withValues(alpha: 0.18),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _StatChip(
+            label: l10n.late,
+            value: '$late',
+            percent: _percent(late, total),
+            color: FirdutyColors.warning,
+            bgColor: Colors.white.withValues(alpha: 0.14),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _StatChip(
+            label: l10n.missed,
+            value: '$missed',
+            percent: _percent(missed, total),
+            color: Colors.redAccent.shade100,
+            bgColor: Colors.white.withValues(alpha: 0.12),
+          ),
+        ),
       ],
     );
   }
@@ -290,12 +577,14 @@ class _StatsRow extends StatelessWidget {
 class _StatChip extends StatelessWidget {
   final String label;
   final String value;
+  final String percent;
   final Color color;
   final Color bgColor;
 
   const _StatChip({
     required this.label,
     required this.value,
+    required this.percent,
     required this.color,
     required this.bgColor,
   });
@@ -303,28 +592,46 @@ class _StatChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+      padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 10),
       decoration: BoxDecoration(
         color: bgColor,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
       ),
       child: Column(
         children: [
-          Text(value,
-              style: TextStyle(
-                  color: color,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 22)),
+          Text(
+            value,
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.w800,
+              fontSize: 22,
+              height: 1,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 11.5,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
           const SizedBox(height: 2),
-          Text(label,
-              style: const TextStyle(color: Colors.white70, fontSize: 11)),
+          Text(
+            percent,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.78),
+              fontSize: 10.5,
+            ),
+          ),
         ],
       ),
     );
   }
 }
-
-// ─── Confirmation Card ────────────────────────────────────────────────────────
 
 class _ConfirmationCard extends StatelessWidget {
   final Map<String, dynamic> detail;
@@ -337,29 +644,42 @@ class _ConfirmationCard extends StatelessWidget {
     required this.l10n,
   });
 
+  String _statusText(int pts) {
+    if (isAr) {
+      if (pts == 2) return 'في الموعد';
+      if (pts == 1) return 'متأخر';
+      return 'فاتت';
+    } else {
+      if (pts == 2) return 'On time';
+      if (pts == 1) return 'Late';
+      return 'Missed';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final pts = detail['points_earned'] as int;
-    final shiftName =
-        isAr ? detail['shift_name_ar'] : detail['shift_name_en'];
-    final date = detail['date'] as String;
-    final confTime =
-        (detail['confirmed_at_muscat'] as String).substring(11, 16);
-    final startTime = (detail['shift_start'] as String).substring(0, 5);
+    final pts = detail['points_earned'] as int? ?? 0;
+    final shiftName = (isAr
+                ? detail['shift_name_ar']
+                : detail['shift_name_en']) as String? ??
+            '—';
+    final date = detail['date'] as String? ?? '—';
+
+    final confirmedAt = detail['confirmed_at_muscat'] as String?;
+    final confTime = confirmedAt != null && confirmedAt.length >= 16
+        ? confirmedAt.substring(11, 16)
+        : '—';
+
+    final shiftStart = detail['shift_start'] as String?;
+    final startTime =
+        shiftStart != null && shiftStart.length >= 5 ? shiftStart.substring(0, 5) : '—';
 
     final dutyType = (detail['duty_type'] as String?) ?? 'morning_endofday';
     final isBreak = dutyType == 'break';
 
-    final String secondaryLabel;
-    if (isBreak) {
-      final gc = (detail['grade_class'] as String?) ?? '—';
-      secondaryLabel = '${l10n.gradeClass}: $gc';
-    } else {
-      final locName = isAr
-          ? (detail['location_name_ar'] as String? ?? '—')
-          : (detail['location_name_en'] as String? ?? '—');
-      secondaryLabel = '${l10n.location}: $locName';
-    }
+    final secondaryLabel = isBreak
+        ? '${l10n.gradeClass}: ${(detail['grade_class'] as String?) ?? '—'}'
+        : '${l10n.location}: ${isAr ? ((detail['location_name_ar'] as String?) ?? '—') : ((detail['location_name_en'] as String?) ?? '—')}';
 
     final ptColor = pts == 2
         ? FirdutyColors.primaryGreen
@@ -369,16 +689,17 @@ class _ConfirmationCard extends StatelessWidget {
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      elevation: 1.2,
+      shadowColor: Colors.black.withValues(alpha: 0.05),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Points badge
             Container(
-              width: 44,
-              height: 44,
+              width: 48,
+              height: 48,
               decoration: BoxDecoration(
                 color: ptColor.withValues(alpha: 0.12),
                 shape: BoxShape.circle,
@@ -388,8 +709,8 @@ class _ConfirmationCard extends StatelessWidget {
                   '+$pts',
                   style: TextStyle(
                     color: ptColor,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 15,
                   ),
                 ),
               ),
@@ -399,34 +720,73 @@ class _ConfirmationCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(shiftName as String,
-                      style: const TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 14,
-                          color: FirdutyColors.textDark)),
-                  const SizedBox(height: 3),
-                  Text(secondaryLabel,
-                      style: const TextStyle(
-                          fontSize: 12, color: FirdutyColors.textMuted)),
+                  Text(
+                    shiftName,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14.5,
+                      color: FirdutyColors.textDark,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    secondaryLabel,
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      color: FirdutyColors.textMuted,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 9,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: ptColor.withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      _statusText(pts),
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: ptColor,
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
+            const SizedBox(width: 10),
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Text(date,
-                    style: const TextStyle(
-                        fontSize: 12, color: FirdutyColors.textMuted)),
-                const SizedBox(height: 4),
+                Text(
+                  date,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: FirdutyColors.textMuted,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 6),
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.schedule, size: 12,
-                        color: FirdutyColors.textMuted),
-                    const SizedBox(width: 3),
-                    Text('$startTime → $confTime',
-                        style: const TextStyle(
-                            fontSize: 11, color: FirdutyColors.textMuted)),
+                    const Icon(
+                      Icons.schedule,
+                      size: 12,
+                      color: FirdutyColors.textMuted,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      '$startTime → $confTime',
+                      style: const TextStyle(
+                        fontSize: 11.5,
+                        color: FirdutyColors.textMuted,
+                      ),
+                    ),
                   ],
                 ),
               ],

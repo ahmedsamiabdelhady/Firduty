@@ -445,6 +445,117 @@
       font-weight: 400; font-size: 0.82rem;
     }
     .nsbtn--cancel:hover { background: var(--bg); }
+
+    /* ── Planner UX/UI polish ───────────────────────────────────────── */
+    .week-controls {
+      position: sticky; top: 12px; z-index: 25;
+      backdrop-filter: blur(10px);
+      box-shadow: 0 10px 30px rgba(15,23,42,0.06);
+    }
+    .tabs#dayTabs {
+      position: sticky; top: 92px; z-index: 20;
+      background: rgba(248,251,253,0.92);
+      backdrop-filter: blur(8px);
+      padding: 8px;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      margin-bottom: 14px;
+      box-shadow: 0 6px 22px rgba(15,23,42,0.06);
+    }
+    .tabs#dayTabs .tab-btn { min-width: 110px; }
+    .day-date-wrap { display: flex; flex-direction: column; gap: 2px; }
+    .day-date-pretty { font-size: 0.78rem; color: var(--text-muted); }
+    .day-load-pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 7px 12px; border-radius: 999px;
+      background: #eff6ff; color: #1d4ed8; font-size: 0.8rem; font-weight: 700;
+    }
+    .shift-tab-btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      min-height: 38px;
+    }
+    .shift-tab-btn__label { font-weight: 700; }
+    .shift-tab-btn__meta {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-width: 34px; height: 22px; padding: 0 8px;
+      border-radius: 999px; background: rgba(15,23,42,0.08);
+      font-size: 0.72rem; font-weight: 700;
+    }
+    .shift-tab-btn.active .shift-tab-btn__meta { background: rgba(255,255,255,0.18); }
+    .shift-panel-header {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: 14px 16px; margin-bottom: 12px;
+      border: 1px solid var(--border); border-radius: 16px;
+      background: linear-gradient(180deg, #ffffff 0%, #f8fbfd 100%);
+      box-shadow: 0 6px 22px rgba(15,23,42,0.05);
+    }
+    .shift-panel-title-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .shift-panel-title { margin: 0; font-size: 1rem; color: var(--nav); }
+    .shift-panel-subtitle { margin-top: 4px; font-size: 0.8rem; color: var(--text-muted); }
+    .shift-panel-pill {
+      padding: 8px 12px; border-radius: 999px;
+      background: #f8fafc; border: 1px solid var(--border);
+      font-size: 0.78rem; font-weight: 700; color: var(--text);
+      white-space: nowrap;
+    }
+    .location-column { box-shadow: 0 8px 24px rgba(15,23,42,0.05); }
+    .location-column:hover { transform: translateY(-1px); transition: transform 0.16s ease; }
+    .loc-title-wrap { display: flex; flex-direction: column; gap: 3px; }
+    .loc-subtitle { font-size: 0.72rem; color: var(--text-muted); }
+    .slot-item {
+      border-radius: 12px;
+      min-height: 52px;
+      margin-bottom: 8px;
+      transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+    }
+    .slot-item:hover { box-shadow: 0 6px 18px rgba(15,23,42,0.06); }
+    .slot-empty-label { font-weight: 700; color: #94a3b8; }
+    .slot-empty-sub { font-size: 0.72rem; color: var(--text-muted); white-space: nowrap; }
+    .teacher-card {
+      width: 100%;
+      border-radius: 12px;
+      padding: 8px 10px;
+      gap: 10px;
+    }
+    .teacher-card__avatar, .teacher-list-item__avatar {
+      width: 30px; height: 30px; border-radius: 999px;
+      display: inline-flex; align-items: center; justify-content: center;
+      background: rgba(255,255,255,0.2); color: #fff;
+      font-size: 0.72rem; font-weight: 800; flex: 0 0 30px;
+    }
+    .teacher-card__meta, .teacher-list-item__meta {
+      display: flex; flex-direction: column; min-width: 0; gap: 1px;
+    }
+    .teacher-card__name, .teacher-list-item__name {
+      font-weight: 700; line-height: 1.2;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .teacher-card__sub, .teacher-list-item__hint {
+      font-size: 0.68rem; opacity: 0.85;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .teacher-list-item {
+      display: flex; align-items: center; gap: 10px;
+      border-radius: 12px; padding: 10px 11px;
+      box-shadow: 0 4px 14px rgba(127,179,63,0.14);
+    }
+    .teacher-list-item__avatar { background: rgba(255,255,255,0.22); }
+    .break-grid-toolbar {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      margin-bottom: 10px; padding: 8px 2px;
+    }
+    .break-grid-toolbar__title { font-size: 0.86rem; font-weight: 700; color: var(--nav); }
+    .break-grid-toolbar__stats {
+      font-size: 0.76rem; font-weight: 700; color: #0f766e;
+      background: #ecfeff; padding: 6px 10px; border-radius: 999px;
+    }
+    .slot-item.break-cell { min-height: 96px; }
+    @media (max-width: 768px) {
+      .week-controls, .tabs#dayTabs { position: static; }
+      .shift-panel-header { padding: 12px; }
+      .day-header { padding: 12px; }
+    }
+
   </style>
 </head>
 <body>
