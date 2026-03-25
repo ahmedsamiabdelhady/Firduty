@@ -10,9 +10,71 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../firebase_options.dart' show kVapidPublicKey;
 import 'api_service.dart';
 
+const AndroidNotificationChannel _firdutyChannel = AndroidNotificationChannel(
+  'firduty_channel',
+  'Duty Notifications',
+  description: 'Notifications about your duty assignments',
+  importance: Importance.high,
+);
+
+int _stableNotificationId(Map<String, dynamic> data, String fallback) {
+  final seed = [
+    data['notification_type'],
+    data['type'],
+    data['assignment_id'],
+    data['teacher_id'],
+    data['day_date'],
+    data['shift_name'],
+  ].where((v) => v != null && v.toString().trim().isNotEmpty).join('|');
+
+  return (seed.isNotEmpty ? seed : fallback).hashCode & 0x7fffffff;
+}
+
 @pragma('vm:entry-point')
-Future _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   debugPrint('[FCM] Background message: ${message.messageId} data=${message.data}');
+
+  if (kIsWeb) return;
+
+  final title = (message.data['title'] ?? message.notification?.title ?? '').toString().trim();
+  final body = (message.data['body'] ?? message.notification?.body ?? '').toString().trim();
+
+  if (title.isEmpty && body.isEmpty) {
+    debugPrint('[FCM] Background skip: empty payload');
+    return;
+  }
+
+  final plugin = FlutterLocalNotificationsPlugin();
+  await plugin.initialize(
+    settings:  InitializationSettings(
+      android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+      iOS: DarwinInitializationSettings(),
+    ),
+  );
+
+  await plugin
+      .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+      ?.createNotificationChannel(_firdutyChannel);
+
+  await plugin.show(
+    id:_stableNotificationId(message.data, message.messageId ?? 'firduty-bg'),
+    title: title.isEmpty ? 'Firduty' : title,
+    body: body,
+    notificationDetails:  NotificationDetails(
+      android: AndroidNotificationDetails(
+        'firduty_channel',
+        'Duty Notifications',
+        channelDescription: 'Notifications about your duty assignments',
+        importance: Importance.high,
+        priority: Priority.high,
+      ),
+      iOS: DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+      ),
+    ),
+  );
 }
 
 enum NotificationBellState {
@@ -117,19 +179,12 @@ class NotificationService {
       throw Exception('Notification permission denied on Android.');
     }
 
-    const channel = AndroidNotificationChannel(
-      'firduty_channel',
-      'Duty Notifications',
-      description: 'Notifications about your duty assignments',
-      importance: Importance.high,
-    );
-
     await _localNotifications
         .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
-        ?.createNotificationChannel(channel);
+        ?.createNotificationChannel(_firdutyChannel);
 
     await _localNotifications.initialize(
-      const InitializationSettings(
+      settings:InitializationSettings(
         android: AndroidInitializationSettings('@mipmap/ic_launcher'),
         iOS: DarwinInitializationSettings(),
       ),
@@ -280,8 +335,8 @@ class NotificationService {
   static Future<void> _showLocalNotification(RemoteMessage message) async {
     if (kIsWeb) return;
 
-    final title = (message.notification?.title ?? message.data['title'] ?? '').toString().trim();
-    final body = (message.notification?.body ?? message.data['body'] ?? '').toString().trim();
+    final title = (message.data['title'] ?? message.notification?.title ?? '').toString().trim();
+    final body = (message.data['body'] ?? message.notification?.body ?? '').toString().trim();
 
     if (title.isEmpty && body.isEmpty) {
       debugPrint('[NotificationService] Skip local notification: empty payload');
@@ -289,15 +344,21 @@ class NotificationService {
     }
 
     await _localNotifications.show(
-      message.messageId.hashCode,
-      title.isEmpty ? 'Firduty' : title,
-      body,
-      const NotificationDetails(
+      id: _stableNotificationId(message.data, message.messageId ?? 'firduty-fg'),
+      title: title.isEmpty ? 'Firduty' : title,
+      body: body,
+      notificationDetails: NotificationDetails(
         android: AndroidNotificationDetails(
           'firduty_channel',
           'Duty Notifications',
+          channelDescription: 'Notifications about your duty assignments',
           importance: Importance.high,
           priority: Priority.high,
+        ),
+        iOS: DarwinNotificationDetails(
+          presentAlert: true,
+          presentBadge: true,
+          presentSound: true,
         ),
       ),
     );

@@ -12,12 +12,27 @@ firebase.initializeApp({
 });
 
 const messaging = firebase.messaging();
+const recentlyShown = new Map();
+const DEDUPE_WINDOW_MS = 15000;
+
+function cleanupShownCache() {
+  const now = Date.now();
+  for (const [key, ts] of recentlyShown.entries()) {
+    if (now - ts > DEDUPE_WINDOW_MS) {
+      recentlyShown.delete(key);
+    }
+  }
+}
 
 function buildNotificationFromPayload(payload) {
   const data = payload?.data || {};
-  const title = (data.title || '').trim();
-  const body = (data.body || '').trim();
-  const assignmentId = data.assignment_id || 'firduty-notification';
+  const title = String(data.title || payload?.notification?.title || '').trim();
+  const body = String(data.body || payload?.notification?.body || '').trim();
+  const tag = [
+    data.notification_type || data.type || 'general',
+    data.assignment_id || 'no-assignment',
+    data.day_date || 'no-date',
+  ].join('-');
 
   if (!title && !body) {
     return null;
@@ -30,7 +45,7 @@ function buildNotificationFromPayload(payload) {
       icon: '/icons/Icon-192.png',
       badge: '/icons/Icon-192.png',
       data,
-      tag: `${data.type || 'general'}-${assignmentId}`,
+      tag,
       renotify: false,
       actions: [{ action: 'open', title: 'Open App' }],
     },
@@ -38,21 +53,22 @@ function buildNotificationFromPayload(payload) {
 }
 
 messaging.onBackgroundMessage(function (payload) {
-  console.log('[firebase-messaging-sw] Background payload:', payload);
-
-  // Prevent double notifications on web/iOS PWA.
-  // If FCM already supplied a notification payload, let the browser show it.
-  if (payload && payload.notification) {
-    console.log('[firebase-messaging-sw] Skip manual render: notification payload already exists.');
-    return;
-  }
+  cleanupShownCache();
 
   const notif = buildNotificationFromPayload(payload);
   if (!notif) {
-    console.log('[firebase-messaging-sw] Skip manual render: empty title/body.');
+    console.log('[firebase-messaging-sw] Skip manual render: empty title/body.', payload);
     return;
   }
 
+  const dedupeKey = `${notif.options.tag}|${notif.title}|${notif.options.body || ''}`;
+  if (recentlyShown.has(dedupeKey)) {
+    console.log('[firebase-messaging-sw] Skip duplicate notification:', dedupeKey);
+    return;
+  }
+
+  recentlyShown.set(dedupeKey, Date.now());
+  console.log('[firebase-messaging-sw] Showing notification:', dedupeKey, payload);
   return self.registration.showNotification(notif.title, notif.options);
 });
 

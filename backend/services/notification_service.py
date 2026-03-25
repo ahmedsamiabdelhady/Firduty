@@ -5,13 +5,11 @@ Delivery paths:
 - platform = 'android' → FCM via firebase-admin SDK (native token)
 - platform = 'web' → FCM Web Push via firebase-admin SDK (VAPID token)
 
-Key guarantees:
-- send_notification_to_tokens() returns (success_count, failed_tokens)
-- invalid/expired tokens are returned so callers can clean DB rows
-- reminder / start / update notifications all carry visible title/body and data
-- send_data_only_notification() is kept for compatibility, but now sends a
-  visible notification too when title/body are present in the payload so
-  Android can display reminder/start notifications reliably
+Important behavior:
+- All sends are DATA-ONLY to prevent duplicate notifications on web/iOS PWA.
+- title/body are still included inside the data payload for local rendering.
+- send_notification_to_tokens() returns (success_count, invalid_tokens).
+- Invalid / expired tokens are returned so callers can clean the DB.
 """
 
 import logging
@@ -29,7 +27,6 @@ _firebase_initialized = False
 _firebase_init_attempted = False
 
 
-# ── Firebase initialisation ───────────────────────────────────────────────────
 def _init_firebase() -> None:
     global _firebase_initialized, _firebase_init_attempted
 
@@ -64,7 +61,6 @@ def _init_firebase() -> None:
         logger.error("[FCM] Firebase Admin SDK init FAILED: %s", exc)
 
 
-# ── Notification templates ────────────────────────────────────────────────────
 TEMPLATES: dict = {
     "reminder_location": {
         "ar": {
@@ -128,7 +124,15 @@ def get_notification_text(template_key: str, lang: str, **kwargs: str) -> dict:
     }
 
 
-# ── Core FCM sender ───────────────────────────────────────────────────────────
+def _normalize_data(title: str, body: str, data: Optional[dict]) -> dict:
+    normalized = {k: str(v) for k, v in (data or {}).items() if v is not None}
+    if title:
+        normalized.setdefault("title", title)
+    if body:
+        normalized.setdefault("body", body)
+    return normalized
+
+
 def send_notification_to_tokens(
     tokens: List[str],
     title: str,
@@ -136,10 +140,10 @@ def send_notification_to_tokens(
     data: Optional[dict] = None,
 ) -> Tuple[int, List[str]]:
     """
-    Send an FCM multicast push notification.
+    Send a DATA-ONLY FCM multicast push notification.
 
     Returns:
-      (success_count, failed_tokens)
+      (success_count, invalid_tokens)
     """
     _init_firebase()
 
@@ -157,11 +161,7 @@ def send_notification_to_tokens(
     if len(unique_tokens) < len(tokens):
         logger.debug("[FCM] Deduplicated %d → %d tokens", len(tokens), len(unique_tokens))
 
-    str_data = {k: str(v) for k, v in (data or {}).items()}
-    if title:
-        str_data.setdefault("title", title)
-    if body:
-        str_data.setdefault("body", body)
+    str_data = _normalize_data(title, body, data)
 
     web_base_url = (
         os.getenv("WEB_APP_URL")
@@ -171,21 +171,26 @@ def send_notification_to_tokens(
 
     message = messaging.MulticastMessage(
         tokens=unique_tokens,
-        notification=messaging.Notification(title=title, body=body),
         data=str_data,
-        android=messaging.AndroidConfig(priority="high"),
+        android=messaging.AndroidConfig(
+            priority="high",
+            ttl=3600,
+        ),
         apns=messaging.APNSConfig(
+            headers={
+                "apns-priority": "10",
+                "apns-push-type": "background",
+            },
             payload=messaging.APNSPayload(
-                aps=messaging.Aps(sound="default", content_available=True)
-            )
+                aps=messaging.Aps(
+                    content_available=True,
+                    sound="default",
+                    mutable_content=True,
+                )
+            ),
         ),
         webpush=messaging.WebpushConfig(
-            notification=messaging.WebpushNotification(
-                title=title,
-                body=body,
-                icon="/icons/Icon-192.png",
-                badge="/icons/Icon-192.png",
-            ),
+            headers={"Urgency": "high", "TTL": "3600"},
             fcm_options=messaging.WebpushFCMOptions(link=f"{web_base_url}/"),
         ),
     )
@@ -196,7 +201,7 @@ def send_notification_to_tokens(
         logger.error("[FCM] send_each_for_multicast raised: %s", exc)
         return 0, unique_tokens
 
-    failed_tokens: List[str] = []
+    invalid_tokens: List[str] = []
     invalid_codes = {
         "registration-token-not-registered",
         "invalid-registration-token",
@@ -218,20 +223,20 @@ def send_notification_to_tokens(
             err_code,
             err_msg,
         )
-        if err_code in invalid_codes:
-            failed_tokens.append(token)
+        if err_code in invalid_codes or "NotRegistered" in err_msg:
+            invalid_tokens.append(token)
 
     logger.info(
         "[FCM] Multicast result: %d/%d succeeded, %d invalid tokens to remove",
         response.success_count,
         len(unique_tokens),
-        len(failed_tokens),
+        len(invalid_tokens),
     )
-    return response.success_count, failed_tokens
+    return response.success_count, invalid_tokens
 
 
-def remove_invalid_tokens(db, failed_tokens: List[str]) -> None:
-    if not failed_tokens:
+def remove_invalid_tokens(db, invalid_tokens: List[str]) -> None:
+    if not invalid_tokens:
         return
 
     try:
@@ -239,7 +244,7 @@ def remove_invalid_tokens(db, failed_tokens: List[str]) -> None:
 
         deleted = (
             db.query(DeviceToken)
-            .filter(DeviceToken.token.in_(failed_tokens))
+            .filter(DeviceToken.token.in_(invalid_tokens))
             .delete(synchronize_session=False)
         )
         db.commit()
@@ -250,20 +255,18 @@ def remove_invalid_tokens(db, failed_tokens: List[str]) -> None:
         db.rollback()
 
 
-# ── High-level helpers ────────────────────────────────────────────────────────
 def notify_teacher_updated(teacher_tokens: List[str], lang: str) -> int:
     text = get_notification_text("updated", lang)
-    success, _ = send_notification_to_tokens(
+    success_count, _invalid_tokens = send_notification_to_tokens(
         teacher_tokens,
         text["title"],
         text["body"],
         data={
             "type": "schedule_updated",
-            "title": text["title"],
-            "body": text["body"],
+            "notification_type": "schedule_updated",
         },
     )
-    return success
+    return success_count
 
 
 def notify_duty_reminder(
@@ -291,10 +294,7 @@ def notify_duty_reminder(
         )
         data = {"type": "duty_reminder", "duty_type": "morning_endofday"}
 
-    data["title"] = text["title"]
-    data["body"] = text["body"]
     return send_notification_to_tokens(teacher_tokens, text["title"], text["body"], data=data)
-
 
 
 def notify_duty_start(
@@ -311,37 +311,32 @@ def notify_duty_start(
         text = get_notification_text("start_location", lang, location=location or "")
         data = {"type": "duty_start", "duty_type": "morning_endofday"}
 
-    data["title"] = text["title"]
-    data["body"] = text["body"]
     return send_notification_to_tokens(teacher_tokens, text["title"], text["body"], data=data)
-
 
 
 def send_data_only_notification(teacher_id: int, data: dict) -> Tuple[int, List[str]]:
     """
-    Backward-compatible helper used by the reminder job.
+    Send a data-only FCM notification to all tokens of a teacher.
 
-    It still accepts a teacher_id + data payload, but it now sends a visible
-    notification too whenever `data['title']` / `data['body']` are present so
-    Android and iOS/web behave consistently.
+    Returns:
+      (success_count, invalid_tokens)
     """
     from database import SessionLocal
     from models.models import DeviceToken
 
     db = SessionLocal()
     try:
-        rows = (
+        token_rows = (
             db.query(DeviceToken.token)
             .filter(DeviceToken.teacher_id == teacher_id)
             .all()
         )
-        tokens = [row[0] for row in rows if row[0]]
+        tokens = [row[0] for row in token_rows if row and row[0]]
         if not tokens:
             return 0, []
 
-        title = str(data.get("title") or "Firduty")
-        body = str(data.get("body") or "")
-
+        title = str((data or {}).get("title") or "").strip()
+        body = str((data or {}).get("body") or "").strip()
         success_count, invalid_tokens = send_notification_to_tokens(
             tokens=tokens,
             title=title,
@@ -350,12 +345,7 @@ def send_data_only_notification(teacher_id: int, data: dict) -> Tuple[int, List[
         )
 
         if invalid_tokens:
-            (
-                db.query(DeviceToken)
-                .filter(DeviceToken.token.in_(invalid_tokens))
-                .delete(synchronize_session=False)
-            )
-            db.commit()
+            remove_invalid_tokens(db, invalid_tokens)
 
         return success_count, invalid_tokens
     except Exception as exc:
