@@ -195,27 +195,38 @@ def _build_android_message(tokens: list[str], data: dict) -> messaging.Multicast
 
 
 
-def _build_web_message(tokens: list[str], data: dict) -> messaging.MulticastMessage:
-    title = str(data.get("title", "Firduty") or "Firduty")
-    body = str(data.get("body", "") or "")
-    web_link = os.getenv("WEB_APP_URL", "").strip() or "/"
+def _build_web_multicast(title: str, body: str, data: dict, tokens: list[str]) -> messaging.MulticastMessage:
+    web_link = (os.getenv("WEB_APP_URL") or "").strip()
+
+    if web_link and not web_link.startswith("https://"):
+        logger.warning("[FCM] Invalid WEB_APP_URL=%r; omitting webpush link because it must be HTTPS", web_link)
+        web_link = None
+
+    webpush_config = messaging.WebpushConfig(
+        headers={"Urgency": "high", "TTL": "300"},
+        notification=messaging.WebpushNotification(
+            title=title,
+            body=body,
+            icon="/icons/Icon-192.png",
+            badge="/icons/Icon-192.png",
+            tag=str(
+                data.get("event_id")
+                or data.get("assignment_id")
+                or data.get("notification_type")
+                or "firduty"
+            ),
+            renotify=False,
+        ),
+    )
+
+    if web_link:
+        webpush_config.fcm_options = messaging.WebpushFCMOptions(link=web_link)
 
     return messaging.MulticastMessage(
         data=_safe_str_dict(data),
         tokens=tokens,
         notification=messaging.Notification(title=title, body=body),
-        webpush=messaging.WebpushConfig(
-            headers={"Urgency": "high", "TTL": "300"},
-            notification=messaging.WebpushNotification(
-                title=title,
-                body=body,
-                icon="/icons/Icon-192.png",
-                badge="/icons/Icon-192.png",
-                tag=str(data.get("event_id") or data.get("assignment_id") or data.get("notification_type") or "firduty"),
-                renotify=False,
-            ),
-            fcm_options=messaging.WebpushFCMOptions(link=web_link),
-        ),
+        webpush=webpush_config,
     )
 
 
@@ -237,7 +248,7 @@ def _send_multicast(*, tokens: list[str], data: dict, platform: str) -> tuple[in
             if platform == "android":
                 message = _build_android_message(token_chunk, data)
             else:
-                message = _build_web_message(token_chunk, data)
+                message = _build_web_multicast(token_chunk, data)
 
             response = messaging.send_each_for_multicast(message)
         except Exception as exc:
