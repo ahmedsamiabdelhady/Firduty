@@ -7,6 +7,21 @@ from firebase_admin import messaging
 from database import SessionLocal
 from models.models import DeviceToken
 
+import firebase_admin
+from firebase_admin import credentials
+import os
+import json
+
+# ✅ Ensure Firebase initialized once
+if not firebase_admin._apps:
+    creds_json = os.getenv("FIREBASE_CREDENTIALS_JSON")
+
+    if creds_json:
+        cred = credentials.Certificate(json.loads(creds_json))
+        firebase_admin.initialize_app(cred)
+    else:
+        firebase_admin.initialize_app()
+
 logger = logging.getLogger("services.notification_service")
 
 
