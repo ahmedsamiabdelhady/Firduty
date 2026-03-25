@@ -121,14 +121,14 @@ def run_duty_reminders() -> None:
 
         assignments = (
             db.query(Assignment)
-            .join(DayPlan, Assignment.day_plan_id == DayPlan.id)
             .join(ShiftLocation, Assignment.shift_location_id == ShiftLocation.id)
+            .join(DayPlan, ShiftLocation.day_plan_id == DayPlan.id)
             .join(Teacher, Assignment.teacher_id == Teacher.id)
             .options(
                 joinedload(Assignment.teacher),
                 joinedload(Assignment.shift_location).joinedload(ShiftLocation.shift),
                 joinedload(Assignment.shift_location).joinedload(ShiftLocation.location),
-                joinedload(Assignment.day_plan),
+                joinedload(Assignment.shift_location).joinedload(ShiftLocation.day_plan),
             )
             .filter(
                 DayPlan.date == muscat_date,
@@ -161,7 +161,7 @@ def run_duty_reminders() -> None:
             shift_location = assignment.shift_location
             shift = shift_location.shift
             location = shift_location.location
-            day_plan = assignment.day_plan
+            day_plan = shift_location.day_plan
 
             if not teacher or not shift or not day_plan:
                 continue
