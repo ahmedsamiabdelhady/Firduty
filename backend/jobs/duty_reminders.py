@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.orm import joinedload
 
 from database import SessionLocal
-from models import Assignment, DayPlan, ShiftLocation, Teacher
+from models.models import Assignment, DayPlan, ShiftLocation, Teacher
 from models.notification_log import NotificationLog
 from services.notification_service import send_notification
 
