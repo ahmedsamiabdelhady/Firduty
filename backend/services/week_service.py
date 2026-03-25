@@ -1109,7 +1109,7 @@ def _notify_assigned_teachers(
         lang = str(teacher.preferred_language) if teacher.preferred_language else "ar"
 
         try:
-            success_count, _bad_tokens = notify_teacher_updated(tokens, lang)
+            success_count = notify_teacher_updated(tokens, lang)
         except Exception as exc:
             logger.warning("Failed to notify teacher %s: %s", tid, exc)
             try:

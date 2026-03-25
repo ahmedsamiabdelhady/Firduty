@@ -12,7 +12,6 @@ from models.notification_log import NotificationLog
 from services.notification_service import send_data_only_notification
 
 logger = logging.getLogger("firduty.jobs.duty_reminders")
-
 MUSCAT_TZ = ZoneInfo("Asia/Muscat")
 
 
@@ -22,8 +21,11 @@ def _truncate_to_minute(dt: datetime) -> datetime:
 
 def _claim_notification(db, teacher_id: int, assignment_id: int, notif_type: str) -> bool:
     """
-    Insert notification log row first to guarantee send-once semantics.
-    Returns True if claimed successfully, False if already claimed/sent before.
+    Claim a notification row before sending.
+
+    Rules:
+    - sent / processing / claimed => do not resend
+    - failed / skipped => reclaim and retry
     """
     existing = (
         db.query(NotificationLog)
@@ -34,8 +36,16 @@ def _claim_notification(db, teacher_id: int, assignment_id: int, notif_type: str
         )
         .first()
     )
+
     if existing:
-      return False
+        status = str(existing.status or "").lower().strip()
+        if status in {"sent", "claimed", "processing"}:
+            return False
+
+        existing.status = "claimed"
+        existing.sent_at = None
+        db.commit()
+        return True
 
     db.add(
         NotificationLog(
@@ -138,10 +148,7 @@ def run_duty_reminders() -> None:
             .all()
         )
 
-        unique_assignments = {}
-        for a in assignments:
-            unique_assignments[a.id] = a
-        assignments = list(unique_assignments.values())
+        assignments = list({a.id: a for a in assignments}.values())
 
         if not assignments:
             logger.info("[reminders] No published assignments for %s — nothing to send.", muscat_date)
@@ -159,15 +166,14 @@ def run_duty_reminders() -> None:
         for assignment in assignments:
             teacher = assignment.teacher
             shift_location = assignment.shift_location
-            shift = shift_location.shift
-            location = shift_location.location
-            day_plan = shift_location.day_plan
+            shift = shift_location.shift if shift_location else None
+            location = shift_location.location if shift_location else None
+            day_plan = shift_location.day_plan if shift_location else None
 
-            if not teacher or not shift or not day_plan:
+            if not teacher or not shift or not day_plan or not shift.start_time:
                 continue
 
-            shift_time = shift.start_time
-            shift_dt = datetime.combine(day_plan.date, shift_time, tzinfo=MUSCAT_TZ)
+            shift_dt = datetime.combine(day_plan.date, shift.start_time, tzinfo=MUSCAT_TZ)
             shift_dt = _truncate_to_minute(shift_dt)
             reminder_dt = _truncate_to_minute(shift_dt - timedelta(minutes=15))
 
@@ -255,7 +261,6 @@ def run_duty_reminders() -> None:
                         teacher.id,
                         len(invalid_tokens),
                     )
-
             except Exception:
                 _mark_failed(db, teacher.id, assignment.id, notif_type)
                 logger.exception(
@@ -271,7 +276,6 @@ def run_duty_reminders() -> None:
             sent_reminder,
             sent_started,
         )
-
     except Exception:
         logger.exception("[reminders] Job crashed unexpectedly.")
     finally:
