@@ -7,12 +7,12 @@ Delivery paths:
 
 Both paths use send_notification_to_tokens() — Firebase routes by token type.
 
-Key guarantees:
+Key guarantees (v3.2 rewrite):
   • send_notification_to_tokens() returns (success_count, failed_tokens)
   • Callers can check success_count > 0 before recording delivery
   • Invalid/expired tokens are returned so the caller can clean them from DB
   • Firebase init failure is logged clearly; every send returns 0 + all tokens failed
-  • notify_duty_reminder / notify_duty_start always return (success_count, failed_tokens)
+  • notify_duty_reminder / notify_duty_start return success_count (not None)
 """
 
 import logging
@@ -26,7 +26,7 @@ from config import settings
 logger = logging.getLogger(__name__)
 
 _firebase_initialized = False
-_firebase_init_attempted = False
+_firebase_init_attempted = False   # prevent repeated noisy warnings
 
 
 # ── Firebase initialisation ───────────────────────────────────────────────────
@@ -38,6 +38,7 @@ def _init_firebase() -> None:
         return
 
     if _firebase_init_attempted:
+        # Already tried and failed — don't spam the logs on every notification
         return
 
     _firebase_init_attempted = True
@@ -53,6 +54,7 @@ def _init_firebase() -> None:
         return
 
     try:
+        # Guard against duplicate-app error on hot reload / test environments
         if firebase_admin._DEFAULT_APP_NAME in firebase_admin._apps:
             _firebase_initialized = True
             logger.info("[FCM] Firebase Admin SDK already initialized — reusing.")
@@ -63,7 +65,7 @@ def _init_firebase() -> None:
         _firebase_initialized = True
         logger.info("[FCM] Firebase Admin SDK initialized successfully.")
     except Exception as exc:
-        logger.error("[FCM] Firebase Admin SDK init FAILED: %s", exc, exc_info=True)
+        logger.error("[FCM] Firebase Admin SDK init FAILED: %s", exc)
 
 
 # ── Notification templates ────────────────────────────────────────────────────
@@ -128,7 +130,7 @@ def get_notification_text(template_key: str, lang: str, **kwargs: str) -> dict:
     tmpl: dict = TEMPLATES.get(template_key, {}).get(lang, {})
     return {
         "title": tmpl.get("title", "Duty Roster"),
-        "body": tmpl.get("body", "").format(**kwargs),
+        "body":  tmpl.get("body", "").format(**kwargs),
     }
 
 
@@ -141,15 +143,15 @@ def send_notification_to_tokens(
     data: Optional[dict] = None,
 ) -> Tuple[int, List[str]]:
     """
-    Send a DATA-ONLY FCM multicast push notification.
+    Send an FCM multicast push notification.
 
     Returns:
         (success_count, failed_tokens)
+        success_count — number of tokens Firebase accepted
+        failed_tokens — list of tokens that returned errors (should be removed from DB)
 
-    Notes:
-    - No top-level notification payload is sent.
-    - Client platforms are responsible for rendering the notification locally.
-    - This prevents duplicate OS + app + service-worker rendering.
+    Never raises — all errors are caught and logged.
+    Callers MUST check success_count > 0 before treating the send as successful.
     """
     _init_firebase()
 
@@ -167,11 +169,7 @@ def send_notification_to_tokens(
     if len(unique_tokens) < len(tokens):
         logger.debug("[FCM] Deduplicated %d → %d tokens", len(tokens), len(unique_tokens))
 
-    payload_data = {
-        "title": title,
-        "body": body,
-        **{k: str(v) for k, v in (data or {}).items()},
-    }
+    str_data = {k: str(v) for k, v in (data or {}).items()}
 
     web_base_url = (
         os.getenv("WEB_APP_URL")
@@ -181,27 +179,21 @@ def send_notification_to_tokens(
 
     message = messaging.MulticastMessage(
         tokens=unique_tokens,
-        data=payload_data,
-        android=messaging.AndroidConfig(
-            priority="high",
-            data=payload_data,
-        ),
+        notification=messaging.Notification(title=title, body=body),
+        data=str_data,
+        android=messaging.AndroidConfig(priority="high"),
         apns=messaging.APNSConfig(
-            headers={
-                "apns-priority": "10",
-                "apns-push-type": "background",
-            },
             payload=messaging.APNSPayload(
-                aps=messaging.Aps(
-                    content_available=True,
-                )
-            ),
+                aps=messaging.Aps(sound="default", content_available=True)
+            )
         ),
         webpush=messaging.WebpushConfig(
-            headers={
-                "Urgency": "high",
-            },
-            data=payload_data,
+            notification=messaging.WebpushNotification(
+                title=title,
+                body=body,
+                icon="/icons/Icon-192.png",
+                badge="/icons/Icon-192.png",
+            ),
             fcm_options=messaging.WebpushFCMOptions(link=f"{web_base_url}/"),
         ),
     )
@@ -209,7 +201,7 @@ def send_notification_to_tokens(
     try:
         response = messaging.send_each_for_multicast(message)
     except Exception as exc:
-        logger.error("[FCM] send_each_for_multicast raised: %s", exc, exc_info=True)
+        logger.error("[FCM] send_each_for_multicast raised: %s", exc)
         return 0, unique_tokens
 
     failed_tokens: List[str] = []
@@ -217,36 +209,31 @@ def send_notification_to_tokens(
         "registration-token-not-registered",
         "invalid-registration-token",
         "invalid-argument",
-        "unregistered",
     }
 
     for idx, result in enumerate(response.responses):
         token = unique_tokens[idx]
         if result.success:
-            logger.debug("[FCM] ✓ token[%d] accepted", idx)
-            continue
-
-        err = result.exception
-        err_code = (getattr(err, "code", "") or "").lower()
-        err_msg = str(err) if err else "unknown error"
-        logger.warning(
-            "[FCM] ✗ token[%d] failed — code=%s msg=%s",
-            idx,
-            err_code,
-            err_msg,
-        )
-        if err_code in invalid_codes or "notregistered" in err_msg.lower():
-            failed_tokens.append(token)
+            logger.debug("[FCM] ✓ token[%d] delivered", idx)
+        else:
+            err = result.exception
+            err_code = getattr(err, "code", "") or ""
+            err_msg = str(err) if err else "unknown error"
+            logger.warning(
+                "[FCM] ✗ token[%d] failed — code=%s msg=%s",
+                idx, err_code, err_msg,
+            )
+            if err_code in invalid_codes:
+                failed_tokens.append(token)
 
     logger.info(
-        "[FCM] Data-only multicast result: %d/%d succeeded, %d invalid tokens to remove",
+        "[FCM] Multicast result: %d/%d succeeded, %d invalid tokens to remove",
         response.success_count,
         len(unique_tokens),
         len(failed_tokens),
     )
 
     return response.success_count, failed_tokens
-
 
 def remove_invalid_tokens(db, failed_tokens: List[str]) -> None:
     """
@@ -255,10 +242,8 @@ def remove_invalid_tokens(db, failed_tokens: List[str]) -> None:
     """
     if not failed_tokens:
         return
-
     try:
         from models.models import DeviceToken
-
         deleted = (
             db.query(DeviceToken)
             .filter(DeviceToken.token.in_(failed_tokens))
@@ -268,22 +253,20 @@ def remove_invalid_tokens(db, failed_tokens: List[str]) -> None:
         if deleted:
             logger.info("[FCM] Removed %d invalid/expired device token(s).", deleted)
     except Exception as exc:
-        logger.error("[FCM] Failed to remove invalid tokens: %s", exc, exc_info=True)
+        logger.error("[FCM] Failed to remove invalid tokens: %s", exc)
         db.rollback()
 
 
 # ── High-level helpers ────────────────────────────────────────────────────────
 
-def notify_teacher_updated(teacher_tokens: List[str], lang: str) -> Tuple[int, List[str]]:
-    """Notify a teacher that their weekly schedule was updated. Returns (success_count, failed_tokens)."""
+def notify_teacher_updated(teacher_tokens: List[str], lang: str) -> int:
+    """Notify a teacher that their weekly schedule was updated. Returns success_count."""
     text = get_notification_text("updated", lang)
-    success, failed_tokens = send_notification_to_tokens(
-        teacher_tokens,
-        text["title"],
-        text["body"],
+    success, _ = send_notification_to_tokens(
+        teacher_tokens, text["title"], text["body"],
         data={"type": "schedule_updated"},
     )
-    return success, failed_tokens
+    return success
 
 
 def notify_duty_reminder(
@@ -293,8 +276,6 @@ def notify_duty_reminder(
     duty_type: str = "morning_endofday",
     location: Optional[str] = None,
     grade_class: Optional[str] = None,
-    assignment_id: Optional[int] = None,
-    teacher_id: Optional[int] = None,
 ) -> Tuple[int, List[str]]:
     """
     Send 15-minute reminder before a duty.
@@ -302,36 +283,17 @@ def notify_duty_reminder(
     """
     if duty_type == "break" and grade_class:
         text = get_notification_text(
-            "reminder_break",
-            lang,
-            shift=shift,
-            grade_class=grade_class,
+            "reminder_break", lang, shift=shift, grade_class=grade_class
         )
-        data: dict = {
-            "type": "duty_reminder",
-            "duty_type": "break",
-            "assignment_id": assignment_id or "",
-            "teacher_id": teacher_id or "",
-        }
+        data: dict = {"type": "duty_reminder", "duty_type": "break"}
     else:
         text = get_notification_text(
-            "reminder_location",
-            lang,
-            shift=shift,
-            location=location or "",
+            "reminder_location", lang, shift=shift, location=location or ""
         )
-        data = {
-            "type": "duty_reminder",
-            "duty_type": "morning_endofday",
-            "assignment_id": assignment_id or "",
-            "teacher_id": teacher_id or "",
-        }
+        data = {"type": "duty_reminder", "duty_type": "morning_endofday"}
 
     return send_notification_to_tokens(
-        teacher_tokens,
-        text["title"],
-        text["body"],
-        data=data,
+        teacher_tokens, text["title"], text["body"], data=data
     )
 
 
@@ -341,8 +303,6 @@ def notify_duty_start(
     duty_type: str = "morning_endofday",
     location: Optional[str] = None,
     grade_class: Optional[str] = None,
-    assignment_id: Optional[int] = None,
-    teacher_id: Optional[int] = None,
 ) -> Tuple[int, List[str]]:
     """
     Notify teacher that their duty has started.
@@ -350,28 +310,70 @@ def notify_duty_start(
     """
     if duty_type == "break" and grade_class:
         text = get_notification_text("start_break", lang, grade_class=grade_class)
-        data: dict = {
-            "type": "duty_start",
-            "duty_type": "break",
-            "assignment_id": assignment_id or "",
-            "teacher_id": teacher_id or "",
-        }
+        data: dict = {"type": "duty_start", "duty_type": "break"}
     else:
         text = get_notification_text(
-            "start_location",
-            lang,
-            location=location or "",
+            "start_location", lang, location=location or ""
         )
-        data = {
-            "type": "duty_start",
-            "duty_type": "morning_endofday",
-            "assignment_id": assignment_id or "",
-            "teacher_id": teacher_id or "",
-        }
+        data = {"type": "duty_start", "duty_type": "morning_endofday"}
 
     return send_notification_to_tokens(
-        teacher_tokens,
-        text["title"],
-        text["body"],
-        data=data,
+        teacher_tokens, text["title"], text["body"], data=data
     )
+
+def send_data_only_notification(teacher_id: int, data: dict):
+    """
+    Send data-only FCM notification to all tokens of a teacher.
+    Returns: (success_count, invalid_tokens_list)
+    """
+
+    from firebase_admin import messaging
+    from database import SessionLocal
+    from models.models import DeviceToken
+
+    db = SessionLocal()
+
+    try:
+        tokens = (
+            db.query(DeviceToken.token)
+            .filter(DeviceToken.teacher_id == teacher_id)
+            .all()
+        )
+
+        tokens = [t[0] for t in tokens if t[0]]
+
+        if not tokens:
+            return 0, []
+
+        message = messaging.MulticastMessage(
+            data={k: str(v) for k, v in data.items()},
+            tokens=tokens,
+        )
+
+        response = messaging.send_multicast(message)
+
+        invalid_tokens = []
+        for idx, resp in enumerate(response.responses):
+            if not resp.success:
+                err = str(resp.exception)
+                if "NotRegistered" in err or "registration-token-not-registered" in err:
+                    invalid_tokens.append(tokens[idx])
+
+        # delete invalid tokens
+        if invalid_tokens:
+            db.query(DeviceToken).filter(
+                DeviceToken.token.in_(invalid_tokens)
+            ).delete(synchronize_session=False)
+            db.commit()
+
+        return response.success_count, invalid_tokens
+
+    except Exception as e:
+        import logging
+        logging.getLogger("firduty.notification").exception(
+            f"[FCM] send_data_only_notification failed: {e}"
+        )
+        return 0, []
+
+    finally:
+        db.close()
