@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import logging
@@ -183,7 +182,7 @@ def run_duty_reminders() -> None:
             return
 
         logger.info(
-            "[reminders] Found %d unique published assignment(s) for %s — checking exact minute...",
+            "[reminders] Found %d unique published assignment(s) for %s — checking window...",
             len(assignments),
             muscat_date,
         )
@@ -215,12 +214,24 @@ def run_duty_reminders() -> None:
             )
 
             notif_type = None
-            if now_minute == reminder_dt:
+            if reminder_dt <= now_minute <= reminder_dt + timedelta(minutes=2):
                 notif_type = "reminder_15m"
-                logger.info("[reminders] → EXACT REMINDER HIT: assignment=%s", assignment.id)
-            elif now_minute == start_dt:
+                logger.info(
+                    "[reminders] → REMINDER HIT: assignment=%s now=%s window=%s-%s",
+                    assignment.id,
+                    now_minute.strftime("%H:%M"),
+                    reminder_dt.strftime("%H:%M"),
+                    (reminder_dt + timedelta(minutes=2)).strftime("%H:%M"),
+                )
+            elif start_dt <= now_minute <= start_dt + timedelta(minutes=2):
                 notif_type = "duty_started"
-                logger.info("[reminders] → EXACT START HIT: assignment=%s", assignment.id)
+                logger.info(
+                    "[reminders] → START HIT: assignment=%s now=%s window=%s-%s",
+                    assignment.id,
+                    now_minute.strftime("%H:%M"),
+                    start_dt.strftime("%H:%M"),
+                    (start_dt + timedelta(minutes=2)).strftime("%H:%M"),
+                )
             else:
                 continue
 

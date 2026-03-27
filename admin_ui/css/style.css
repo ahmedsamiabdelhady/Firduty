@@ -119,36 +119,7 @@ body {
 }
 .nav-btn.active:hover { background: #f0f4f8; }
 
-/* ─── Login Page ─────────────────────────────────────────────────────────── */
-.login-wrapper {
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(135deg, var(--nav) 0%, var(--nav-dark) 60%, #1A4F6E 100%);
-}
-.login-card {
-  background: var(--white);
-  border-radius: 20px;
-  padding: 40px 36px;
-  width: 100%;
-  max-width: 400px;
-  box-shadow: 0 12px 40px rgba(31,45,58,0.25);
-}
-.login-logo {
-  display: block;
-  width: 88px;
-  height: 88px;
-  object-fit: contain;
-  margin: 0 auto 20px;
-}
-.login-card h2 {
-  text-align: center;
-  margin-bottom: 28px;
-  color: var(--nav);
-  font-size: 1.4rem;
-  font-weight: 700;
-}
+/* ─── Login Page — see .login-wrapper/.login-split below ────────────────── */
 
 /* ─── Form Elements ─────────────────────────────────────────────────────── */
 .form-group { margin-bottom: 16px; }
@@ -716,6 +687,24 @@ body.planner-dragging .slots-list .slot-item:hover {
   display: inline-block; background: #fee2e2; color: #b91c1c;
   border-radius: 10px; padding: 2px 10px; font-size: 0.78rem; margin: 2px 3px;
 }
+/* ─── Pill labels — consistent inline-flex across all pages ──────────────── */
+.pill {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 24px; padding: 2px 9px;
+  border-radius: 10px; font-size: 0.75rem; font-weight: 600;
+}
+.pill-green  { background: #d1fae5; color: #065f46; }
+.pill-yellow { background: #fef9c3; color: #92400e; }
+.pill-gray   { background: #f3f4f6; color: #6b7280; }
+
+.status-pill {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 2px 10px; border-radius: 12px; font-size: 0.78rem; font-weight: 600;
+}
+.status-pill.published { background: #d1fae5; color: #065f46; }
+.status-pill.draft     { background: #fef9c3; color: #92400e; }
+.status-pill.none      { background: #f3f4f6; color: #6b7280; }
+
 .rank-badge {
   display: inline-flex; align-items: center; justify-content: center;
   width: 26px; height: 26px; border-radius: 50%;
@@ -725,10 +714,6 @@ body.planner-dragging .slots-list .slot-item:hover {
 .rank-badge.gold   { background: #fbbf24; color: #7c3500; }
 .rank-badge.silver { background: #9ca3af; color: #1f2937; }
 .rank-badge.bronze { background: #b45309; color: #fff;    }
-.status-pill { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 0.78rem; font-weight: 600; }
-.status-pill.published { background: #d1fae5; color: #065f46; }
-.status-pill.draft     { background: #fef9c3; color: #92400e; }
-.status-pill.none      { background: #f3f4f6; color: #6b7280; }
 
 /* ─── Login page improvements ────────────────────────────────────────────── */
 .login-wrapper {
@@ -961,4 +946,185 @@ body.planner-dragging .slots-list .slot-item:hover {
     color: #15803d !important;
     font-weight: 700;
   }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ADDITIONS v2.6 — Bug fixes + UX polish
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ─── Missing shift card classes (shifts.js renderShiftCard) ──────────────── */
+.form-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 0;
+}
+.form-row .form-group { flex: 1; min-width: 120px; }
+
+.card-error {
+  font-size: 0.78rem;
+  color: var(--danger);
+  background: #fee2e2;
+  border: 1px solid #fca5a5;
+  border-radius: var(--radius);
+  padding: 6px 10px;
+  margin-top: 4px;
+  display: none;
+}
+
+.card-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+/* ─── Planner summary stats (planner.html + planner.js) ──────────────────── */
+.planner-summary {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.planner-stat {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 12px 14px;
+  border-top: 3px solid var(--border);
+  box-shadow: var(--shadow);
+}
+.planner-stat--info    { border-top-color: var(--nav);     }
+.planner-stat--success { border-top-color: var(--primary); }
+.planner-stat--warning { border-top-color: var(--warning); }
+.planner-stat__label {
+  font-size: 0.72rem; font-weight: 700; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 4px;
+}
+.planner-stat__value { font-size: 1.35rem; font-weight: 800; color: var(--nav); line-height: 1.1; }
+.planner-stat__sub   { font-size: 0.7rem;  color: var(--text-muted); margin-top: 3px; }
+
+@media (max-width: 860px) { .planner-summary { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 480px)  { .planner-summary { grid-template-columns: 1fr 1fr; gap: 8px; } }
+
+/* ─── Teacher list item — BEM (planner.js renderTeacherSidebar) ───────────── */
+.teacher-list-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; border-radius: 8px; margin-bottom: 5px;
+  background: var(--primary); color: var(--white);
+  font-size: 0.82rem; cursor: grab; user-select: none;
+  transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
+}
+.teacher-list-item:hover  { background: var(--primary-dark); transform: translateX(2px); box-shadow: 0 4px 12px rgba(106,154,51,0.22); }
+.teacher-list-item:active { transform: scale(0.97); }
+.teacher-list-item--busy  { background: var(--nav); }
+.teacher-list-item--busy:hover { background: var(--nav-dark); }
+.teacher-list-item--mobile { cursor: default; }
+
+.teacher-list-item__avatar {
+  width: 28px; height: 28px; border-radius: 50%;
+  background: rgba(255,255,255,0.22);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 0.72rem; flex-shrink: 0; letter-spacing: -0.5px;
+}
+.teacher-list-item__meta { flex: 1; min-width: 0; overflow: hidden; }
+.teacher-list-item__meta-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 4px;
+}
+.teacher-list-item__name {
+  font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 0.83rem;
+}
+.teacher-list-item__hint {
+  font-size: 0.68rem; opacity: 0.72; display: block; margin-top: 1px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.teacher-duty-badge {
+  background: rgba(255,255,255,0.22); border-radius: 10px;
+  padding: 1px 6px; font-size: 0.68rem; font-weight: 700; flex-shrink: 0;
+}
+
+/* ─── Sidebar caption ─────────────────────────────────────────────────────── */
+.sidebar-caption {
+  font-size: 0.74rem; color: var(--text-muted); margin-bottom: 10px;
+  line-height: 1.5; font-style: italic;
+}
+
+/* ─── UX: Smoother global transitions ────────────────────────────────────── */
+.btn { transition: background 0.15s, transform 0.1s, box-shadow 0.15s, border-color 0.15s; }
+.btn:focus-visible {
+  outline: 2px solid var(--nav-light);
+  outline-offset: 2px;
+}
+input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: none;
+  border-color: var(--nav-light);
+  box-shadow: 0 0 0 3px rgba(79,161,204,0.18);
+}
+
+/* ─── UX: Better .section-card hover ────────────────────────────────────── */
+.section-card {
+  transition: box-shadow 0.2s, transform 0.15s;
+}
+.section-card:hover {
+  box-shadow: var(--shadow-md);
+}
+
+/* ─── UX: Subtle row hover on all data tables ────────────────────────────── */
+.data-table tbody tr { transition: background 0.1s; }
+.teacher-table tbody tr { transition: background 0.1s; }
+
+/* ─── UX: Better empty state icon ───────────────────────────────────────── */
+.empty-icon { font-size: 2.5rem; margin-bottom: 12px; display: block; }
+
+/* ─── UX: Toast show/hide animation ─────────────────────────────────────── */
+.toast {
+  animation: toastSlideIn 0.28s cubic-bezier(0.34,1.2,0.64,1);
+}
+@keyframes toastSlideIn {
+  from { opacity: 0; transform: translateY(12px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0)    scale(1); }
+}
+
+/* ─── UX: Spinner — smoother pulse ──────────────────────────────────────── */
+.spinner {
+  border-width: 2.5px;
+}
+
+/* ─── UX: Nav active pill transition ────────────────────────────────────── */
+.nav-btn {
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s, transform 0.1s;
+}
+.nav-btn:active { transform: scale(0.96); }
+
+/* ─── UX: Better modal animation ────────────────────────────────────────── */
+.modal {
+  animation: modalPop 0.18s cubic-bezier(0.34,1.2,0.64,1);
+}
+@keyframes modalPop {
+  from { opacity: 0; transform: translateY(-12px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0)     scale(1); }
+}
+.modal-overlay { animation: fadeIn 0.15s ease; }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* ─── UX: Scrollbar styling (webkit) ────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #b0bcc8; }
+
+/* ─── UX: Selection colour matches brand ────────────────────────────────── */
+::selection { background: rgba(79,161,204,0.22); color: var(--text); }
+
+/* ─── UX: Sticky week-controls label text-align ─────────────────────────── */
+.week-controls label { font-size: 0.85rem; font-weight: 500; color: var(--text-muted); white-space: nowrap; }
+
+/* ─── UX: Better table-wrap overflow on small screens ───────────────────── */
+.leaderboard-wrap, .data-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+/* ─── Accessibility: skip focus outline suppression in hover-only states ── */
+@media (hover: none) {
+  .btn:hover, .nav-btn:hover, .section-card:hover { transform: none; box-shadow: var(--shadow); }
 }

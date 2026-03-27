@@ -50,6 +50,7 @@
           type="text"
           id="username"
           autocomplete="username"
+          autofocus
           data-i18n-placeholder="username"
           placeholder="Username"
           onkeydown="if(event.key==='Enter')document.getElementById('password').focus()"
@@ -75,9 +76,13 @@
       </div>
 
       <!-- Submit -->
-      <button class="login-submit-btn" id="loginBtn" onclick="doLogin()">
+      <button class="login-submit-btn" id="loginBtn" onclick="doLogin()" aria-label="Sign in">
         <span data-i18n="sign_in">Sign In</span>
       </button>
+
+      <p style="text-align:center;font-size:0.78rem;color:var(--text-muted);margin-top:16px">
+        Firduty Admin — School Duty Roster System
+      </p>
 
     </div><!-- /.login-form-panel -->
   </div><!-- /.login-split -->

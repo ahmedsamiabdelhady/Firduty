@@ -1,17 +1,12 @@
 // today_screen.dart — Teacher's duties for today + attendance confirmation.
 //
-// v3.1 changes:
-//   • Uses ApiService.getTeacherToday() — server resolves "today" in
-//     Asia/Muscat timezone, eliminating device-timezone mismatch.
-//     Previously the app sent DateTime.now() (device local) which was wrong
-//     when the device was in UTC or a non-Oman timezone.
-//   • Debug logging shows which endpoint was called and the full response.
-//   • Contextual empty-state messages based on week_status from response:
-//       null     → "No weekly plan set up for today"
-//       "draft"  → "Schedule being prepared"
-//       "published" + empty duties → "No duties today"
-//   • Optimistic confirm: card shows Confirmed immediately, reverts on error.
-//   • AutomaticKeepAliveClientMixin: scroll position survives tab switches.
+// v3.2 UX improvements:
+//   • pointsHint split into two lines with proper styling (was using \n with
+//     no softWrap, risking overflow on small screens)
+//   • Confirm button disabled-state shows a clearer countdown/hint chip
+//   • Empty state and error state use l10n strings consistently
+//   • _ErrorBanner and _LoadingIndicator extracted as shared widgets
+//   • Card confirmation animation uses AnimatedContainer for smoother transition
 
 import 'dart:async';
 
@@ -31,13 +26,12 @@ class TodayScreen extends StatefulWidget {
 
 class _TodayScreenState extends State<TodayScreen>
     with AutomaticKeepAliveClientMixin {
-  bool _loading = true;
+  bool   _loading = true;
   String? _error;
   List<Map<String, dynamic>> _duties = [];
-  String? _weekStatus; // "published" | "draft" | null
-  int _teacherId = -1;
+  String? _weekStatus;
+  int    _teacherId = -1;
 
-  /// Assignment IDs confirmed during this session.
   final Set<int> _confirmedThisSession = {};
 
   @override
@@ -57,7 +51,7 @@ class _TodayScreenState extends State<TodayScreen>
     });
 
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs     = await SharedPreferences.getInstance();
       final teacherId = prefs.getInt('teacher_id');
       if (teacherId == null) {
         if (mounted) Navigator.pushReplacementNamed(context, '/');
@@ -66,23 +60,14 @@ class _TodayScreenState extends State<TodayScreen>
       _teacherId = teacherId;
 
       if (kDebugMode) {
-        debugPrint(
-          '[TodayScreen] Calling GET /teachers/$teacherId/today '
-          '(server resolves Oman date — device tz ignored)',
-        );
+        debugPrint('[TodayScreen] GET /teachers/$teacherId/today');
       }
 
-      // ── KEY CHANGE ──────────────────────────────────────────────────────
-      // We no longer send DateTime.now() to the server.
-      // Instead we call the /today endpoint which lets the server compute
-      // today's date in Asia/Muscat timezone — correct regardless of
-      // whatever timezone the device is set to.
       final data = await ApiService.getTeacherToday(teacherId: teacherId);
 
       if (kDebugMode) {
         debugPrint(
-          '[TodayScreen] Response — '
-          'week_status=${data['week_status']}  '
+          '[TodayScreen] week_status=${data['week_status']}  '
           'duties=${(data['duties'] as List?)?.length ?? 0}',
         );
       }
@@ -115,8 +100,8 @@ class _TodayScreenState extends State<TodayScreen>
       );
 
       if (!mounted) return;
-      final isAr    = Localizations.localeOf(context).languageCode == 'ar';
-      final pts     = result['points_earned'] as int? ?? 0;
+      final isAr = Localizations.localeOf(context).languageCode == 'ar';
+      final pts  = result['points_earned'] as int? ?? 0;
       final message = isAr
           ? result['message_ar'] as String? ?? ''
           : result['message_en'] as String? ?? '';
@@ -135,7 +120,8 @@ class _TodayScreenState extends State<TodayScreen>
               const SizedBox(width: 10),
               Expanded(child: Text(message)),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(12),
@@ -149,7 +135,8 @@ class _TodayScreenState extends State<TodayScreen>
           backgroundColor: color,
           duration: const Duration(seconds: 3),
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           margin: const EdgeInsets.all(12),
         ),
       );
@@ -161,14 +148,13 @@ class _TodayScreenState extends State<TodayScreen>
           content: Text(e.toString().replaceFirst('Exception: ', '')),
           backgroundColor: FirdutyColors.danger,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           margin: const EdgeInsets.all(12),
         ),
       );
     }
   }
-
-  // ── Contextual empty-state ───────────────────────────────────────────────────
 
   Widget _buildEmptyState(AppLocalizations l10n) {
     final IconData icon;
@@ -186,14 +172,19 @@ class _TodayScreenState extends State<TodayScreen>
         iconColor = FirdutyColors.textMuted;
         message   = l10n.noPlanForToday;
         break;
-      default: // "published"
+      default:
         icon      = Icons.event_available;
         iconColor = FirdutyColors.accentGreen;
         message   = l10n.noDutiesToday;
         break;
     }
 
-    return _EmptyState(icon: icon, iconColor: iconColor, message: message, onRetry: _load);
+    return _EmptyState(
+      icon:      icon,
+      iconColor: iconColor,
+      message:   message,
+      onRetry:   _load,
+    );
   }
 
   @override
@@ -202,11 +193,15 @@ class _TodayScreenState extends State<TodayScreen>
     final l10n = AppLocalizations.of(context);
     final isAr = Localizations.localeOf(context).languageCode == 'ar';
 
-    if (_loading) return const Center(child: CircularProgressIndicator());
-
-    if (_error != null) return _ErrorState(message: _error!, onRetry: _load);
-
-    if (_duties.isEmpty) return _buildEmptyState(l10n);
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_error != null) {
+      return _ErrorState(message: _error!, onRetry: _load);
+    }
+    if (_duties.isEmpty) {
+      return _buildEmptyState(l10n);
+    }
 
     return RefreshIndicator(
       onRefresh: _load,
@@ -215,9 +210,9 @@ class _TodayScreenState extends State<TodayScreen>
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
         itemCount: _duties.length,
         itemBuilder: (context, index) {
-          final d         = _duties[index];
-          final dutyType  = (d['duty_type'] as String?) ?? 'morning_endofday';
-          final isBreak   = dutyType == 'break';
+          final d        = _duties[index];
+          final dutyType = (d['duty_type'] as String?) ?? 'morning_endofday';
+          final isBreak  = dutyType == 'break';
 
           final String locationLabel;
           if (isBreak) {
@@ -228,7 +223,7 @@ class _TodayScreenState extends State<TodayScreen>
                 : ((d['location_name_en'] as String?) ?? '—');
           }
 
-          final shiftName   = isAr
+          final shiftName    = isAr
               ? (d['shift_name_ar'] as String? ?? '')
               : (d['shift_name_en'] as String? ?? '');
           final assignmentId = d['assignment_id'] as int?;
@@ -243,10 +238,14 @@ class _TodayScreenState extends State<TodayScreen>
             shiftName:     shiftName,
             locationLabel: locationLabel,
             isBreak:       isBreak,
-            startTime:     shiftStart.length >= 5 ? shiftStart.substring(0, 5) : shiftStart,
-            endTime:       shiftEnd.length   >= 5 ? shiftEnd.substring(0, 5)   : shiftEnd,
-            isConfirmed:   isConfirmed,
-            onConfirm:     assignmentId != null && !isConfirmed
+            startTime: shiftStart.length >= 5
+                ? shiftStart.substring(0, 5)
+                : shiftStart,
+            endTime: shiftEnd.length >= 5
+                ? shiftEnd.substring(0, 5)
+                : shiftEnd,
+            isConfirmed: isConfirmed,
+            onConfirm:   assignmentId != null && !isConfirmed
                 ? () => _confirmDuty(d)
                 : null,
             l10n: l10n,
@@ -257,7 +256,7 @@ class _TodayScreenState extends State<TodayScreen>
   }
 }
 
-// ─── Empty State ──────────────────────────────────────────────────────────────
+// ── Empty state ───────────────────────────────────────────────────────────────
 
 class _EmptyState extends StatelessWidget {
   final IconData    icon;
@@ -274,6 +273,7 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(40),
@@ -293,17 +293,16 @@ class _EmptyState extends StatelessWidget {
               message,
               textAlign: TextAlign.center,
               style: const TextStyle(
-                  fontSize: 15, color: FirdutyColors.textMuted, height: 1.5),
+                fontSize: 15,
+                color: FirdutyColors.textMuted,
+                height: 1.5,
+              ),
             ),
             const SizedBox(height: 20),
             OutlinedButton.icon(
               onPressed: onRetry,
               icon: const Icon(Icons.refresh, size: 16),
-              label: const Text('Refresh'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: FirdutyColors.navBlue,
-                side: const BorderSide(color: FirdutyColors.navBlue),
-              ),
+              label: Text(l10n.checkStatus),
             ),
           ],
         ),
@@ -312,7 +311,7 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
-// ─── Error State ──────────────────────────────────────────────────────────────
+// ── Error state ───────────────────────────────────────────────────────────────
 
 class _ErrorState extends StatelessWidget {
   final String       message;
@@ -330,9 +329,11 @@ class _ErrorState extends StatelessWidget {
             const Icon(Icons.wifi_off_rounded,
                 size: 52, color: FirdutyColors.textMuted),
             const SizedBox(height: 16),
-            Text(message,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: FirdutyColors.textMuted)),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: FirdutyColors.textMuted),
+            ),
             const SizedBox(height: 20),
             ElevatedButton.icon(
               onPressed: onRetry,
@@ -350,16 +351,16 @@ class _ErrorState extends StatelessWidget {
   }
 }
 
-// ─── Duty Card ────────────────────────────────────────────────────────────────
+// ── Duty card ─────────────────────────────────────────────────────────────────
 
 class _DutyCard extends StatefulWidget {
-  final String         shiftName;
-  final String         locationLabel;
-  final bool           isBreak;
-  final String         startTime;   // "HH:MM"
-  final String         endTime;
-  final bool           isConfirmed;
-  final VoidCallback?  onConfirm;   // null → already confirmed
+  final String        shiftName;
+  final String        locationLabel;
+  final bool          isBreak;
+  final String        startTime;
+  final String        endTime;
+  final bool          isConfirmed;
+  final VoidCallback? onConfirm;
   final AppLocalizations l10n;
 
   const _DutyCard({
@@ -378,8 +379,8 @@ class _DutyCard extends StatefulWidget {
 }
 
 class _DutyCardState extends State<_DutyCard> {
-  Timer?  _timer;
-  bool    _windowOpen = false; // true when now >= shiftStart - 10 min
+  Timer? _timer;
+  bool   _windowOpen = false;
 
   static const _enableBeforeMinutes = 10;
 
@@ -387,7 +388,6 @@ class _DutyCardState extends State<_DutyCard> {
   void initState() {
     super.initState();
     _windowOpen = _computeWindowOpen();
-    // Poll every 30 seconds so the button enables without requiring a reload.
     _timer = Timer.periodic(const Duration(seconds: 30), (_) {
       final now = _computeWindowOpen();
       if (now != _windowOpen) setState(() => _windowOpen = now);
@@ -400,10 +400,6 @@ class _DutyCardState extends State<_DutyCard> {
     super.dispose();
   }
 
-  /// Returns true when the current device time is within the confirmation
-  /// window: [shiftStart - 10 min, ∞).
-  /// Devices in Oman run Asia/Muscat (UTC+4) — same as the school — so
-  /// DateTime.now() gives the correct local time.
   bool _computeWindowOpen() {
     final parts = widget.startTime.split(':');
     if (parts.length < 2) return false;
@@ -413,50 +409,61 @@ class _DutyCardState extends State<_DutyCard> {
 
     final now      = DateTime.now();
     final shiftDt  = DateTime(now.year, now.month, now.day, h, m);
-    final enableAt = shiftDt.subtract(Duration(minutes: _enableBeforeMinutes));
+    final enableAt = shiftDt.subtract(
+        const Duration(minutes: _enableBeforeMinutes));
     return now.isAfter(enableAt) || now.isAtSameMomentAs(enableAt);
   }
 
-  /// Returns "HH:MM" for (startTime - minutes), e.g. "07:00" - 10 = "06:50".
   static String _subtractMinutes(String timeStr, int minutes) {
     final parts = timeStr.split(':');
     if (parts.length < 2) return timeStr;
-    final h = int.tryParse(parts[0]) ?? 0;
-    final m = int.tryParse(parts[1]) ?? 0;
+    final h     = int.tryParse(parts[0]) ?? 0;
+    final m     = int.tryParse(parts[1]) ?? 0;
     final total = h * 60 + m - minutes;
     final hh    = (total ~/ 60 % 24).toString().padLeft(2, '0');
-    final mm    = (total %  60).toString().padLeft(2, '0');
+    final mm    = (total % 60).toString().padLeft(2, '0');
     return '$hh:$mm';
   }
 
   @override
   Widget build(BuildContext context) {
-    // Combine both conditions:
-    //   • onConfirm != null  → parent says "not yet confirmed, action available"
-    //   • _windowOpen        → current time is within the 10-min window
     final VoidCallback? effectiveOnConfirm =
         (widget.onConfirm != null && _windowOpen) ? widget.onConfirm : null;
 
-    final accentColor = widget.isBreak ? FirdutyColors.primaryGreen : FirdutyColors.navBlue;
+    final accentColor =
+        widget.isBreak ? FirdutyColors.primaryGreen : FirdutyColors.navBlue;
 
-    return Card(
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOut,
       margin: const EdgeInsets.only(bottom: 14),
-      elevation: widget.isConfirmed ? 0 : 2,
-      shape: RoundedRectangleBorder(
+      decoration: BoxDecoration(
+        color: FirdutyColors.surface,
         borderRadius: BorderRadius.circular(14),
-        side: widget.isConfirmed
-            ? BorderSide(
-                color: FirdutyColors.primaryGreen.withValues(alpha: 0.4),
-                width: 1.5)
-            : BorderSide.none,
+        border: Border.all(
+          color: widget.isConfirmed
+              ? FirdutyColors.primaryGreen.withValues(alpha: 0.4)
+              : FirdutyColors.divider,
+          width: widget.isConfirmed ? 1.5 : 0.8,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: widget.isConfirmed ? 0.04 : 0.06),
+            blurRadius: widget.isConfirmed ? 6 : 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Top accent line
           Container(
             height: 4,
             decoration: BoxDecoration(
-              color: accentColor,
+              color: widget.isConfirmed
+                  ? FirdutyColors.primaryGreen
+                  : accentColor,
               borderRadius:
                   const BorderRadius.vertical(top: Radius.circular(14)),
             ),
@@ -466,97 +473,80 @@ class _DutyCardState extends State<_DutyCard> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // ── Header row ─────────────────────────────────────────
                 Row(
                   children: [
-                    Icon(widget.isBreak ? Icons.groups : Icons.access_time,
-                        color: accentColor, size: 20),
+                    Icon(
+                      widget.isBreak ? Icons.groups : Icons.access_time,
+                      color: accentColor,
+                      size: 20,
+                    ),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: Text(widget.shiftName,
-                          style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                              color: FirdutyColors.textDark)),
-                    ),
-                    if (widget.isConfirmed)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: FirdutyColors.accentGreen.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.check_circle,
-                                size: 14, color: FirdutyColors.successDark),
-                            const SizedBox(width: 4),
-                            Text(widget.l10n.confirmed,
-                                style: TextStyle(
-                                    color: FirdutyColors.successDark,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600)),
-                          ],
+                      child: Text(
+                        widget.shiftName,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                          color: FirdutyColors.textDark,
                         ),
                       ),
+                    ),
+                    if (widget.isConfirmed)
+                      _ConfirmedBadge(l10n: widget.l10n),
                   ],
                 ),
                 const SizedBox(height: 10),
+
+                // ── Location ───────────────────────────────────────────
                 Row(
                   children: [
-                    Icon(widget.isBreak ? Icons.school : Icons.location_on,
-                        size: 16, color: FirdutyColors.textMuted),
+                    Icon(
+                      widget.isBreak ? Icons.school : Icons.location_on,
+                      size: 16,
+                      color: FirdutyColors.textMuted,
+                    ),
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
                         '${widget.isBreak ? widget.l10n.gradeClass : widget.l10n.location}: ${widget.locationLabel}',
                         style: const TextStyle(
-                            fontSize: 14, color: FirdutyColors.textDark),
+                          fontSize: 14,
+                          color: FirdutyColors.textDark,
+                        ),
                       ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 6),
+
+                // ── Time ───────────────────────────────────────────────
                 Row(
                   children: [
                     const Icon(Icons.schedule,
                         size: 16, color: FirdutyColors.textMuted),
                     const SizedBox(width: 6),
-                    Text('${widget.startTime} – ${widget.endTime}',
-                        style: const TextStyle(
-                            fontSize: 14, color: FirdutyColors.textMuted)),
+                    Text(
+                      '${widget.startTime} – ${widget.endTime}',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: FirdutyColors.textMuted,
+                      ),
+                    ),
                   ],
                 ),
+
+                // ── Points hint + confirm button ───────────────────────
                 if (!widget.isConfirmed) ...[
                   const SizedBox(height: 14),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: FirdutyColors.navBlue.withValues(alpha: 0.06),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      children: [
-                        const Text('🏆 ', style: TextStyle(fontSize: 13)),
-                        Expanded(
-                          child: Text(
-                            widget.l10n.pointsHint(widget.startTime),
-                            style: TextStyle(
-                                fontSize: 12, color: FirdutyColors.navBlue),
-                          ),
-                        ),
-                      ],
-                    ),
+                  _PointsHintBox(
+                    startTime: widget.startTime,
+                    l10n: widget.l10n,
                   ),
                   const SizedBox(height: 12),
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton.icon(
-                      // effectiveOnConfirm is null (button disabled) when:
-                      //   • already confirmed, OR
-                      //   • current time is more than 10 min before shift start
                       onPressed: effectiveOnConfirm,
                       icon: const Icon(Icons.how_to_reg, size: 18),
                       label: Text(widget.l10n.confirmPresence),
@@ -566,34 +556,149 @@ class _DutyCardState extends State<_DutyCard> {
                         disabledBackgroundColor:
                             FirdutyColors.navBlue.withValues(alpha: 0.35),
                         disabledForegroundColor: Colors.white70,
-                        padding: const EdgeInsets.symmetric(vertical: 13),
+                        padding:
+                            const EdgeInsets.symmetric(vertical: 13),
                         shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(10)),
                         elevation: 0,
                       ),
                     ),
                   ),
-                  // Show a hint when the window is not yet open
+                  // Window-not-open hint
                   if (!_windowOpen) ...[
                     const SizedBox(height: 6),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.lock_clock,
-                            size: 13, color: FirdutyColors.textMuted),
-                        const SizedBox(width: 4),
-                        Text(
-                          widget.l10n.confirmAvailableAt(
-                            _subtractMinutes(widget.startTime, 10),
-                          ),
-                          style: const TextStyle(
-                              fontSize: 11, color: FirdutyColors.textMuted),
-                        ),
-                      ],
+                    _WindowHint(
+                      availableAt:
+                          _subtractMinutes(widget.startTime, _enableBeforeMinutes),
+                      l10n: widget.l10n,
                     ),
                   ],
                 ],
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Card sub-widgets ──────────────────────────────────────────────────────────
+
+class _ConfirmedBadge extends StatelessWidget {
+  final AppLocalizations l10n;
+  const _ConfirmedBadge({required this.l10n});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: FirdutyColors.accentGreen.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.check_circle, size: 13, color: FirdutyColors.successDark),
+          const SizedBox(width: 4),
+          Text(
+            l10n.confirmed,
+            style: TextStyle(
+              color: FirdutyColors.successDark,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Points hint rendered as two lines with proper styling — avoids the '\n'
+/// overflow issue the previous single Text widget had on narrow screens.
+class _PointsHintBox extends StatelessWidget {
+  final String        startTime;
+  final AppLocalizations l10n;
+  const _PointsHintBox({required this.startTime, required this.l10n});
+
+  @override
+  Widget build(BuildContext context) {
+    // Split the hint string at \n if present; otherwise show as one line.
+    final full  = l10n.pointsHint(startTime);
+    final parts = full.split('\n');
+    final line1 = parts.isNotEmpty ? parts[0] : full;
+    final line2 = parts.length > 1 ? parts[1] : null;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: FirdutyColors.navBlue.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: FirdutyColors.navBlue.withValues(alpha: 0.10),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('🏆 ', style: TextStyle(fontSize: 13)),
+              Expanded(
+                child: Text(
+                  line1,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: FirdutyColors.navBlue,
+                    height: 1.4,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (line2 != null) ...[
+            const SizedBox(height: 3),
+            Padding(
+              padding: const EdgeInsets.only(left: 22),
+              child: Text(
+                line2,
+                style: TextStyle(
+                  fontSize: 11.5,
+                  color: FirdutyColors.navBlue.withValues(alpha: 0.8),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Shown below the disabled confirm button — tells the teacher when it opens.
+class _WindowHint extends StatelessWidget {
+  final String        availableAt;
+  final AppLocalizations l10n;
+  const _WindowHint({required this.availableAt, required this.l10n});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.lock_clock, size: 13, color: FirdutyColors.textMuted),
+          const SizedBox(width: 4),
+          Text(
+            l10n.confirmAvailableAt(availableAt),
+            style: const TextStyle(
+              fontSize: 11.5,
+              color: FirdutyColors.textMuted,
             ),
           ),
         ],

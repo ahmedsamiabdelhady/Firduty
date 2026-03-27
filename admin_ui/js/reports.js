@@ -331,8 +331,4 @@ if (document.readyState === 'loading') {
   initReports();
 }
 
-document.addEventListener('DOMContentLoaded', async () => {
-  await I18N.init();
-  guardPage();
-  await loadShifts();
-});
+// Init is handled by initReports() above — no additional DOMContentLoaded needed.

@@ -1,15 +1,10 @@
 // week_screen.dart — Teacher's duties for the current Oman school week.
 //
-// v3.1 changes:
-//   • Uses ApiService.getTeacherCurrentWeek() — server resolves the week
-//     start (Sunday) in Asia/Muscat timezone.
-//     Previously the app computed _getCurrentSunday() from DateTime.now()
-//     which was wrong when the device was in a different timezone (e.g., UTC).
-//   • Reads week_status from response and shows contextual messages.
-//   • isToday comparison uses the same Oman-date logic: duty dates from the
-//     server are Asia/Muscat dates, so we compare against a stored
-//     server-provided date rather than device DateTime.now().
-//   • All existing UX preserved: day headers, confirmed accent, retry.
+// v3.2 UX improvements:
+//   • Empty/draft state uses l10n.checkStatus instead of hardcoded 'Refresh'
+//   • "Today" chip uses a stronger visual (filled accent, not just a pale tint)
+//   • Duty cards in week view use consistent Card border same as today_screen
+//   • Error state retry button is also localised
 
 import 'package:flutter/foundation.dart' show kDebugMode, debugPrint;
 import 'package:flutter/material.dart';
@@ -28,15 +23,10 @@ class WeekScreen extends StatefulWidget {
 
 class _WeekScreenState extends State<WeekScreen>
     with AutomaticKeepAliveClientMixin {
-  bool _loading = true;
+  bool   _loading = true;
   String? _error;
   List<Map<String, dynamic>> _duties = [];
   String? _weekStatus;
-
-  /// Today's date as returned by the server (first duty's date is same week).
-  /// We derive "is this day today" by comparing duty dates to this value.
-  /// Stored as YYYY-MM-DD string from the response's first duty,
-  /// or computed from device as fallback (matches 99% of cases).
   String? _todayDate;
 
   @override
@@ -57,7 +47,7 @@ class _WeekScreenState extends State<WeekScreen>
     });
 
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs     = await SharedPreferences.getInstance();
       final teacherId = prefs.getInt('teacher_id');
       if (teacherId == null) {
         if (mounted) Navigator.pushReplacementNamed(context, '/');
@@ -65,31 +55,19 @@ class _WeekScreenState extends State<WeekScreen>
       }
 
       if (kDebugMode) {
-        debugPrint(
-          '[WeekScreen] Calling GET /teachers/$teacherId/current-week '
-          '(server resolves Oman week start — device tz ignored)',
-        );
+        debugPrint('[WeekScreen] GET /teachers/$teacherId/current-week');
       }
 
-      // ── KEY CHANGE ──────────────────────────────────────────────────────
-      // No longer computing _getCurrentSunday() from device DateTime.now().
-      // Server computes the current Oman week start (Sunday) in Asia/Muscat.
-      final data = await ApiService.getTeacherCurrentWeek(teacherId: teacherId);
+      final data = await ApiService.getTeacherCurrentWeek(
+          teacherId: teacherId);
 
       if (kDebugMode) {
         debugPrint(
-          '[WeekScreen] Response — '
-          'week_status=${data['week_status']}  '
+          '[WeekScreen] week_status=${data['week_status']}  '
           'duties=${(data['duties'] as List?)?.length ?? 0}',
         );
       }
 
-      // Derive "today" from the duty dates sent by the server (they are
-      // Oman dates). We use the device date as a comparison only after
-      // verifying it's a Sunday-Thursday date in the response set.
-      // Simplest reliable approach: use device date string for "today" badge;
-      // even if device is off by ±4h at midnight, it's cosmetic only —
-      // the actual duty data is correct from the server.
       final todayFmt = DateFormat('yyyy-MM-dd').format(DateTime.now());
 
       setState(() {
@@ -108,7 +86,7 @@ class _WeekScreenState extends State<WeekScreen>
   }
 
   String _dayName(String dateStr, bool isAr) {
-    final date = DateTime.parse(dateStr);
+    final date     = DateTime.parse(dateStr);
     final dayIndex = date.weekday % 7;
     const en = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
     const ar = ['الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت'];
@@ -118,8 +96,10 @@ class _WeekScreenState extends State<WeekScreen>
   String _shortDate(String dateStr, bool isAr) {
     final date = DateTime.parse(dateStr);
     if (isAr) {
-      const months = ['يناير','فبراير','مارس','أبريل','مايو','يونيو',
-          'يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
+      const months = [
+        'يناير','فبراير','مارس','أبريل','مايو','يونيو',
+        'يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر',
+      ];
       return '${date.day} ${months[date.month - 1]}';
     }
     return DateFormat('d MMM').format(date);
@@ -139,7 +119,7 @@ class _WeekScreenState extends State<WeekScreen>
       case null:
         icon      = Icons.calendar_today_outlined;
         iconColor = FirdutyColors.textMuted;
-        message   = l10n.noPlanForToday; // reuse — means "no plan this week"
+        message   = l10n.noPlanForToday;
         break;
       default:
         icon      = Icons.calendar_today;
@@ -163,19 +143,20 @@ class _WeekScreenState extends State<WeekScreen>
               child: Icon(icon, size: 52, color: iconColor),
             ),
             const SizedBox(height: 20),
-            Text(message,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                    fontSize: 16, color: FirdutyColors.textMuted, height: 1.5)),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 16,
+                color: FirdutyColors.textMuted,
+                height: 1.5,
+              ),
+            ),
             const SizedBox(height: 20),
             OutlinedButton.icon(
               onPressed: _load,
               icon: const Icon(Icons.refresh, size: 16),
-              label: const Text('Refresh'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: FirdutyColors.navBlue,
-                side: const BorderSide(color: FirdutyColors.navBlue),
-              ),
+              label: Text(l10n.checkStatus), // was hardcoded 'Refresh'
             ),
           ],
         ),
@@ -201,14 +182,16 @@ class _WeekScreenState extends State<WeekScreen>
               const Icon(Icons.wifi_off_rounded,
                   size: 52, color: FirdutyColors.textMuted),
               const SizedBox(height: 16),
-              Text(_error!,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: FirdutyColors.textMuted)),
+              Text(
+                _error!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: FirdutyColors.textMuted),
+              ),
               const SizedBox(height: 20),
               ElevatedButton.icon(
                 onPressed: _load,
                 icon: const Icon(Icons.refresh),
-                label: const Text('Retry'),
+                label: Text(l10n.checkStatus),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: FirdutyColors.navBlue,
                   foregroundColor: Colors.white,
@@ -220,16 +203,14 @@ class _WeekScreenState extends State<WeekScreen>
       );
     }
 
-    // Group duties by date
+    // Group by date
     final Map<String, List<Map<String, dynamic>>> grouped = {};
     for (final d in _duties) {
       grouped.putIfAbsent(d['date'] as String, () => []).add(d);
     }
     final sortedDates = grouped.keys.toList()..sort();
 
-    if (sortedDates.isEmpty) {
-      return _buildEmptyOrDraft(l10n, isAr);
-    }
+    if (sortedDates.isEmpty) return _buildEmptyOrDraft(l10n, isAr);
 
     return RefreshIndicator(
       onRefresh: _load,
@@ -245,10 +226,12 @@ class _WeekScreenState extends State<WeekScreen>
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // ── Day header ─────────────────────────────────────────
               Padding(
                 padding: const EdgeInsets.only(top: 8, bottom: 8),
                 child: Row(
                   children: [
+                    // Day name pill
                     Container(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 12, vertical: 6),
@@ -263,36 +246,44 @@ class _WeekScreenState extends State<WeekScreen>
                         style: TextStyle(
                           fontWeight: FontWeight.w700,
                           fontSize: 13,
-                          color: isToday ? Colors.white : FirdutyColors.navBlue,
+                          color: isToday
+                              ? Colors.white
+                              : FirdutyColors.navBlue,
                         ),
                       ),
                     ),
                     const SizedBox(width: 8),
-                    Text(_shortDate(date, isAr),
-                        style: const TextStyle(
-                            fontSize: 13, color: FirdutyColors.textMuted)),
+                    Text(
+                      _shortDate(date, isAr),
+                      style: const TextStyle(
+                          fontSize: 13, color: FirdutyColors.textMuted),
+                    ),
+                    // "Today" badge — stronger styling
                     if (isToday) ...[
                       const SizedBox(width: 8),
                       Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 3),
+                            horizontal: 9, vertical: 3),
                         decoration: BoxDecoration(
-                          color: FirdutyColors.warning.withValues(alpha: 0.15),
+                          color: FirdutyColors.warning,
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: Text(
                           isAr ? 'اليوم' : 'Today',
                           style: const TextStyle(
-                              fontSize: 11,
-                              color: FirdutyColors.warning,
-                              fontWeight: FontWeight.w600),
+                            fontSize: 11,
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
                       ),
                     ],
                   ],
                 ),
               ),
-              ...dayDuties.map((d) => _WeekDutyCard(duty: d, isAr: isAr)),
+              ...dayDuties.map(
+                (d) => _WeekDutyCard(duty: d, isAr: isAr),
+              ),
               const SizedBox(height: 4),
             ],
           );
@@ -302,7 +293,7 @@ class _WeekScreenState extends State<WeekScreen>
   }
 }
 
-// ─── Week Duty Card ───────────────────────────────────────────────────────────
+// ── Week duty card ────────────────────────────────────────────────────────────
 
 class _WeekDutyCard extends StatelessWidget {
   final Map<String, dynamic> duty;
@@ -322,32 +313,41 @@ class _WeekDutyCard extends StatelessWidget {
             ? (duty['location_name_ar'] as String? ?? '—')
             : (duty['location_name_en'] as String? ?? '—');
 
-    final shiftName = isAr
+    final shiftName  = isAr
         ? duty['shift_name_ar'] as String? ?? ''
         : duty['shift_name_en'] as String? ?? '';
-
     final shiftStart = duty['shift_start'] as String? ?? '';
     final shiftEnd   = duty['shift_end']   as String? ?? '';
     final startTime  = shiftStart.length >= 5 ? shiftStart.substring(0, 5) : shiftStart;
     final endTime    = shiftEnd.length   >= 5 ? shiftEnd.substring(0, 5)   : shiftEnd;
 
-    final accentColor = isBreak ? FirdutyColors.primaryGreen : FirdutyColors.navBlue;
+    final accentColor =
+        isBreak ? FirdutyColors.primaryGreen : FirdutyColors.navBlue;
 
-    return Card(
+    return Container(
       margin: const EdgeInsets.only(bottom: 10),
-      elevation: 1,
-      shape: RoundedRectangleBorder(
+      decoration: BoxDecoration(
+        color: FirdutyColors.surface,
         borderRadius: BorderRadius.circular(12),
-        side: isConfirmed
-            ? BorderSide(
-                color: FirdutyColors.primaryGreen.withValues(alpha: 0.35),
-                width: 1)
-            : BorderSide.none,
+        border: Border.all(
+          color: isConfirmed
+              ? FirdutyColors.primaryGreen.withValues(alpha: 0.35)
+              : FirdutyColors.divider,
+          width: 0.8,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
       ),
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Row(
           children: [
+            // Left accent bar
             Container(
               width: 4,
               height: 52,
@@ -357,26 +357,35 @@ class _WeekDutyCard extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 12),
+            // Content
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(shiftName,
-                      style: const TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 15,
-                          color: FirdutyColors.textDark)),
+                  Text(
+                    shiftName,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 15,
+                      color: FirdutyColors.textDark,
+                    ),
+                  ),
                   const SizedBox(height: 4),
                   Row(
                     children: [
-                      Icon(isBreak ? Icons.school : Icons.location_on,
-                          size: 14, color: FirdutyColors.textMuted),
+                      Icon(
+                        isBreak ? Icons.school : Icons.location_on,
+                        size: 14,
+                        color: FirdutyColors.textMuted,
+                      ),
                       const SizedBox(width: 4),
                       Expanded(
                         child: Text(
                           locationLabel,
                           style: const TextStyle(
-                              fontSize: 13, color: FirdutyColors.textMuted),
+                            fontSize: 13,
+                            color: FirdutyColors.textMuted,
+                          ),
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
@@ -385,12 +394,17 @@ class _WeekDutyCard extends StatelessWidget {
                 ],
               ),
             ),
+            // Right side: time + confirm status
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Text('$startTime – $endTime',
-                    style: const TextStyle(
-                        fontSize: 13, color: FirdutyColors.textMuted)),
+                Text(
+                  '$startTime – $endTime',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: FirdutyColors.textMuted,
+                  ),
+                ),
                 const SizedBox(height: 6),
                 if (isConfirmed)
                   Icon(Icons.check_circle,

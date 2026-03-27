@@ -128,6 +128,38 @@
     .shifts-loading { text-align: center; padding: 60px 20px; color: var(--text-muted); }
     .shifts-loading .spinner { margin: 0 auto 16px; }
 
+    /* ── Classes used by shifts.js renderShiftCard() ─────────────────────
+       These complement the global definitions in style.css and ensure
+       card bodies look correct even when style.css is cached from an
+       older version.
+    ─────────────────────────────────────────────────────────────────── */
+    .form-row {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 0;
+    }
+    .form-row .form-group { flex: 1; min-width: 120px; }
+
+    .card-error {
+      font-size: 0.78rem;
+      color: var(--danger);
+      background: #fee2e2;
+      border: 1px solid #fca5a5;
+      border-radius: var(--radius);
+      padding: 6px 10px;
+      margin-top: 4px;
+    }
+
+    .card-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+    }
+
     /* Add shift modal */
     .modal-form-row { margin-bottom: 14px; }
     .modal-form-row label {

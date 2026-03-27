@@ -1,13 +1,11 @@
 // points_screen.dart — Teacher's monthly points summary and history
 //
-// UX/UI upgrade (v2.5):
-//   • Stronger hero header with score meaning and progress
-//   • Better month navigation
-//   • Cleaner stats with percentages
-//   • Sorted confirmations (newest first)
-//   • More informative confirmation cards with status chip
-//   • Better empty/error states
-//   • AutomaticKeepAliveClientMixin to preserve tab scroll state
+// v2.6 UX improvements:
+//   • _monthProgress() now uses a sensible 60-point cap (30 duties × 2pts)
+//     instead of the % 100 modulo that cycled oddly at exactly 100, 200 pts
+//   • Retry button uses l10n string instead of hardcoded English
+//   • Empty state icon is more prominent
+//   • ConfirmationCard uses a thin left-accent bar matching today/week style
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -25,12 +23,12 @@ class PointsScreen extends StatefulWidget {
 
 class _PointsScreenState extends State<PointsScreen>
     with AutomaticKeepAliveClientMixin {
-  bool _loading = true;
+  bool   _loading = true;
   String? _error;
-  int _totalPoints = 0;
+  int    _totalPoints = 0;
   List<Map<String, dynamic>> _details = [];
-  int _year = DateTime.now().year;
-  int _month = DateTime.now().month;
+  int    _year  = DateTime.now().year;
+  int    _month = DateTime.now().month;
 
   @override
   bool get wantKeepAlive => true;
@@ -42,25 +40,19 @@ class _PointsScreenState extends State<PointsScreen>
   }
 
   Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+    setState(() { _loading = true; _error = null; });
 
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs     = await SharedPreferences.getInstance();
       final teacherId = prefs.getInt('teacher_id');
-
       if (teacherId == null) {
-        if (mounted) {
-          Navigator.pushReplacementNamed(context, '/');
-        }
+        if (mounted) Navigator.pushReplacementNamed(context, '/');
         return;
       }
 
       final data = await ApiService.getTeacherPoints(
         teacherId: teacherId,
-        year: _year,
+        year:  _year,
         month: _month,
       );
 
@@ -75,12 +67,12 @@ class _PointsScreenState extends State<PointsScreen>
 
       setState(() {
         _totalPoints = data['total_points'] as int? ?? 0;
-        _details = confirmations;
-        _loading = false;
+        _details     = confirmations;
+        _loading     = false;
       });
     } catch (e) {
       setState(() {
-        _error = e.toString().replaceFirst('Exception: ', '');
+        _error   = e.toString().replaceFirst('Exception: ', '');
         _loading = false;
       });
     }
@@ -89,65 +81,25 @@ class _PointsScreenState extends State<PointsScreen>
   void _changeMonth(int delta) {
     setState(() {
       _month += delta;
-      if (_month > 12) {
-        _month = 1;
-        _year++;
-      }
-      if (_month < 1) {
-        _month = 12;
-        _year--;
-      }
+      if (_month > 12) { _month = 1;  _year++; }
+      if (_month < 1)  { _month = 12; _year--; }
     });
     _load();
   }
 
   String _monthName(int m, bool isAr) {
-    const en = [
-      '',
-      'January',
-      'February',
-      'March',
-      'April',
-      'May',
-      'June',
-      'July',
-      'August',
-      'September',
-      'October',
-      'November',
-      'December',
-    ];
-    const ar = [
-      '',
-      'يناير',
-      'فبراير',
-      'مارس',
-      'أبريل',
-      'مايو',
-      'يونيو',
-      'يوليو',
-      'أغسطس',
-      'سبتمبر',
-      'أكتوبر',
-      'نوفمبر',
-      'ديسمبر',
-    ];
+    const en = ['','January','February','March','April','May','June',
+        'July','August','September','October','November','December'];
+    const ar = ['','يناير','فبراير','مارس','أبريل','مايو','يونيو',
+        'يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
     return isAr ? ar[m] : en[m];
   }
 
   String _scoreMessage(bool isAr) {
-    if (_totalPoints >= 100) {
-      return isAr ? 'أداء ممتاز جدًا 🔥' : 'Excellent performance 🔥';
-    }
-    if (_totalPoints >= 60) {
-      return isAr ? 'شغل رائع 👏' : 'Great job 👏';
-    }
-    if (_totalPoints >= 25) {
-      return isAr ? 'أداء جيد 👍' : 'Good progress 👍';
-    }
-    if (_totalPoints > 0) {
-      return isAr ? 'كمّل، أنت ماشي كويس 💪' : 'Keep going, you are doing well 💪';
-    }
+    if (_totalPoints >= 100) return isAr ? 'أداء ممتاز جدًا 🔥' : 'Excellent performance 🔥';
+    if (_totalPoints >= 60)  return isAr ? 'شغل رائع 👏' : 'Great job 👏';
+    if (_totalPoints >= 25)  return isAr ? 'أداء جيد 👍' : 'Good progress 👍';
+    if (_totalPoints > 0)    return isAr ? 'كمّل، أنت ماشي كويس 💪' : 'Keep going, you are doing well 💪';
     return isAr ? 'ابدأ أول تأكيد لك لتحصد النقاط ✨' : 'Start confirming duties to earn points ✨';
   }
 
@@ -159,33 +111,26 @@ class _PointsScreenState extends State<PointsScreen>
           : 'No confirmations recorded this month';
     }
     return isAr
-        ? '$count تأكيد${count == 1 ? '' : ''} هذا الشهر'
+        ? '$count تأكيد هذا الشهر'
         : '$count confirmation${count == 1 ? '' : 's'} this month';
   }
 
+  /// Progress bar capped at 60 points (≈ 30 duties × 2 pts each).
+  /// Previously used `% 100` which cycled oddly at exactly 100/200 pts.
   double _monthProgress() {
     if (_totalPoints <= 0) return 0;
-    final normalized = (_totalPoints % 100) / 100;
-    return normalized == 0 ? 1 : normalized;
+    return (_totalPoints.clamp(0, 60) / 60).clamp(0.0, 1.0);
   }
 
-  String _recentSectionTitle(bool isAr) {
-    return isAr ? 'آخر التأكيدات' : 'Recent confirmations';
-  }
+  String _recentSectionTitle(bool isAr) =>
+      isAr ? 'آخر التأكيدات' : 'Recent confirmations';
 
-  String _retryLabel(bool isAr) {
-    return isAr ? 'إعادة المحاولة' : 'Retry';
-  }
+  String _emptyTitle(bool isAr) =>
+      isAr ? 'لا توجد نقاط بعد' : 'No points yet';
 
-  String _emptyTitle(bool isAr) {
-    return isAr ? 'لا توجد نقاط بعد' : 'No points yet';
-  }
-
-  String _emptySubtitle(bool isAr) {
-    return isAr
-        ? 'أكمل أول مناوبة مؤكدة لتبدأ في جمع النقاط'
-        : 'Complete your first confirmed duty to start earning points';
-  }
+  String _emptySubtitle(bool isAr) => isAr
+      ? 'أكمل أول مناوبة مؤكدة لتبدأ في جمع النقاط'
+      : 'Complete your first confirmed duty to start earning points';
 
   @override
   Widget build(BuildContext context) {
@@ -203,16 +148,16 @@ class _PointsScreenState extends State<PointsScreen>
           slivers: [
             SliverToBoxAdapter(
               child: _PointsHeader(
-                loading: _loading,
-                monthLabel: '${_monthName(_month, isAr)} $_year',
-                totalPoints: _totalPoints,
-                scoreMessage: _scoreMessage(isAr),
+                loading:         _loading,
+                monthLabel:      '${_monthName(_month, isAr)} $_year',
+                totalPoints:     _totalPoints,
+                scoreMessage:    _scoreMessage(isAr),
                 scoreSubMessage: _scoreSubMessage(isAr),
-                progress: _monthProgress(),
-                details: _details,
-                l10n: l10n,
-                onPrev: () => _changeMonth(-1),
-                onNext: () => _changeMonth(1),
+                progress:        _monthProgress(),
+                details:         _details,
+                l10n:            l10n,
+                onPrev:          () => _changeMonth(-1),
+                onNext:          () => _changeMonth(1),
               ),
             ),
 
@@ -225,31 +170,27 @@ class _PointsScreenState extends State<PointsScreen>
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(
-                          Icons.wifi_off_rounded,
-                          size: 52,
-                          color: FirdutyColors.textMuted,
-                        ),
+                        const Icon(Icons.wifi_off_rounded,
+                            size: 52, color: FirdutyColors.textMuted),
                         const SizedBox(height: 14),
                         Text(
                           _error!,
                           textAlign: TextAlign.center,
                           style: const TextStyle(
-                            color: FirdutyColors.textMuted,
-                            fontSize: 14,
-                          ),
+                              color: FirdutyColors.textMuted, fontSize: 14),
                         ),
                         const SizedBox(height: 18),
                         ElevatedButton.icon(
                           onPressed: _load,
                           icon: const Icon(Icons.refresh),
-                          label: Text(_retryLabel(isAr)),
+                          label: Text(l10n.checkStatus),
                         ),
                       ],
                     ),
                   ),
                 ),
               )
+
             else if (!_loading && _details.isEmpty)
               SliverFillRemaining(
                 hasScrollBody: false,
@@ -259,11 +200,19 @@ class _PointsScreenState extends State<PointsScreen>
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(
-                          Icons.emoji_events_outlined,
-                          size: 56,
-                          color:
-                              FirdutyColors.textMuted.withValues(alpha: 0.45),
+                        Container(
+                          padding: const EdgeInsets.all(24),
+                          decoration: BoxDecoration(
+                            color: FirdutyColors.textMuted
+                                .withValues(alpha: 0.07),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            Icons.emoji_events_outlined,
+                            size: 52,
+                            color:
+                                FirdutyColors.textMuted.withValues(alpha: 0.5),
+                          ),
                         ),
                         const SizedBox(height: 16),
                         Text(
@@ -281,6 +230,7 @@ class _PointsScreenState extends State<PointsScreen>
                           style: const TextStyle(
                             color: FirdutyColors.textMuted,
                             fontSize: 13,
+                            height: 1.5,
                           ),
                         ),
                       ],
@@ -288,6 +238,7 @@ class _PointsScreenState extends State<PointsScreen>
                   ),
                 ),
               )
+
             else ...[
               SliverToBoxAdapter(
                 child: Padding(
@@ -306,11 +257,10 @@ class _PointsScreenState extends State<PointsScreen>
                       if (!_loading)
                         Container(
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 5,
-                          ),
+                              horizontal: 10, vertical: 5),
                           decoration: BoxDecoration(
-                            color: FirdutyColors.navBlue.withValues(alpha: 0.08),
+                            color: FirdutyColors.navBlue
+                                .withValues(alpha: 0.08),
                             borderRadius: BorderRadius.circular(999),
                           ),
                           child: Text(
@@ -332,8 +282,8 @@ class _PointsScreenState extends State<PointsScreen>
                   delegate: SliverChildBuilderDelegate(
                     (context, index) => _ConfirmationCard(
                       detail: _details[index],
-                      isAr: isAr,
-                      l10n: l10n,
+                      isAr:   isAr,
+                      l10n:   l10n,
                     ),
                     childCount: _details.length,
                   ),
@@ -347,10 +297,12 @@ class _PointsScreenState extends State<PointsScreen>
   }
 }
 
+// ── Points header ─────────────────────────────────────────────────────────────
+
 class _PointsHeader extends StatelessWidget {
-  final bool loading;
+  final bool   loading;
   final String monthLabel;
-  final int totalPoints;
+  final int    totalPoints;
   final String scoreMessage;
   final String scoreSubMessage;
   final double progress;
@@ -384,9 +336,7 @@ class _PointsHeader extends StatelessWidget {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: const BorderRadius.vertical(
-          bottom: Radius.circular(24),
-        ),
+        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(24)),
         boxShadow: [
           BoxShadow(
             color: FirdutyColors.primaryGreen.withValues(alpha: 0.18),
@@ -398,12 +348,10 @@ class _PointsHeader extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(20, 24, 20, 22),
       child: Column(
         children: [
+          // Month navigation
           Row(
             children: [
-              _NavButton(
-                icon: Icons.chevron_left,
-                onTap: onPrev,
-              ),
+              _NavButton(icon: Icons.chevron_left, onTap: onPrev),
               Expanded(
                 child: Text(
                   monthLabel,
@@ -415,22 +363,19 @@ class _PointsHeader extends StatelessWidget {
                   ),
                 ),
               ),
-              _NavButton(
-                icon: Icons.chevron_right,
-                onTap: onNext,
-              ),
+              _NavButton(icon: Icons.chevron_right, onTap: onNext),
             ],
           ),
           const SizedBox(height: 22),
+
           if (loading)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 28),
               child: CircularProgressIndicator(
-                color: Colors.white,
-                strokeWidth: 2.6,
-              ),
+                  color: Colors.white, strokeWidth: 2.6),
             )
           else ...[
+            // Points value
             Text(
               '$totalPoints',
               style: const TextStyle(
@@ -469,16 +414,21 @@ class _PointsHeader extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 18),
+
+            // Progress bar (capped at 60 pts)
             ClipRRect(
               borderRadius: BorderRadius.circular(999),
               child: LinearProgressIndicator(
                 minHeight: 8,
                 value: progress,
                 backgroundColor: Colors.white.withValues(alpha: 0.18),
-                valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+                valueColor:
+                    const AlwaysStoppedAnimation<Color>(Colors.white),
               ),
             ),
             const SizedBox(height: 16),
+
+            // On-time / Late / Missed stats
             _StatsRow(details: details, l10n: l10n),
           ],
         ],
@@ -487,14 +437,12 @@ class _PointsHeader extends StatelessWidget {
   }
 }
 
-class _NavButton extends StatelessWidget {
-  final IconData icon;
-  final VoidCallback onTap;
+// ── Nav button ────────────────────────────────────────────────────────────────
 
-  const _NavButton({
-    required this.icon,
-    required this.onTap,
-  });
+class _NavButton extends StatelessWidget {
+  final IconData     icon;
+  final VoidCallback onTap;
+  const _NavButton({required this.icon, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -507,24 +455,18 @@ class _NavButton extends StatelessWidget {
           color: Colors.white.withValues(alpha: 0.18),
           borderRadius: BorderRadius.circular(10),
         ),
-        child: Icon(
-          icon,
-          color: Colors.white,
-          size: 24,
-        ),
+        child: Icon(icon, color: Colors.white, size: 24),
       ),
     );
   }
 }
 
+// ── Stats row ─────────────────────────────────────────────────────────────────
+
 class _StatsRow extends StatelessWidget {
   final List<Map<String, dynamic>> details;
   final AppLocalizations l10n;
-
-  const _StatsRow({
-    required this.details,
-    required this.l10n,
-  });
+  const _StatsRow({required this.details, required this.l10n});
 
   String _percent(int value, int total) {
     if (total == 0) return '0%';
@@ -534,38 +476,38 @@ class _StatsRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final onTime = details.where((d) => d['points_earned'] == 2).length;
-    final late = details.where((d) => d['points_earned'] == 1).length;
+    final late   = details.where((d) => d['points_earned'] == 1).length;
     final missed = details.where((d) => d['points_earned'] == 0).length;
-    final total = details.length;
+    final total  = details.length;
 
     return Row(
       children: [
         Expanded(
           child: _StatChip(
-            label: l10n.onTime,
-            value: '$onTime',
+            label:   l10n.onTime,
+            value:   '$onTime',
             percent: _percent(onTime, total),
-            color: Colors.white,
+            color:   Colors.white,
             bgColor: Colors.white.withValues(alpha: 0.18),
           ),
         ),
         const SizedBox(width: 8),
         Expanded(
           child: _StatChip(
-            label: l10n.late,
-            value: '$late',
+            label:   l10n.late,
+            value:   '$late',
             percent: _percent(late, total),
-            color: FirdutyColors.warning,
+            color:   FirdutyColors.warning,
             bgColor: Colors.white.withValues(alpha: 0.14),
           ),
         ),
         const SizedBox(width: 8),
         Expanded(
           child: _StatChip(
-            label: l10n.missed,
-            value: '$missed',
+            label:   l10n.missed,
+            value:   '$missed',
             percent: _percent(missed, total),
-            color: Colors.redAccent.shade100,
+            color:   Colors.redAccent.shade100,
             bgColor: Colors.white.withValues(alpha: 0.12),
           ),
         ),
@@ -578,8 +520,8 @@ class _StatChip extends StatelessWidget {
   final String label;
   final String value;
   final String percent;
-  final Color color;
-  final Color bgColor;
+  final Color  color;
+  final Color  bgColor;
 
   const _StatChip({
     required this.label,
@@ -633,6 +575,8 @@ class _StatChip extends StatelessWidget {
   }
 }
 
+// ── Confirmation card ─────────────────────────────────────────────────────────
+
 class _ConfirmationCard extends StatelessWidget {
   final Map<String, dynamic> detail;
   final bool isAr;
@@ -649,34 +593,29 @@ class _ConfirmationCard extends StatelessWidget {
       if (pts == 2) return 'في الموعد';
       if (pts == 1) return 'متأخر';
       return 'فاتت';
-    } else {
-      if (pts == 2) return 'On time';
-      if (pts == 1) return 'Late';
-      return 'Missed';
     }
+    if (pts == 2) return 'On time';
+    if (pts == 1) return 'Late';
+    return 'Missed';
   }
 
   @override
   Widget build(BuildContext context) {
-    final pts = detail['points_earned'] as int? ?? 0;
-    final shiftName = (isAr
-                ? detail['shift_name_ar']
-                : detail['shift_name_en']) as String? ??
-            '—';
-    final date = detail['date'] as String? ?? '—';
-
+    final pts        = detail['points_earned'] as int? ?? 0;
+    final shiftName  = (isAr
+            ? detail['shift_name_ar']
+            : detail['shift_name_en']) as String? ?? '—';
+    final date       = detail['date'] as String? ?? '—';
     final confirmedAt = detail['confirmed_at_muscat'] as String?;
-    final confTime = confirmedAt != null && confirmedAt.length >= 16
+    final confTime   = confirmedAt != null && confirmedAt.length >= 16
         ? confirmedAt.substring(11, 16)
         : '—';
-
     final shiftStart = detail['shift_start'] as String?;
-    final startTime =
-        shiftStart != null && shiftStart.length >= 5 ? shiftStart.substring(0, 5) : '—';
-
-    final dutyType = (detail['duty_type'] as String?) ?? 'morning_endofday';
-    final isBreak = dutyType == 'break';
-
+    final startTime  = shiftStart != null && shiftStart.length >= 5
+        ? shiftStart.substring(0, 5)
+        : '—';
+    final dutyType   = (detail['duty_type'] as String?) ?? 'morning_endofday';
+    final isBreak    = dutyType == 'break';
     final secondaryLabel = isBreak
         ? '${l10n.gradeClass}: ${(detail['grade_class'] as String?) ?? '—'}'
         : '${l10n.location}: ${isAr ? ((detail['location_name_ar'] as String?) ?? '—') : ((detail['location_name_en'] as String?) ?? '—')}';
@@ -687,109 +626,137 @@ class _ConfirmationCard extends StatelessWidget {
             ? FirdutyColors.warning
             : FirdutyColors.textMuted;
 
-    return Card(
+    return Container(
       margin: const EdgeInsets.only(bottom: 10),
-      elevation: 1.2,
-      shadowColor: Colors.black.withValues(alpha: 0.05),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: FirdutyColors.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: FirdutyColors.divider, width: 0.8),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: IntrinsicHeight(
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Left accent bar matching today/week card style
             Container(
-              width: 48,
-              height: 48,
+              width: 4,
               decoration: BoxDecoration(
-                color: ptColor.withValues(alpha: 0.12),
-                shape: BoxShape.circle,
-              ),
-              child: Center(
-                child: Text(
-                  '+$pts',
-                  style: TextStyle(
-                    color: ptColor,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 15,
-                  ),
+                color: ptColor,
+                borderRadius: const BorderRadius.horizontal(
+                  left: Radius.circular(14),
                 ),
               ),
             ),
-            const SizedBox(width: 12),
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    shiftName,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 14.5,
-                      color: FirdutyColors.textDark,
-                    ),
-                  ),
-                  const SizedBox(height: 5),
-                  Text(
-                    secondaryLabel,
-                    style: const TextStyle(
-                      fontSize: 12.5,
-                      color: FirdutyColors.textMuted,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 9,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: ptColor.withValues(alpha: 0.10),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Text(
-                      _statusText(pts),
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        color: ptColor,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 10),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  date,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: FirdutyColors.textMuted,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Icon(
-                      Icons.schedule,
-                      size: 12,
-                      color: FirdutyColors.textMuted,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      '$startTime → $confTime',
-                      style: const TextStyle(
-                        fontSize: 11.5,
-                        color: FirdutyColors.textMuted,
+                    // Points circle
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: ptColor.withValues(alpha: 0.12),
+                        shape: BoxShape.circle,
                       ),
+                      child: Center(
+                        child: Text(
+                          '+$pts',
+                          style: TextStyle(
+                            color: ptColor,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+
+                    // Shift info
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            shiftName,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14.5,
+                              color: FirdutyColors.textDark,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            secondaryLabel,
+                            style: const TextStyle(
+                              fontSize: 12.5,
+                              color: FirdutyColors.textMuted,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          // Status chip
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 9, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: ptColor.withValues(alpha: 0.10),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              _statusText(pts),
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: ptColor,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+
+                    // Date + time
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          date,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: FirdutyColors.textMuted,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.schedule,
+                                size: 12, color: FirdutyColors.textMuted),
+                            const SizedBox(width: 4),
+                            Text(
+                              '$startTime → $confTime',
+                              style: const TextStyle(
+                                fontSize: 11.5,
+                                color: FirdutyColors.textMuted,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
                   ],
                 ),
-              ],
+              ),
             ),
           ],
         ),

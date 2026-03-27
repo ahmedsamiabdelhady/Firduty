@@ -6,7 +6,6 @@ import '../app_theme.dart';
 
 class RegistrationScreen extends StatefulWidget {
   final void Function(Locale) onLocaleChange;
-
   const RegistrationScreen({super.key, required this.onLocaleChange});
 
   @override
@@ -14,12 +13,12 @@ class RegistrationScreen extends StatefulWidget {
 }
 
 class _RegistrationScreenState extends State<RegistrationScreen> {
-  final _formKey = GlobalKey<FormState>();
-  final _nameCtrl  = TextEditingController();
-  final _emailCtrl = TextEditingController();
+  final _formKey    = GlobalKey<FormState>();
+  final _nameCtrl   = TextEditingController();
+  final _emailCtrl  = TextEditingController();
   final _emailFocus = FocusNode();
 
-  bool _submitting = false;
+  bool    _submitting = false;
   String? _errorMsg;
 
   @override
@@ -47,7 +46,6 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt('teacher_id', teacherId);
 
-      // Defensive sync right after register as well.
       await ApiService.updateTeacherLanguage(
         teacherId: teacherId,
         lang: currentLang,
@@ -57,7 +55,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
       Navigator.pushReplacementNamed(context, '/pending');
     } catch (e) {
       setState(() {
-        _errorMsg = e.toString().replaceFirst('Exception: ', '');
+        _errorMsg   = e.toString().replaceFirst('Exception: ', '');
         _submitting = false;
       });
     }
@@ -73,12 +71,13 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 420),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  // ── Language toggle ─────────────────────────────────────
                   Row(
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
@@ -90,51 +89,64 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                           isAr
                               ? l10n.languageButtonEnglish
                               : l10n.languageButtonArabic,
-                          style: const TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                      ),
-                    ],
-                  ),
-                  Center(
-                    child: Image.asset('assets/logo.png',
-                        width: 140, height: 140),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    l10n.registerTitle,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                        fontSize: 14,
-                        color: FirdutyColors.textMuted,
-                        height: 1.5),
-                  ),
-                  const SizedBox(height: 28),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        l10n.alreadyHaveAccount,
-                        style: const TextStyle(
-                            color: FirdutyColors.textMuted, fontSize: 13),
-                      ),
-                      TextButton(
-                        onPressed: () =>
-                            Navigator.pushReplacementNamed(context, '/login'),
-                        child: Text(
-                          l10n.login,
                           style: const TextStyle(
-                              color: FirdutyColors.navBlue,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 13),
+                            fontWeight: FontWeight.w700,
+                            color: FirdutyColors.navBlue,
+                          ),
                         ),
                       ),
                     ],
                   ),
+
                   const SizedBox(height: 8),
+
+                  // ── Brand header ────────────────────────────────────────
+                  Center(
+                    child: Column(
+                      children: [
+                        Container(
+                          width: 84,
+                          height: 84,
+                          decoration: BoxDecoration(
+                            color: FirdutyColors.navBlue.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(22),
+                            border: Border.all(
+                              color:
+                                  FirdutyColors.navBlue.withValues(alpha: 0.12),
+                            ),
+                          ),
+                          padding: const EdgeInsets.all(12),
+                          child: Image.asset('assets/logo.png',
+                              fit: BoxFit.contain),
+                        ),
+                        const SizedBox(height: 14),
+                        const Text(
+                          'Firduty',
+                          style: TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.w800,
+                            color: FirdutyColors.navBlue,
+                            letterSpacing: -0.3,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          l10n.registerTitle,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 13.5,
+                            color: FirdutyColors.textMuted,
+                            height: 1.4,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 28),
+
+                  // ── Form card ───────────────────────────────────────────
                   Card(
-                    elevation: 2,
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16)),
                     child: Padding(
                       padding: const EdgeInsets.all(20),
                       child: Form(
@@ -142,33 +154,13 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
+                            // Error banner
                             if (_errorMsg != null) ...[
-                              Container(
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: FirdutyColors.danger
-                                      .withValues(alpha: 0.08),
-                                  borderRadius: BorderRadius.circular(10),
-                                  border: Border.all(
-                                      color: FirdutyColors.danger
-                                          .withValues(alpha: 0.3)),
-                                ),
-                                child: Row(
-                                  children: [
-                                    const Icon(Icons.error_outline,
-                                        color: FirdutyColors.danger, size: 18),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: Text(_errorMsg!,
-                                          style: const TextStyle(
-                                              color: FirdutyColors.danger,
-                                              fontSize: 13)),
-                                    ),
-                                  ],
-                                ),
-                              ),
+                              _ErrorBanner(message: _errorMsg!),
                               const SizedBox(height: 16),
                             ],
+
+                            // Name field
                             TextFormField(
                               controller: _nameCtrl,
                               textInputAction: TextInputAction.next,
@@ -176,16 +168,17 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                                   _emailFocus.requestFocus(),
                               decoration: InputDecoration(
                                 labelText: l10n.fullName,
-                                prefixIcon: const Icon(Icons.person_outline),
+                                prefixIcon:
+                                    const Icon(Icons.person_outline),
                               ),
-                              validator: (v) {
-                                if (v == null || v.trim().isEmpty) {
-                                  return l10n.nameRequired;
-                                }
-                                return null;
-                              },
+                              validator: (v) =>
+                                  (v == null || v.trim().isEmpty)
+                                      ? l10n.nameRequired
+                                      : null,
                             ),
-                            const SizedBox(height: 16),
+                            const SizedBox(height: 14),
+
+                            // Email field
                             TextFormField(
                               controller: _emailCtrl,
                               focusNode: _emailFocus,
@@ -201,15 +194,16 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                                 if (v == null || v.trim().isEmpty) {
                                   return l10n.emailRequired;
                                 }
-                                final emailRegex = RegExp(
-                                    r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
-                                if (!emailRegex.hasMatch(v.trim())) {
+                                if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+                                    .hasMatch(v.trim())) {
                                   return l10n.emailRequired;
                                 }
                                 return null;
                               },
                             ),
-                            const SizedBox(height: 24),
+                            const SizedBox(height: 22),
+
+                            // Submit
                             SizedBox(
                               height: 50,
                               child: ElevatedButton(
@@ -223,19 +217,13 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                                   elevation: 0,
                                 ),
                                 child: _submitting
-                                    ? const SizedBox(
-                                        height: 20,
-                                        width: 20,
-                                        child: CircularProgressIndicator(
-                                          color: Colors.white,
-                                          strokeWidth: 2,
-                                        ),
-                                      )
+                                    ? const _LoadingIndicator()
                                     : Text(
                                         l10n.register,
                                         style: const TextStyle(
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.w600),
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w600,
+                                        ),
                                       ),
                               ),
                             ),
@@ -244,12 +232,84 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                       ),
                     ),
                   ),
+
+                  const SizedBox(height: 16),
+
+                  // ── Login link (moved to BELOW the form — correct UX flow) ──
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        l10n.alreadyHaveAccount,
+                        style: const TextStyle(
+                          color: FirdutyColors.textMuted,
+                          fontSize: 13,
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () => Navigator.pushReplacementNamed(
+                            context, '/login'),
+                        child: Text(
+                          l10n.login,
+                          style: const TextStyle(
+                            color: FirdutyColors.navBlue,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),
           ),
         ),
       ),
+    );
+  }
+}
+
+// ── Shared helpers ─────────────────────────────────────────────────────────────
+
+class _ErrorBanner extends StatelessWidget {
+  final String message;
+  const _ErrorBanner({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: FirdutyColors.danger.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: FirdutyColors.danger.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.error_outline, color: FirdutyColors.danger, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(color: FirdutyColors.danger, fontSize: 13),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LoadingIndicator extends StatelessWidget {
+  const _LoadingIndicator();
+
+  @override
+  Widget build(BuildContext context) {
+    return const SizedBox(
+      height: 20,
+      width: 20,
+      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
     );
   }
 }
