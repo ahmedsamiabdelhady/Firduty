@@ -224,69 +224,54 @@ class _StartupScreenState extends State<StartupScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [FirdutyColors.navDark, FirdutyColors.navBlue],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-        ),
-        child: SafeArea(
-          child: Center(
-            child: FadeTransition(
-              opacity: _fade,
-              child: SlideTransition(
-                position: _slide,
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    // Logo
-                    Container(
-                      width: 100,
-                      height: 100,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(28),
-                        border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.2),
-                            width: 1.5),
-                      ),
-                      padding: const EdgeInsets.all(14),
-                      child: Image.asset('assets/logo.png', fit: BoxFit.contain),
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: Center(
+          child: FadeTransition(
+            opacity: _fade,
+            child: SlideTransition(
+              position: _slide,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  // Logo — bare, no container
+                  Image.asset(
+                    'assets/logo.png',
+                    width: 110,
+                    height: 110,
+                    fit: BoxFit.contain,
+                  ),
+                  const SizedBox(height: 20),
+                  // App name
+                  const Text(
+                    'Firduty',
+                    style: TextStyle(
+                      color: FirdutyColors.navBlue,
+                      fontSize: 30,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.5,
                     ),
-                    const SizedBox(height: 22),
-                    // App name
-                    const Text(
-                      'Firduty',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 30,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: -0.5,
-                      ),
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'School Duty Roster',
+                    style: TextStyle(
+                      color: FirdutyColors.textMuted,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w400,
+                      letterSpacing: 0.3,
                     ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'School Duty Roster',
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.7),
-                        fontSize: 14,
-                        fontWeight: FontWeight.w400,
-                        letterSpacing: 0.5,
-                      ),
+                  ),
+                  const SizedBox(height: 52),
+                  const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(
+                      color: FirdutyColors.navBlue,
+                      strokeWidth: 2.5,
                     ),
-                    const SizedBox(height: 52),
-                    SizedBox(
-                      width: 28,
-                      height: 28,
-                      child: CircularProgressIndicator(
-                        color: Colors.white.withValues(alpha: 0.8),
-                        strokeWidth: 2.5,
-                      ),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
           ),

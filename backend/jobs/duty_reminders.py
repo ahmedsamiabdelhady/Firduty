@@ -267,6 +267,8 @@ def run_duty_reminders() -> None:
                 success_count, invalid_tokens = send_notification(
                     teacher_id=teacher.id,
                     data=payload,
+                    title=title,
+                    body=body
                 )
 
                 if success_count > 0:

@@ -11,12 +11,17 @@ class NotificationBell extends StatelessWidget {
     return ValueListenableBuilder<NotificationBellState>(
       valueListenable: NotificationService.bellState,
       builder: (context, state, _) {
+        final interactable = state == NotificationBellState.enabled ||
+            state == NotificationBellState.disabled;
+
         return IconButton(
           tooltip: _tooltip(state),
-          icon: _icon(state),
-          onPressed: _isInteractable(state)
+          // Always provide an onPressed so Flutter never dims the button.
+          // No-op when loading/unknown — the spinner communicates the state.
+          onPressed: interactable
               ? () => NotificationService.toggle(teacherId: teacherId)
-              : null,
+              : () {},
+          icon: _icon(state),
         );
       },
     );
@@ -42,18 +47,18 @@ class NotificationBell extends StatelessWidget {
       case NotificationBellState.disabled:
         return const Icon(Icons.notifications_off);
       case NotificationBellState.loading:
+        // Same size as an icon so the AppBar doesn't shift.
+        // White color matches AppBar foreground.
         return const SizedBox(
-          width: 20,
-          height: 20,
-          child: CircularProgressIndicator(strokeWidth: 2),
+          width: 22,
+          height: 22,
+          child: CircularProgressIndicator(
+            strokeWidth: 2.2,
+            color: Colors.white,
+          ),
         );
       case NotificationBellState.unknown:
         return const Icon(Icons.notifications);
     }
-  }
-
-  static bool _isInteractable(NotificationBellState state) {
-    return state == NotificationBellState.enabled ||
-        state == NotificationBellState.disabled;
   }
 }

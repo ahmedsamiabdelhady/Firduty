@@ -208,7 +208,7 @@ class _WeekScreenState extends State<WeekScreen>
     for (final d in _duties) {
       grouped.putIfAbsent(d['date'] as String, () => []).add(d);
     }
-    final sortedDates = grouped.keys.toList()..sort();
+    final sortedDates = grouped.keys.toList()..sort((a, b) => b.compareTo(a));
 
     if (sortedDates.isEmpty) return _buildEmptyOrDraft(l10n, isAr);
 
